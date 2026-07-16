@@ -87,7 +87,6 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
     );
   }
 
-
   Future<void> _openViewer(List<MediaItem> items, int index) async {
     if (items.isEmpty) return;
     final item = items[index];
@@ -520,7 +519,8 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
             children: [
               ListTile(
                 leading: const Icon(Icons.checklist_rtl, color: Colors.white70),
-                title: const Text('Select', style: TextStyle(color: Colors.white)),
+                title:
+                    const Text('Select', style: TextStyle(color: Colors.white)),
                 subtitle: const Text(
                   'Multi-select items',
                   style: TextStyle(color: Colors.white54, fontSize: 12),
@@ -529,7 +529,8 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
               ),
               ListTile(
                 leading: const Icon(Icons.grid_view, color: Colors.white70),
-                title: const Text('Style', style: TextStyle(color: Colors.white)),
+                title:
+                    const Text('Style', style: TextStyle(color: Colors.white)),
                 subtitle: Text(
                   '${ref.read(settingsControllerProvider).gridColumns} columns',
                   style: const TextStyle(color: Colors.white54, fontSize: 12),
@@ -549,7 +550,8 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
               ),
               ListTile(
                 leading: const Icon(Icons.sort, color: Colors.white70),
-                title: const Text('Sort', style: TextStyle(color: Colors.white)),
+                title:
+                    const Text('Sort', style: TextStyle(color: Colors.white)),
                 subtitle: Text(
                   MediaQueryUtils.sortsSummary(_sorts),
                   style: const TextStyle(color: Colors.white54, fontSize: 12),
