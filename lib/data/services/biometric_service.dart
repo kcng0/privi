@@ -58,6 +58,9 @@ class BiometricService {
   Future<bool> authenticate({
     String reason = 'Unlock Privi',
     bool biometricOnly = true,
+    String signInTitle = 'Privi',
+    String biometricHint = 'Verify identity',
+    String cancelButton = 'Cancel',
   }) async {
     try {
       debugPrint(
@@ -65,14 +68,14 @@ class BiometricService {
       );
       final ok = await _auth.authenticate(
         localizedReason: reason,
-        authMessages: const <AuthMessages>[
+        authMessages: <AuthMessages>[
           AndroidAuthMessages(
-            signInTitle: 'Privi',
-            biometricHint: 'Verify identity',
-            cancelButton: 'Cancel',
+            signInTitle: signInTitle,
+            biometricHint: biometricHint,
+            cancelButton: cancelButton,
           ),
           IOSAuthMessages(
-            cancelButton: 'Cancel',
+            cancelButton: cancelButton,
           ),
         ],
         options: AuthenticationOptions(

@@ -9,6 +9,7 @@ import 'package:video_player/video_player.dart';
 import '../../application/player/player_controller.dart';
 import '../../application/settings/settings_controller.dart';
 import '../../core/constants.dart';
+import '../../core/l10n.dart';
 import '../../domain/models/media_item.dart';
 import '../common/keep_vault_unlocked.dart';
 
@@ -298,10 +299,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
               fit: StackFit.expand,
               children: [
                 if (item == null)
-                  const Center(
+                  Center(
                     child: Text(
-                      'Empty playlist',
-                      style: TextStyle(color: Colors.white54),
+                      context.l10n.emptyPlaylist,
+                      style: const TextStyle(color: Colors.white54),
                     ),
                   )
                 else if (item.isVideo)
@@ -349,7 +350,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
             FilledButton(
               onPressed: () =>
                   ref.read(playerControllerProvider.notifier).next(),
-              child: const Text('Next'),
+              child: Text(context.l10n.next),
             ),
           ],
         ),

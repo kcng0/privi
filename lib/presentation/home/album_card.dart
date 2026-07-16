@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../../core/constants.dart';
+import '../../core/l10n.dart';
 import '../../core/theme/vault_colors.dart';
 import '../../domain/enums.dart';
 import '../../domain/models/album_view.dart';
@@ -76,7 +77,12 @@ class AlbumCard extends StatelessWidget {
                   ],
                   Expanded(
                     child: Text(
-                      album.name,
+                      localizedAlbumTitle(
+                        context.l10n,
+                        name: album.name,
+                        systemKind: kind,
+                        albumId: album.id,
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(

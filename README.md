@@ -5,7 +5,7 @@ gallery, rate them **1–3 hearts**, favorite, play playlists (built-in or
 **VLC**), and lock the app with **pattern / PIN + biometric**. Dark theme only.
 Sideload-only — no cloud, no accounts, no analytics.
 
-**Author:** [kcng0](https://github.com/kcng0) · **License:** [MIT](./LICENSE).
+**Author:** [kcng0](https://github.com/kcng0) · **License:** [MIT](./LICENSE) · **Support:** [Buy Me a Coffee](https://buymeacoffee.com/kcng0).
 
 This is a personal project; simplicity is favored over features.
 
@@ -161,6 +161,12 @@ git push origin v0.1.1
 Or run **Actions → Release APK → Run workflow**.
 
 ---
+
+## Support
+
+If Privi is useful to you, you can support development here:
+
+**[Buy Me a Coffee](https://buymeacoffee.com/kcng0)**
 
 ## License
 

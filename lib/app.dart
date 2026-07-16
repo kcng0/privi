@@ -5,6 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'application/import/import_controller.dart';
 import 'application/lock/lock_controller.dart';
 import 'application/providers.dart';
+import 'application/settings/settings_controller.dart';
+import 'core/l10n.dart';
 import 'core/theme/app_theme.dart';
 import 'data/services/import_service.dart';
 import 'data/services/share_intent_service.dart';
@@ -69,7 +71,7 @@ class _PrivateHeartAppState extends ConsumerState<PrivateHeartApp>
       final ctx = _navKey.currentContext;
       if (ctx != null && ctx.mounted) {
         ScaffoldMessenger.of(ctx).showSnackBar(
-          const SnackBar(content: Text('Unlock to hide shared media')),
+          SnackBar(content: Text(ctx.l10n.unlockToHideShared)),
         );
       }
       return;
@@ -127,7 +129,9 @@ class _PrivateHeartAppState extends ConsumerState<PrivateHeartApp>
       if (ctx.mounted) Navigator.of(ctx).pop();
       if (ctx.mounted) {
         ScaffoldMessenger.of(ctx).showSnackBar(
-          SnackBar(content: Text('Hidden ${summary.imported} shared items')),
+          SnackBar(
+            content: Text(ctx.l10n.hiddenSharedItems(summary.imported)),
+          ),
         );
       }
       ref.read(importControllerProvider.notifier).clearSummary();
@@ -153,13 +157,24 @@ class _PrivateHeartAppState extends ConsumerState<PrivateHeartApp>
       }
     });
 
+    final localeCode = ref.watch(settingsControllerProvider).localeCode;
+    final localeOverride = localeFromCode(localeCode);
+
     return MaterialApp(
       navigatorKey: _navKey,
-      title: 'Privi',
+      onGenerateTitle: (ctx) => AppLocalizations.of(ctx).appName,
       debugShowCheckedModeBanner: false,
       theme: AppTheme.dark,
       darkTheme: AppTheme.dark,
       themeMode: ThemeMode.dark,
+      locale: localeOverride,
+      localeResolutionCallback: (device, supported) {
+        // Manual override wins; otherwise map device language.
+        if (localeOverride != null) return localeOverride;
+        return resolveAppLocale(device);
+      },
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
       home: const _RootGate(),
     );
   }

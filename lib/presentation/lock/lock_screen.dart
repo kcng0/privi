@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/lock/lock_controller.dart';
 import '../../core/constants.dart';
+import '../../core/l10n.dart';
 import '../../core/theme/vault_colors.dart';
 import '../../domain/enums.dart';
 import 'pattern_lock.dart';
@@ -10,6 +11,17 @@ import 'pin_pad.dart';
 
 /// Lock / first-run pattern setup + biometric.
 /// Default root credential is **pattern**; legacy PIN installs still unlock via pad.
+String _mapLockError(BuildContext context, String? msg) {
+  if (msg == null || msg.isEmpty) return '';
+  final l10n = context.l10n;
+  return switch (msg) {
+    'Wrong pattern' => l10n.wrongPattern,
+    'Wrong PIN' => l10n.wrongPin,
+    'System authentication cancelled' => l10n.systemAuthCancelled,
+    _ => msg,
+  };
+}
+
 class LockScreen extends ConsumerStatefulWidget {
   const LockScreen({super.key});
 
@@ -59,7 +71,13 @@ class _LockScreenState extends ConsumerState<LockScreen> {
     }
     try {
       setState(() => _busy = true);
-      await ref.read(lockControllerProvider.notifier).unlockWithBiometric();
+      final l10n = context.l10n;
+      await ref.read(lockControllerProvider.notifier).unlockWithBiometric(
+            reason: l10n.unlockPrivi,
+            signInTitle: l10n.appName,
+            biometricHint: l10n.verifyIdentity,
+            cancelButton: l10n.cancel,
+          );
     } finally {
       if (mounted) {
         setState(() {
@@ -131,19 +149,16 @@ class _LockScreenState extends ConsumerState<LockScreen> {
           context: context,
           barrierDismissible: false,
           builder: (ctx) => AlertDialog(
-            title: const Text('Enable biometric unlock?'),
-            content: const Text(
-              'Use fingerprint or face for faster unlock. '
-              'Your pattern remains the backup unlock.',
-            ),
+            title: Text(context.l10n.enableBiometricTitle),
+            content: Text(context.l10n.enableBiometricBody),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('Not now'),
+                child: Text(context.l10n.notNow),
               ),
               FilledButton(
                 onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Enable'),
+                child: Text(context.l10n.enable),
               ),
             ],
           ),
@@ -154,9 +169,9 @@ class _LockScreenState extends ConsumerState<LockScreen> {
             final ok = await lockNotifier.setBiometricEnabled(true);
             if (!ok && mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
+                SnackBar(
                   content: Text(
-                    'Biometric not enabled — you can try again in Settings',
+                    context.l10n.biometricNotEnabled,
                   ),
                 ),
               );
@@ -183,7 +198,7 @@ class _LockScreenState extends ConsumerState<LockScreen> {
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Patterns did not match — try again')),
+          SnackBar(content: Text(context.l10n.patternsDidNotMatch)),
         );
       }
       await Future<void>.delayed(const Duration(milliseconds: 400));
@@ -228,20 +243,16 @@ class _LockScreenState extends ConsumerState<LockScreen> {
     final go = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Forgot pattern?'),
-        content: const Text(
-          'Use your phone’s fingerprint, face, or screen lock to prove it is you. '
-          'Then you can draw a new vault pattern.\n\n'
-          'Your media stays on the device; only the vault unlock pattern is reset.',
-        ),
+        title: Text(context.l10n.forgotPatternTitle),
+        content: Text(context.l10n.forgotPatternBody),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: Text(context.l10n.cancel),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Continue'),
+            child: Text(context.l10n.continueAction),
           ),
         ],
       ),
@@ -253,7 +264,12 @@ class _LockScreenState extends ConsumerState<LockScreen> {
       _bioPrompted = true; // don't auto-fire unlock bio during recovery
     });
     final ok =
-        await ref.read(lockControllerProvider.notifier).recoverWithSystemAuth();
+        await ref.read(lockControllerProvider.notifier).recoverWithSystemAuth(
+              reason: context.l10n.confirmResetPattern,
+              signInTitle: context.l10n.appName,
+              biometricHint: context.l10n.verifyIdentity,
+              cancelButton: context.l10n.cancel,
+            );
     if (!mounted) return;
     setState(() {
       _busy = false;
@@ -265,8 +281,8 @@ class _LockScreenState extends ConsumerState<LockScreen> {
     });
     if (ok) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Draw a new pattern to protect the vault'),
+        SnackBar(
+          content: Text(context.l10n.drawNewPatternProtect),
         ),
       );
     }
@@ -307,11 +323,12 @@ class _LockScreenState extends ConsumerState<LockScreen> {
 
     final String title;
     if (isSetup) {
-      title = _confirming ? 'Confirm pattern' : 'Draw a pattern';
+      title =
+          _confirming ? context.l10n.confirmPattern : context.l10n.drawPattern;
     } else if (usePattern) {
-      title = 'Draw your pattern';
+      title = context.l10n.drawYourPattern;
     } else {
-      title = 'Enter your PIN';
+      title = context.l10n.enterYourPin;
     }
 
     // Size pattern relative to screen so it stays centered on all densities.
@@ -348,7 +365,7 @@ class _LockScreenState extends ConsumerState<LockScreen> {
                         Padding(
                           padding: const EdgeInsets.only(top: AppSpacing.sm),
                           child: Text(
-                            'Connect at least 4 dots',
+                            context.l10n.connectAtLeast4Dots,
                             textAlign: TextAlign.center,
                             style: theme.textTheme.bodySmall?.copyWith(
                               color: theme.colorScheme.onSurfaceVariant,
@@ -358,7 +375,7 @@ class _LockScreenState extends ConsumerState<LockScreen> {
                       if (hasError && lock.errorMessage != null) ...[
                         const SizedBox(height: AppSpacing.sm),
                         Text(
-                          lock.errorMessage!,
+                          _mapLockError(context, lock.errorMessage),
                           textAlign: TextAlign.center,
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: theme.colorScheme.error,
@@ -381,7 +398,7 @@ class _LockScreenState extends ConsumerState<LockScreen> {
                           const SizedBox(height: AppSpacing.lg),
                           Center(
                             child: IconButton.filledTonal(
-                              tooltip: 'Unlock with biometric',
+                              tooltip: context.l10n.unlockWithBiometric,
                               onPressed: _busy ? null : _onBiometric,
                               icon: const Icon(Icons.fingerprint, size: 28),
                             ),
@@ -391,7 +408,7 @@ class _LockScreenState extends ConsumerState<LockScreen> {
                           const SizedBox(height: AppSpacing.md),
                           TextButton(
                             onPressed: _busy ? null : _forgotPattern,
-                            child: const Text('Forgot pattern?'),
+                            child: Text(context.l10n.forgotPatternTitle),
                           ),
                         ],
                       ] else ...[

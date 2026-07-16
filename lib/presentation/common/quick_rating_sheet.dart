@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/constants.dart';
+import '../../core/l10n.dart';
 import '../../core/theme/vault_colors.dart';
 
 /// Big-target rating sheet from long-press. See docs/02-design/components.md.
@@ -23,7 +24,8 @@ Future<int?> showQuickRatingSheet(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text('Rate', style: Theme.of(ctx).textTheme.titleLarge),
+              Text(context.l10n.rate,
+                  style: Theme.of(ctx).textTheme.titleLarge),
               const SizedBox(height: AppSpacing.xl),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -48,7 +50,7 @@ Future<int?> showQuickRatingSheet(
               const SizedBox(height: AppSpacing.lg),
               TextButton(
                 onPressed: () => Navigator.pop(ctx, 0),
-                child: const Text('Clear'),
+                child: Text(context.l10n.clear),
               ),
             ],
           ),

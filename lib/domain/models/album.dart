@@ -9,6 +9,7 @@ class Album {
     required this.createdAt,
     this.coverMediaId,
     this.systemKind,
+    this.pinnedAt,
   });
 
   final String id;
@@ -17,6 +18,11 @@ class Album {
   final String? coverMediaId;
   final DateTime createdAt;
   final SystemAlbumKind? systemKind;
+
+  /// Non-null when pinned to the top of the Invisible mosaic.
+  final DateTime? pinnedAt;
+
+  bool get isPinned => pinnedAt != null;
 }
 
 /// Stable IDs for the three system albums (seeded once).

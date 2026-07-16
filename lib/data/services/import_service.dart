@@ -99,6 +99,12 @@ class ImportService {
     );
   }
 
+  /// How many hide operations may run at once.
+  ///
+  /// 3 keeps storage + MediaStore busy without thrashing large video copies.
+  /// Path resolve already parallelizes separately (see [GalleryService]).
+  static const int hideConcurrency = 3;
+
   Future<ImportProgress> importAll(
     List<ImportSource> sources, {
     void Function(ImportProgress progress)? onProgress,
@@ -110,18 +116,18 @@ class ImportService {
     var imported = 0;
     var skipped = 0;
     var failed = 0;
+    var completed = 0;
     String? lastError;
+    String? currentName;
     final total = sources.length;
 
     void emit({
-      required int done,
-      String? currentName,
       String? statusMessage,
       bool cancelled = false,
     }) {
       onProgress?.call(
         ImportProgress(
-          done: done,
+          done: completed,
           total: total,
           currentName: currentName,
           imported: imported,
@@ -133,47 +139,88 @@ class ImportService {
       );
     }
 
-    for (var i = 0; i < sources.length; i++) {
-      if (_cancelRequested) {
-        emit(done: i, cancelled: true, statusMessage: 'Cancelled');
-        return ImportProgress(
-          done: i,
-          total: total,
-          cancelled: true,
-          imported: imported,
-          skipped: skipped,
-          failed: failed,
-        );
+    // Pre-resolve mirror albums serially so concurrent hides never race-create
+    // the same user album.
+    if (targetUserAlbumId == null) {
+      final folders = <String>{};
+      for (final src in sources) {
+        final folder = (src.sourceFolderName ??
+                defaultSourceFolderName ??
+                _folderNameFromPath(src.path))
+            .trim();
+        if (folder.isNotEmpty) folders.add(folder);
       }
+      for (final folder in folders) {
+        await _resolveMirrorAlbumId(folder);
+      }
+    }
 
-      final src = sources[i];
-      final name = src.name ?? p.basename(src.path);
-      emit(
-        done: i,
-        currentName: name,
-        statusMessage: 'Hiding…',
-      );
+    emit(statusMessage: total <= 1 ? 'Hiding…' : 'Hiding (×$hideConcurrency)…');
 
-      try {
-        final ok = await _withTimeout(
-          _hideOne(
-            src,
-            targetUserAlbumId: targetUserAlbumId,
-            defaultSourceFolderName: defaultSourceFolderName,
-          ),
-          timeout: const Duration(seconds: 45),
-          label: 'hide timed out: $name',
-        );
-        if (ok) {
-          imported++;
-        } else {
-          skipped++;
+    var nextIndex = 0;
+
+    Future<void> worker() async {
+      while (true) {
+        if (_cancelRequested) return;
+        final i = nextIndex;
+        if (i >= sources.length) return;
+        nextIndex = i + 1;
+
+        final src = sources[i];
+        final name = src.name ?? p.basename(src.path);
+        currentName = name;
+        emit(statusMessage: 'Hiding…');
+
+        try {
+          final ok = await _withTimeout(
+            _hideOne(
+              src,
+              targetUserAlbumId: targetUserAlbumId,
+              defaultSourceFolderName: defaultSourceFolderName,
+            ),
+            timeout: const Duration(seconds: 45),
+            label: 'hide timed out: $name',
+          );
+          if (ok) {
+            imported++;
+          } else {
+            skipped++;
+          }
+        } catch (e, st) {
+          debugPrint('hide failed: $e\n$st');
+          failed++;
+          lastError = e.toString();
+        } finally {
+          completed++;
+          emit(statusMessage: 'Hiding…');
         }
-      } catch (e, st) {
-        debugPrint('hide failed: $e\n$st');
-        failed++;
-        lastError = e.toString();
       }
+    }
+
+    final workers = List.generate(
+      total == 0 ? 0 : (total < hideConcurrency ? total : hideConcurrency),
+      (_) => worker(),
+    );
+    await Future.wait(workers);
+
+    if (_cancelRequested) {
+      emit(statusMessage: 'Cancelled', cancelled: true);
+      return ImportProgress(
+        done: completed,
+        total: total,
+        cancelled: true,
+        imported: imported,
+        skipped: skipped,
+        failed: failed,
+        lastError: lastError,
+      );
+    }
+
+    // One cache clear for the whole batch (per-item clear was a major slowdown).
+    if (imported > 0) {
+      try {
+        await PhotoManager.clearFileCache().timeout(const Duration(seconds: 2));
+      } catch (_) {}
     }
 
     final done = ImportProgress(
@@ -323,42 +370,31 @@ class ImportService {
     }
 
     final sizeBytes = await hiddenFile.length();
-    int? width;
-    int? height;
     String? thumbPath;
 
-    // Capture thumb **before** MediaStore purge / PhotoManager cache clear.
-    // After purge, AssetEntity.thumbnailData often returns null for videos.
+    // Capture thumb **before** any index purge (videos need MediaStore still).
     try {
       thumbPath = await _makeThumb(
         hiddenFile: hiddenFile,
         id: id,
         isVideo: isVideo,
         assetId: src.assetId,
-      ).timeout(const Duration(seconds: 12));
+      ).timeout(const Duration(seconds: 4));
     } catch (e) {
       debugPrint('thumb skip: $e');
     }
 
-    // Soft-hide: ensure MediaStore no longer lists the **original** path.
-    // Do not scan the new path (dot folder + .nomedia blocks scanners).
-    try {
-      await _mediaStore.purgePath(originalPath);
-    } catch (e) {
-      debugPrint('purge original index: $e');
-    }
-    try {
-      await PhotoManager.clearFileCache().timeout(const Duration(seconds: 2));
-    } catch (_) {}
-
-    if (!isVideo && thumbPath == null) {
+    // Native hideToVault already drops MediaStore rows; only purge on fallbacks.
+    if (!native.ok) {
       try {
-        final dims = await _imageDimensions(hiddenFile)
-            .timeout(const Duration(seconds: 5));
-        width = dims?.$1;
-        height = dims?.$2;
-      } catch (_) {}
+        await _mediaStore.purgePath(originalPath);
+      } catch (e) {
+        debugPrint('purge original index: $e');
+      }
     }
+
+    // Skip expensive full-file decode for dimensions on hide path.
+    // Grid uses thumbs; player/viewer can read size later if needed.
 
     final item = MediaItem(
       id: id,
@@ -367,8 +403,8 @@ class ImportService {
       originalName: HideNaming.displayName(name),
       mimeType: mime,
       isVideo: isVideo,
-      width: width,
-      height: height,
+      width: null,
+      height: null,
       durationMs: null,
       rating: 0,
       dateAdded: DateTime.now().toUtc(),
@@ -419,7 +455,14 @@ class ImportService {
     return parent;
   }
 
-  Future<bool> reveal(MediaItem item) async {
+  /// Unhide [item] back to a public path and drop the vault DB row.
+  ///
+  /// When [clearGalleryCache] is false (batch restore), the caller should clear
+  /// PhotoManager cache once after the batch.
+  Future<bool> reveal(
+    MediaItem item, {
+    bool clearGalleryCache = true,
+  }) async {
     final hidden = File(item.privatePath);
     if (!await hidden.exists()) return false;
 
@@ -484,9 +527,11 @@ class ImportService {
     } catch (e) {
       debugPrint('unhide scan: $e');
     }
-    try {
-      await PhotoManager.clearFileCache().timeout(const Duration(seconds: 2));
-    } catch (_) {}
+    if (clearGalleryCache) {
+      try {
+        await PhotoManager.clearFileCache().timeout(const Duration(seconds: 2));
+      } catch (_) {}
+    }
     final thumb = item.thumbnailPath;
     if (thumb != null && thumb.isNotEmpty) {
       final t = File(thumb);
@@ -516,20 +561,6 @@ class ImportService {
       '.3gp' => 'video/3gpp',
       _ => null,
     };
-  }
-
-  Future<(int, int)?> _imageDimensions(File file) async {
-    try {
-      final bytes = await file.readAsBytes();
-      final codec = await ui.instantiateImageCodec(bytes);
-      final frame = await codec.getNextFrame();
-      final w = frame.image.width;
-      final h = frame.image.height;
-      frame.image.dispose();
-      return (w, h);
-    } catch (_) {
-      return null;
-    }
   }
 
   Future<String?> _makeThumb({
@@ -576,10 +607,10 @@ class ImportService {
       return null;
     }
 
-    // Slow path: decode image file (capped).
+    // Slow path: decode image file (capped). Prefer skipped over stalling hide.
     try {
       final len = await hiddenFile.length();
-      if (len > 25 * 1024 * 1024) return null; // skip huge stills
+      if (len > 8 * 1024 * 1024) return null; // skip large stills on hide path
       final bytes = await hiddenFile.readAsBytes();
       final codec = await ui.instantiateImageCodec(bytes, targetWidth: 256);
       final frame = await codec.getNextFrame();

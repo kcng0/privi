@@ -7,6 +7,7 @@ import '../../application/lock/lock_controller.dart';
 import '../../application/providers.dart';
 import '../../application/settings/settings_controller.dart';
 import '../../core/constants.dart';
+import '../../core/l10n.dart';
 import '../../data/services/secure_window_service.dart';
 import '../lock/pattern_lock.dart';
 
@@ -21,13 +22,13 @@ class SettingsScreen extends ConsumerWidget {
     final notifier = ref.read(settingsControllerProvider.notifier);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Settings'), centerTitle: true),
+      appBar: AppBar(title: Text(context.l10n.settings), centerTitle: true),
       body: ListView(
         children: [
-          const _SectionHeader('Security'),
+          _SectionHeader(context.l10n.sectionSecurity),
           ListTile(
             leading: const Icon(Icons.lock_outline),
-            title: const Text('Lock now'),
+            title: Text(context.l10n.lockNow),
             onTap: () {
               ref.read(lockControllerProvider.notifier).lock();
               Navigator.of(context).popUntil((r) => r.isFirst);
@@ -35,33 +36,40 @@ class SettingsScreen extends ConsumerWidget {
           ),
           ListTile(
             leading: const Icon(Icons.gesture),
-            title: const Text('Change pattern'),
-            subtitle: const Text('Root unlock credential'),
+            title: Text(context.l10n.changePattern),
+            subtitle: Text(context.l10n.rootUnlockCredential),
             onTap: () => _changePattern(context, ref),
           ),
           SwitchListTile(
             secondary: const Icon(Icons.fingerprint),
-            title: const Text('Biometric unlock'),
+            title: Text(context.l10n.biometricUnlock),
             subtitle: Text(
               lock.biometricAvailable
-                  ? 'Fingerprint / face when available'
-                  : 'Not available on this device',
+                  ? context.l10n.biometricAvailable
+                  : context.l10n.biometricUnavailable,
             ),
             value: lock.biometricEnabled && lock.biometricAvailable,
             onChanged: !lock.biometricAvailable
                 ? null
                 : (v) async {
                     try {
+                      final l10n = context.l10n;
                       final ok = await ref
                           .read(lockControllerProvider.notifier)
-                          .setBiometricEnabled(v);
+                          .setBiometricEnabled(
+                            v,
+                            reason: l10n.confirmBiometricEnable,
+                            signInTitle: l10n.appName,
+                            biometricHint: l10n.verifyIdentity,
+                            cancelButton: l10n.cancel,
+                          );
                       if (!ok && context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text(
                               v
-                                  ? 'Biometric not enabled (cancelled or failed)'
-                                  : 'Could not update biometric setting',
+                                  ? context.l10n.biometricCancelled
+                                  : context.l10n.biometricUpdateFailed,
                             ),
                           ),
                         );
@@ -77,17 +85,17 @@ class SettingsScreen extends ConsumerWidget {
           ),
           ListTile(
             leading: const Icon(Icons.timer_outlined),
-            title: const Text('Auto-lock'),
-            subtitle: Text(_autoLockLabel(s.autoLockSeconds)),
+            title: Text(context.l10n.autoLock),
+            subtitle: Text(_autoLockLabel(context, s.autoLockSeconds)),
             onTap: () async {
               final v = await _pick<int>(
                 context,
-                title: 'Auto-lock',
-                options: const {
-                  'Immediately': 0,
-                  '30 seconds': 30,
-                  '1 minute': 60,
-                  '5 minutes': 300,
+                title: context.l10n.autoLock,
+                options: {
+                  context.l10n.autoLockImmediately: 0,
+                  context.l10n.autoLockSeconds(30): 30,
+                  context.l10n.autoLockMinutes(1): 60,
+                  context.l10n.autoLockMinutesPlural(5): 300,
                 },
                 current: s.autoLockSeconds,
               );
@@ -96,23 +104,22 @@ class SettingsScreen extends ConsumerWidget {
           ),
           SwitchListTile(
             secondary: const Icon(Icons.screenshot_monitor_outlined),
-            title: const Text('Block screenshots'),
-            subtitle: const Text('FLAG_SECURE — hide content in recents'),
+            title: Text(context.l10n.blockScreenshots),
             value: s.flagSecure,
             onChanged: (v) async {
               await notifier.setFlagSecure(v);
               await SecureWindowService().setFlagSecure(v);
             },
           ),
-          const _SectionHeader('Display'),
+          _SectionHeader(context.l10n.sectionDisplay),
           ListTile(
             leading: const Icon(Icons.grid_view),
-            title: const Text('Media grid columns'),
+            title: Text(context.l10n.mediaGridColumns),
             subtitle: Text('${s.gridColumns}'),
             onTap: () async {
               final v = await _pick<int>(
                 context,
-                title: 'Grid columns',
+                title: context.l10n.mediaGridColumns,
                 options: const {'2': 2, '3': 3, '4': 4, '5': 5},
                 current: s.gridColumns,
               );
@@ -121,39 +128,39 @@ class SettingsScreen extends ConsumerWidget {
           ),
           ListTile(
             leading: const Icon(Icons.photo_album_outlined),
-            title: const Text('Album grid columns'),
+            title: Text(context.l10n.albumColumns),
             subtitle: Text('${s.albumColumns}'),
             onTap: () async {
               final v = await _pick<int>(
                 context,
-                title: 'Album columns',
+                title: context.l10n.albumColumns,
                 options: const {'3': 3, '4': 4},
                 current: s.albumColumns,
               );
               if (v != null) await notifier.setAlbumColumns(v);
             },
           ),
-          const _SectionHeader('Playback'),
+          _SectionHeader(context.l10n.sectionPlayback),
           SwitchListTile(
             secondary: const Icon(Icons.open_in_new),
-            title: const Text('Prefer external player'),
-            subtitle: const Text('Hand off videos to VLC / system player'),
+            title: Text(context.l10n.preferExternalPlayer),
+            subtitle: Text(context.l10n.preferExternalPlayer),
             value: s.playerExternal,
             onChanged: notifier.setPlayerExternal,
           ),
           ListTile(
             leading: const Icon(Icons.slideshow_outlined),
-            title: const Text('Slideshow delay'),
+            title: Text(context.l10n.slideshowDelay),
             subtitle: Text('${s.slideshowSeconds}s'),
             onTap: () async {
               final v = await _pick<int>(
                 context,
-                title: 'Slideshow delay',
-                options: const {
-                  '1 second': 1,
-                  '3 seconds': 3,
-                  '5 seconds': 5,
-                  '10 seconds': 10,
+                title: context.l10n.slideshowDelay,
+                options: {
+                  context.l10n.secondCount(1): 1,
+                  context.l10n.secondsCount(3): 3,
+                  context.l10n.secondsCount(5): 5,
+                  context.l10n.secondsCount(10): 10,
                 },
                 current: s.slideshowSeconds,
               );
@@ -162,53 +169,44 @@ class SettingsScreen extends ConsumerWidget {
           ),
           SwitchListTile(
             secondary: const Icon(Icons.shuffle),
-            title: const Text('Shuffle by default'),
+            title: Text(context.l10n.shuffleByDefault),
             value: s.shuffleDefault,
             onChanged: notifier.setShuffleDefault,
           ),
-          const _SectionHeader('Storage'),
+          _SectionHeader(context.l10n.sectionStorage),
           Consumer(
             builder: (context, ref, _) {
               final sizeAsync = ref.watch(vaultSizeBytesProvider);
               final subtitle = sizeAsync.when(
                 data: (b) => _formatBytes(b),
-                loading: () => 'Calculating…',
+                loading: () => context.l10n.calculating,
                 error: (_, __) => '—',
               );
               return ListTile(
                 leading: const Icon(Icons.sd_storage_outlined),
-                title: const Text('Vault size'),
+                title: Text(context.l10n.vaultSize),
                 subtitle: Text(subtitle),
               );
             },
           ),
           ListTile(
             leading: const Icon(Icons.find_in_page_outlined),
-            title: const Text('Scan orphan hidden files'),
-            subtitle: const Text(
-              'Re-index *.vid.pg / *.img.pg on disk without a DB row',
-            ),
+            title: Text(context.l10n.scanOrphans),
+            subtitle: Text(context.l10n.scanOrphansSubtitle),
             onTap: () => _scanOrphans(context, ref),
-          ),
-          const ListTile(
-            leading: Icon(Icons.visibility_off_outlined),
-            title: Text('Hide verification'),
-            subtitle: Text(
-              'After Hide, confirm items leave Gallery / Photos on this device',
-            ),
           ),
           ListTile(
             leading: const Icon(Icons.delete_sweep_outlined),
-            title: const Text('Recycle Bin retention'),
-            subtitle: Text('${s.recycleRetentionDays} days'),
+            title: Text(context.l10n.recycleRetention),
+            subtitle: Text(context.l10n.retentionDays(s.recycleRetentionDays)),
             onTap: () async {
               final v = await _pick<int>(
                 context,
-                title: 'Retention',
-                options: const {
-                  '1 day': 1,
-                  '7 days': 7,
-                  '30 days': 30,
+                title: context.l10n.retention,
+                options: {
+                  context.l10n.retention1Day: 1,
+                  context.l10n.retentionDays(7): 7,
+                  context.l10n.retentionDays(30): 30,
                 },
                 current: s.recycleRetentionDays,
               );
@@ -217,22 +215,41 @@ class SettingsScreen extends ConsumerWidget {
           ),
           ListTile(
             leading: const Icon(Icons.delete_forever_outlined),
-            title: const Text('Empty Recycle Bin'),
+            title: Text(context.l10n.emptyRecycleBin),
             onTap: () => _emptyRecycle(context, ref),
           ),
           ListTile(
             leading: const Icon(Icons.upload_file_outlined),
-            title: const Text('Export vault…'),
-            subtitle: const Text('Media + metadata to a folder'),
+            title: Text(context.l10n.exportVault),
+            subtitle: Text(context.l10n.exportVaultSubtitle),
             onTap: () => _export(context, ref),
           ),
           ListTile(
             leading: const Icon(Icons.download_outlined),
-            title: const Text('Import / Restore…'),
-            subtitle: const Text('From a previous export folder'),
+            title: Text(context.l10n.importVault),
+            subtitle: Text(context.l10n.importVaultSubtitle),
             onTap: () => _importBackup(context, ref),
           ),
-          const _SectionHeader('About'),
+          _SectionHeader(context.l10n.sectionAbout),
+          ListTile(
+            leading: const Icon(Icons.language),
+            title: Text(context.l10n.language),
+            subtitle: Text(_localeLabel(context, s.localeCode)),
+            onTap: () async {
+              final v = await _pick<String>(
+                context,
+                title: context.l10n.language,
+                options: {
+                  context.l10n.languageSystem: '',
+                  context.l10n.languageEnglish: 'en',
+                  context.l10n.languageZhCn: 'zh_CN',
+                  context.l10n.languageZhHk: 'zh_HK',
+                },
+                current: s.localeCode,
+              );
+              if (v != null) await notifier.setLocaleCode(v);
+            },
+          ),
           ListTile(
             leading: const Icon(Icons.info_outline),
             title: const Text(AppInfo.name),
@@ -243,14 +260,14 @@ class SettingsScreen extends ConsumerWidget {
           ),
           ListTile(
             leading: const Icon(Icons.person_outline),
-            title: const Text('Author'),
+            title: Text(context.l10n.author),
             subtitle: const Text(AppInfo.author),
             trailing: const Icon(Icons.open_in_new, size: 18),
             onTap: () => _openAuthorUrl(context),
           ),
           ListTile(
             leading: const Icon(Icons.gavel_outlined),
-            title: const Text('License'),
+            title: Text(context.l10n.license),
             subtitle: const Text(AppInfo.licenseShort),
             onTap: () => _showLicense(context),
           ),
@@ -270,7 +287,7 @@ class SettingsScreen extends ConsumerWidget {
       debugPrint('open author url: $e');
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not open browser')),
+          SnackBar(content: Text(context.l10n.couldNotOpenBrowser)),
         );
       }
     }
@@ -308,12 +325,12 @@ class SettingsScreen extends ConsumerWidget {
               const Text(AppInfo.about),
               const SizedBox(height: 16),
               Text(
-                'Version ${AppInfo.version}',
+                context.l10n.versionLabel(AppInfo.version),
                 style: Theme.of(ctx).textTheme.bodySmall,
               ),
               const SizedBox(height: 4),
               Text(
-                'Author: ${AppInfo.author}',
+                context.l10n.authorLabel(AppInfo.author),
                 style: Theme.of(ctx).textTheme.bodySmall,
               ),
               InkWell(
@@ -345,14 +362,14 @@ class SettingsScreen extends ConsumerWidget {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Close'),
+            child: Text(context.l10n.close),
           ),
           TextButton(
             onPressed: () {
               Navigator.pop(ctx);
               _showLicense(context);
             },
-            child: const Text('License'),
+            child: Text(context.l10n.license),
           ),
         ],
       ),
@@ -363,14 +380,14 @@ class SettingsScreen extends ConsumerWidget {
     showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('License'),
+        title: Text(context.l10n.license),
         content: const SingleChildScrollView(
           child: Text(AppInfo.licenseBody),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Close'),
+            child: Text(context.l10n.close),
           ),
         ],
       ),
@@ -383,32 +400,32 @@ class SettingsScreen extends ConsumerWidget {
     if (lock.usesPattern) {
       current = await _promptPattern(
         context,
-        title: 'Current pattern',
-        subtitle: 'Draw your current pattern to continue',
+        title: context.l10n.currentPattern,
+        subtitle: context.l10n.drawCurrentPattern,
       );
     } else {
       current = await _promptPin(
         context,
-        title: 'Current PIN',
-        subtitle: 'Enter PIN, then set a new pattern',
+        title: context.l10n.currentPin,
+        subtitle: context.l10n.enterPinThenPattern,
       );
     }
     if (current == null || !context.mounted) return;
     final next = await _promptPattern(
       context,
-      title: 'New pattern',
-      subtitle: 'Connect at least 4 dots',
+      title: context.l10n.newPattern,
+      subtitle: context.l10n.connectAtLeast4Dots,
     );
     if (next == null || !context.mounted) return;
     final confirm = await _promptPattern(
       context,
-      title: 'Confirm new pattern',
-      subtitle: 'Draw the same pattern again',
+      title: context.l10n.confirmNewPattern,
+      subtitle: context.l10n.drawSamePatternAgain,
     );
     if (confirm == null || !context.mounted) return;
     if (next != confirm) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('New patterns did not match')),
+        SnackBar(content: Text(context.l10n.newPatternsDidNotMatch)),
       );
       return;
     }
@@ -426,7 +443,7 @@ class SettingsScreen extends ConsumerWidget {
       }
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Pattern updated')),
+          SnackBar(content: Text(context.l10n.patternUpdated)),
         );
       }
     } catch (e) {
@@ -463,7 +480,7 @@ class SettingsScreen extends ConsumerWidget {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel'),
+              child: Text(context.l10n.cancel),
             ),
           ],
         );
@@ -497,11 +514,11 @@ class SettingsScreen extends ConsumerWidget {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: Text(context.l10n.cancel),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Continue'),
+            child: Text(context.l10n.continueAction),
           ),
         ],
       ),
@@ -512,7 +529,7 @@ class SettingsScreen extends ConsumerWidget {
 
   Future<void> _scanOrphans(BuildContext context, WidgetRef ref) async {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Scanning for orphan hidden files…')),
+      SnackBar(content: Text(context.l10n.scanningOrphans)),
     );
     try {
       final msg =
@@ -526,7 +543,7 @@ class SettingsScreen extends ConsumerWidget {
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Scan failed: $e')),
+          SnackBar(content: Text(context.l10n.scanFailed('$e'))),
         );
       }
     }
@@ -546,16 +563,16 @@ class SettingsScreen extends ConsumerWidget {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Empty Recycle Bin?'),
-        content: const Text('Permanently delete all soft-deleted items.'),
+        title: Text(context.l10n.emptyRecycleBinTitle),
+        content: Text(context.l10n.emptyRecycleBinBody),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: Text(context.l10n.cancel),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Empty'),
+            child: Text(context.l10n.empty),
           ),
         ],
       ),
@@ -568,7 +585,7 @@ class SettingsScreen extends ConsumerWidget {
     }
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Purged ${items.length} items')),
+        SnackBar(content: Text(context.l10n.purgedItems(items.length))),
       );
     }
   }
@@ -583,13 +600,13 @@ class SettingsScreen extends ConsumerWidget {
           await ref.read(vaultBackupServiceProvider).exportToDirectory(dir);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Exported $n media files + manifest')),
+          SnackBar(content: Text(context.l10n.exportedMedia(n))),
         );
       }
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Export failed: $e')),
+          SnackBar(content: Text(context.l10n.exportFailed('$e'))),
         );
       }
     }
@@ -605,22 +622,34 @@ class SettingsScreen extends ConsumerWidget {
           await ref.read(vaultBackupServiceProvider).importFromDirectory(dir);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Restored $n items')),
+          SnackBar(content: Text(context.l10n.restoredItems(n))),
         );
       }
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Import failed: $e')),
+          SnackBar(content: Text(context.l10n.importFailed('$e'))),
         );
       }
     }
   }
 
-  String _autoLockLabel(int s) {
-    if (s <= 0) return 'Immediately';
-    if (s < 60) return '$s seconds';
-    return '${s ~/ 60} minute${s >= 120 ? 's' : ''}';
+  String _localeLabel(BuildContext context, String code) {
+    final l10n = context.l10n;
+    return switch (code) {
+      'en' => l10n.languageEnglish,
+      'zh_CN' => l10n.languageZhCn,
+      'zh_HK' => l10n.languageZhHk,
+      _ => l10n.languageSystem,
+    };
+  }
+
+  String _autoLockLabel(BuildContext context, int s) {
+    final l10n = context.l10n;
+    if (s <= 0) return l10n.autoLockImmediately;
+    if (s < 60) return l10n.autoLockSeconds(s);
+    final m = s ~/ 60;
+    return m == 1 ? l10n.autoLockMinutes(m) : l10n.autoLockMinutesPlural(m);
   }
 
   Future<T?> _pick<T>(

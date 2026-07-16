@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../core/l10n.dart';
+
 import '../../core/utils/media_query_utils.dart';
 import '../../domain/enums.dart';
 
@@ -7,6 +9,16 @@ import '../../domain/enums.dart';
 ///
 /// Keeps Select / Style / Search / Sort in one ⋮ menu so sort/search are not
 /// separate app-bar icons.
+
+String _sortLabel(AppLocalizations l10n, MediaSort s) => switch (s) {
+      MediaSort.dateAddedDesc => l10n.sortNewestFirst,
+      MediaSort.dateAddedAsc => l10n.sortOldestFirst,
+      MediaSort.nameAsc => l10n.sortNameAsc,
+      MediaSort.nameDesc => l10n.sortNameDesc,
+      MediaSort.ratingDesc => l10n.sortHighestRating,
+      MediaSort.ratingAsc => l10n.sortLowestRating,
+    };
+
 abstract final class GridAppMenu {
   /// Column choices for media thumb grids (Visible + Invisible albums).
   static const mediaColumnOptions = [2, 3, 4, 5];
@@ -48,13 +60,13 @@ abstract final class GridAppMenu {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Padding(
-                      padding: EdgeInsets.fromLTRB(16, 0, 16, 4),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
                       child: Align(
                         alignment: Alignment.centerLeft,
                         child: Text(
-                          'Sort',
-                          style: TextStyle(
+                          ctx.l10n.sort,
+                          style: const TextStyle(
                             color: Colors.white70,
                             fontSize: 13,
                             fontWeight: FontWeight.w600,
@@ -78,7 +90,7 @@ abstract final class GridAppMenu {
                               color: on ? primary : Colors.white70,
                             ),
                             title: Text(
-                              MediaQueryUtils.sortLabel(s),
+                              _sortLabel(ctx.l10n, s),
                               style: TextStyle(
                                 color: on ? primary : Colors.white,
                               ),
@@ -105,7 +117,7 @@ abstract final class GridAppMenu {
     BuildContext context, {
     required int current,
     List<int> options = mediaColumnOptions,
-    String title = 'Layout style',
+    String? title,
   }) {
     return showModalBottomSheet<int>(
       context: context,
@@ -125,7 +137,7 @@ abstract final class GridAppMenu {
                   child: Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      title,
+                      title ?? ctx.l10n.layoutStyle,
                       style: const TextStyle(
                         color: Colors.white70,
                         fontSize: 13,
@@ -149,7 +161,7 @@ abstract final class GridAppMenu {
                                 : Colors.white70,
                           ),
                           title: Text(
-                            '$n columns',
+                            ctx.l10n.columnsCount(n),
                             style: TextStyle(
                               color: n == current
                                   ? Theme.of(ctx).colorScheme.primary

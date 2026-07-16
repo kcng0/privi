@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:photo_manager/photo_manager.dart';
 import '../../application/gallery/gallery_controller.dart';
 import '../../application/lock/lock_controller.dart';
 import '../../application/media/rating_controller.dart';
@@ -8,6 +9,7 @@ import '../../application/media/selection_controller.dart';
 import '../../application/providers.dart';
 import '../../application/settings/settings_controller.dart';
 import '../../core/constants.dart';
+import '../../core/l10n.dart';
 import '../../core/utils/media_query_utils.dart';
 import '../../data/services/intent_service.dart';
 import '../../domain/enums.dart';
@@ -98,14 +100,12 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
       final ok = await IntentService().openExternal(
         filePath: item.privatePath,
         mimeType: item.mimeType,
-        chooserTitle: 'Play video with',
+        chooserTitle: context.l10n.playVideoWith,
       );
       if (ok) return;
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('No external player found — opening in-app'),
-          ),
+          SnackBar(content: Text(context.l10n.noExternalPlayer)),
         );
       }
     }
@@ -125,20 +125,20 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
     final shuffle = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Play playlist'),
+        title: Text(context.l10n.playPlaylist),
         content: Text(
           shuffleDefault
-              ? 'Start with shuffle on?'
-              : 'Start with shuffle off? You can toggle in the player.',
+              ? context.l10n.playPlaylistShuffleOn
+              : context.l10n.playPlaylistShuffleOff,
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('In order'),
+            child: Text(context.l10n.inOrder),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Shuffle'),
+            child: Text(context.l10n.shuffle),
           ),
         ],
       ),
@@ -169,7 +169,7 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
     ref.read(selectionControllerProvider.notifier).clear();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Restored ${ids.length}')),
+      SnackBar(content: Text(context.l10n.restoredCount(ids.length))),
     );
   }
 
@@ -179,7 +179,7 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
     ref.read(selectionControllerProvider.notifier).clear();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Moved ${ids.length} to Recycle Bin')),
+      SnackBar(content: Text(context.l10n.movedToRecycleBinCount(ids.length))),
     );
   }
 
@@ -189,7 +189,7 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
     ref.read(selectionControllerProvider.notifier).clear();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Deleted ${ids.length} forever')),
+      SnackBar(content: Text(context.l10n.deletedForeverCount(ids.length))),
     );
   }
 
@@ -201,16 +201,14 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
         widget.albumId == SystemAlbumIds.recycle) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Open a user album to set its cover'),
-        ),
+        SnackBar(content: Text(context.l10n.openUserAlbumToSetCover)),
       );
       return;
     }
     await ref.read(albumRepositoryProvider).setCover(widget.albumId, ids.first);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Cover updated')),
+      SnackBar(content: Text(context.l10n.coverUpdated)),
     );
   }
 
@@ -221,7 +219,7 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
     if (!mounted) return;
     if (albums.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Create a user album first')),
+        SnackBar(content: Text(context.l10n.createUserAlbumFirst)),
       );
       return;
     }
@@ -232,10 +230,10 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Padding(
-              padding: EdgeInsets.all(16),
+            Padding(
+              padding: const EdgeInsets.all(16),
               child: Text(
-                'Move to album',
+                context.l10n.moveToAlbum,
                 style: TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w600,
@@ -259,7 +257,7 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
     }
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Moved ${ids.length} to album')),
+      SnackBar(content: Text(context.l10n.movedToAlbumCount(ids.length))),
     );
   }
 
@@ -270,7 +268,7 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
         actions: [
           FloatingActionItem(
             icon: Icons.delete_forever,
-            label: 'Delete forever',
+            label: context.l10n.deleteForever,
             destructive: true,
             onTap: _purgeSelected,
           ),
@@ -283,22 +281,22 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
       actions: [
         FloatingActionItem(
           icon: Icons.image_outlined,
-          label: 'Set as cover',
+          label: context.l10n.setAsCover,
           onTap: _setAsCover,
         ),
         FloatingActionItem(
           icon: Icons.drive_file_move_outline,
-          label: 'Move to album',
+          label: context.l10n.moveToAlbum,
           onTap: _moveToAlbum,
         ),
         FloatingActionItem(
           icon: Icons.info_outline,
-          label: 'Details',
+          label: context.l10n.details,
           onTap: _showDetails,
         ),
         FloatingActionItem(
           icon: Icons.delete_outline,
-          label: 'Move to Recycle Bin',
+          label: context.l10n.moveToRecycleBin,
           destructive: true,
           onTap: _softDeleteSelected,
         ),
@@ -325,20 +323,28 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
       final item = items?.where((e) => e.id == id).firstOrNull;
       if (item == null) continue;
       try {
-        if (await import.reveal(item)) n++;
+        if (await import.reveal(item, clearGalleryCache: false)) n++;
       } catch (_) {}
     }
     if (n > 0) {
       final gallery = ref.read(galleryServiceProvider);
-      gallery.invalidateVaultPathCache();
-      gallery.refreshAfterMutation();
+      gallery.refreshAfterReveal();
+      try {
+        await PhotoManager.clearFileCache().timeout(const Duration(seconds: 2));
+      } catch (_) {}
+      await Future<void>.delayed(const Duration(milliseconds: 350));
+      gallery.invalidateCache();
       ref.read(galleryUiEpochProvider.notifier).bump();
       ref.invalidate(galleryFoldersProvider);
+      ref.invalidate(albumsProvider);
+      try {
+        await ref.read(galleryFoldersProvider.future);
+      } catch (_) {}
     }
     ref.read(selectionControllerProvider.notifier).clear();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Unhidden $n item(s)')),
+      SnackBar(content: Text(context.l10n.unhiddenItems(n))),
     );
   }
 
@@ -430,8 +436,8 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Padding(
-                            padding: EdgeInsets.fromLTRB(14, 8, 14, 6),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(14, 8, 14, 6),
                             child: Align(
                               alignment: Alignment.centerLeft,
                               child: Text(
@@ -450,7 +456,7 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
                           const Divider(height: 8, color: Colors.white12),
                           TextButton(
                             onPressed: () => Navigator.pop(ctx),
-                            child: const Text('Done'),
+                            child: Text(context.l10n.done),
                           ),
                         ],
                       ),
@@ -485,7 +491,7 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
       context,
       current: current,
       options: GridAppMenu.mediaColumnOptions,
-      title: 'Layout style',
+      title: context.l10n.layoutStyle,
     );
     if (next == null || !mounted) return;
     await ref.read(settingsControllerProvider.notifier).setGridColumns(next);
@@ -519,20 +525,26 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
             children: [
               ListTile(
                 leading: const Icon(Icons.checklist_rtl, color: Colors.white70),
-                title:
-                    const Text('Select', style: TextStyle(color: Colors.white)),
-                subtitle: const Text(
-                  'Multi-select items',
-                  style: TextStyle(color: Colors.white54, fontSize: 12),
+                title: Text(
+                  context.l10n.select,
+                  style: const TextStyle(color: Colors.white),
+                ),
+                subtitle: Text(
+                  context.l10n.multiSelectItems,
+                  style: const TextStyle(color: Colors.white54, fontSize: 12),
                 ),
                 onTap: () => Navigator.pop(ctx, 'select'),
               ),
               ListTile(
                 leading: const Icon(Icons.grid_view, color: Colors.white70),
-                title:
-                    const Text('Style', style: TextStyle(color: Colors.white)),
+                title: Text(
+                  context.l10n.style,
+                  style: const TextStyle(color: Colors.white),
+                ),
                 subtitle: Text(
-                  '${ref.read(settingsControllerProvider).gridColumns} columns',
+                  context.l10n.columnsCount(
+                    ref.read(settingsControllerProvider).gridColumns,
+                  ),
                   style: const TextStyle(color: Colors.white54, fontSize: 12),
                 ),
                 onTap: () => Navigator.pop(ctx, 'style'),
@@ -543,15 +555,17 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
                   color: Colors.white70,
                 ),
                 title: Text(
-                  _searchOpen ? 'Close search' : 'Search',
+                  _searchOpen ? context.l10n.closeSearch : context.l10n.search,
                   style: const TextStyle(color: Colors.white),
                 ),
                 onTap: () => Navigator.pop(ctx, 'search'),
               ),
               ListTile(
                 leading: const Icon(Icons.sort, color: Colors.white70),
-                title:
-                    const Text('Sort', style: TextStyle(color: Colors.white)),
+                title: Text(
+                  context.l10n.sort,
+                  style: const TextStyle(color: Colors.white),
+                ),
                 subtitle: Text(
                   MediaQueryUtils.sortsSummary(_sorts),
                   style: const TextStyle(color: Colors.white54, fontSize: 12),
@@ -599,14 +613,14 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
               )
             : null,
         title: selecting
-            ? Text('${selected.length} selected')
+            ? Text(context.l10n.selectedCount(selected.length))
             : _searchOpen
                 ? TextField(
                     controller: _searchCtrl,
                     autofocus: true,
                     style: const TextStyle(color: Colors.white),
-                    decoration: const InputDecoration(
-                      hintText: 'Search name…',
+                    decoration: InputDecoration(
+                      hintText: context.l10n.searchNameHint,
                       hintStyle: TextStyle(color: Colors.white54),
                       border: InputBorder.none,
                       isDense: true,
@@ -617,7 +631,7 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
         actions: [
           if (selecting)
             IconButton(
-              tooltip: 'Select all',
+              tooltip: context.l10n.selectAll,
               icon: const Icon(Icons.select_all),
               onPressed: () {
                 asyncMedia.whenData((raw) {
@@ -630,7 +644,7 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
             if (!_isRecycle)
               asyncMedia.maybeWhen(
                 data: (items) => IconButton(
-                  tooltip: 'Play playlist',
+                  tooltip: context.l10n.playPlaylist,
                   icon: const Icon(Icons.play_arrow),
                   onPressed: items.isEmpty
                       ? null
@@ -643,14 +657,14 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
                 final items = _applyQuery(raw, kind: kind);
                 return IconButton(
                   key: _overflowKey,
-                  tooltip: 'More',
+                  tooltip: context.l10n.more,
                   icon: const Icon(Icons.more_vert),
                   onPressed: () => _showOverflowMenu(items),
                 );
               },
               orElse: () => IconButton(
                 key: _overflowKey,
-                tooltip: 'More',
+                tooltip: context.l10n.more,
                 icon: const Icon(Icons.more_vert),
                 onPressed: () => _showOverflowMenu(const []),
               ),
@@ -660,7 +674,8 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
       ),
       body: asyncMedia.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('Error: $e')),
+        error: (e, _) =>
+            Center(child: Text(context.l10n.errorWithDetails('\$e'))),
         data: (rawItems) {
           final items = _applyQuery(rawItems, kind: kind);
           if (rawItems.isEmpty) {
@@ -671,15 +686,15 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
                       ? Icons.delete_outline
                       : Icons.photo_outlined,
               title: _isFavorites
-                  ? 'No favorites yet'
+                  ? context.l10n.noFavoritesYet
                   : _isRecycle
-                      ? 'Recycle Bin is empty'
-                      : 'No media yet',
+                      ? context.l10n.recycleBinEmpty
+                      : context.l10n.noMediaYet,
               subtitle: _isFavorites
-                  ? 'Long-press media and Rate with hearts.'
+                  ? context.l10n.noFavoritesHint
                   : _isRecycle
-                      ? 'Soft-deleted items appear here.'
-                      : 'Hide media from the Visible tab.',
+                      ? context.l10n.recycleEmptyHint
+                      : context.l10n.noMediaHint,
               actionLabel: null,
               onAction: null,
             );
@@ -762,24 +777,24 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
                                 if (_isRecycle)
                                   FloatingActionItem(
                                     icon: Icons.restore,
-                                    label: 'Restore',
+                                    label: context.l10n.restore,
                                     onTap: _restoreSelected,
                                   )
                                 else ...[
                                   FloatingActionItem(
                                     icon: Icons.visibility,
-                                    label: 'Unhide',
+                                    label: context.l10n.unhide,
                                     onTap: _unhideSelected,
                                   ),
                                   FloatingActionItem(
                                     icon: Icons.favorite,
-                                    label: 'Rate',
+                                    label: context.l10n.rate,
                                     onTap: _rateSelected,
                                   ),
                                 ],
                                 FloatingActionItem(
                                   icon: Icons.more_horiz,
-                                  label: 'More',
+                                  label: context.l10n.more,
                                   onTap: _showMore,
                                 ),
                               ],
@@ -852,7 +867,7 @@ class _RatingChips extends StatelessWidget {
       child: Row(
         children: [
           chip(
-            label: 'All',
+            label: context.l10n.all,
             selected: value == RatingFilter.all && !heartsSelected,
             onTap: () => onChanged(RatingFilter.all),
           ),
@@ -868,12 +883,12 @@ class _RatingChips extends StatelessWidget {
             onTap: onHeartsPressed,
           ),
           chip(
-            label: 'Favorites',
+            label: context.l10n.favorites,
             selected: value == RatingFilter.favorites && !heartsSelected,
             onTap: () => onChanged(RatingFilter.favorites),
           ),
           chip(
-            label: 'Unrated',
+            label: context.l10n.unrated,
             selected: value == RatingFilter.unrated && !heartsSelected,
             onTap: () => onChanged(RatingFilter.unrated),
           ),

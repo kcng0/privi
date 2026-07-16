@@ -17,7 +17,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.memory() : super(NativeDatabase.memory());
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -33,10 +33,14 @@ class AppDatabase extends _$AppDatabase {
           if (from < 3) {
             await _createPerfIndexes();
           }
+          if (from < 4) {
+            await _ensureAlbumPinnedAtColumn();
+          }
         },
         beforeOpen: (details) async {
           // Repair installs where schemaVersion advanced without the column.
           await _ensureOriginalPathColumn();
+          await _ensureAlbumPinnedAtColumn();
           // Idempotent: covers installs that skipped onUpgrade edge cases.
           await _createPerfIndexes();
         },
@@ -58,6 +62,24 @@ class AppDatabase extends _$AppDatabase {
       try {
         await customStatement(
           'ALTER TABLE media_items ADD COLUMN original_path TEXT NULL',
+        );
+      } catch (_) {}
+    }
+  }
+
+  Future<void> _ensureAlbumPinnedAtColumn() async {
+    try {
+      final rows = await customSelect("PRAGMA table_info('albums')").get();
+      final names = rows.map((r) => r.data['name'] as String?).toSet();
+      if (!names.contains('pinned_at')) {
+        await customStatement(
+          'ALTER TABLE albums ADD COLUMN pinned_at INTEGER NULL',
+        );
+      }
+    } catch (_) {
+      try {
+        await customStatement(
+          'ALTER TABLE albums ADD COLUMN pinned_at INTEGER NULL',
         );
       } catch (_) {}
     }
@@ -405,6 +427,45 @@ class AppDatabase extends _$AppDatabase {
     return (update(albums)..where((t) => t.id.equals(albumId))).write(
       AlbumsCompanion(coverMediaId: Value(mediaId)),
     );
+  }
+
+  /// Pin / unpin user albums. [pinnedAt] null clears the pin.
+  Future<void> setAlbumPinnedAt(String albumId, DateTime? pinnedAt) {
+    return (update(albums)..where((t) => t.id.equals(albumId))).write(
+      AlbumsCompanion(pinnedAt: Value(pinnedAt)),
+    );
+  }
+
+  /// One-shot list of active media in a user album (for shuffle / restore).
+  Future<List<MediaItemRow>> listInUserAlbum(String albumId) async {
+    final query = select(mediaItems).join([
+      innerJoin(
+        albumMedia,
+        albumMedia.mediaId.equalsExp(mediaItems.id),
+      ),
+    ])
+      ..where(
+        albumMedia.albumId.equals(albumId) & mediaItems.deletedAt.isNull(),
+      )
+      ..orderBy([OrderingTerm.desc(mediaItems.dateAdded)]);
+    final rows = await query.get();
+    return rows.map((r) => r.readTable(mediaItems)).toList(growable: false);
+  }
+
+  Future<List<MediaItemRow>> listActiveMedia() {
+    return (select(mediaItems)
+          ..where((t) => t.deletedAt.isNull())
+          ..orderBy([(t) => OrderingTerm.desc(t.dateAdded)]))
+        .get();
+  }
+
+  Future<List<MediaItemRow>> listFavorites() {
+    return (select(mediaItems)
+          ..where(
+            (t) => t.deletedAt.isNull() & t.rating.isBiggerOrEqualValue(1),
+          )
+          ..orderBy([(t) => OrderingTerm.desc(t.dateAdded)]))
+        .get();
   }
 
   Future<void> deleteUserAlbum(String id) async {
