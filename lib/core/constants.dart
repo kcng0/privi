@@ -15,8 +15,7 @@ abstract final class AppInfo {
       'organize into albums, and play them back with a PIN/pattern lock.\n\n'
       'Sideload-only. No cloud, no accounts, no analytics.';
   static const String licenseShort = 'MIT License';
-  static const String licenseBody =
-      'MIT License\n\n'
+  static const String licenseBody = 'MIT License\n\n'
       'Copyright (c) 2026 kcng0\n\n'
       'Permission is hereby granted, free of charge, to any person obtaining a '
       'copy of this software and associated documentation files (the "Software"), '
