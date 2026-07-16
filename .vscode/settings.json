@@ -1,0 +1,22 @@
+{
+  "dart.flutterSdkPath": ".fvm/flutter_sdk",
+  "dart.lineLength": 80,
+  "editor.formatOnSave": true,
+  "editor.rulers": [80],
+  "editor.codeActionsOnSave": {
+    "source.fixAll": "explicit",
+    "source.organizeImports": "explicit"
+  },
+  "[dart]": {
+    "editor.defaultFormatter": "Dart-Code.dart-code",
+    "editor.tabSize": 2
+  },
+  "files.exclude": {
+    "**/*.g.dart": false,
+    "**/.fvm": true
+  },
+  "search.exclude": {
+    "**/*.g.dart": true,
+    "**/build": true
+  }
+}
