@@ -234,7 +234,7 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
               padding: const EdgeInsets.all(16),
               child: Text(
                 context.l10n.moveToAlbum,
-                style: TextStyle(
+                style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w600,
                 ),
@@ -441,8 +441,8 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
                             child: Align(
                               alignment: Alignment.centerLeft,
                               child: Text(
-                                'Hearts',
-                                style: TextStyle(
+                                context.l10n.hearts,
+                                style: const TextStyle(
                                   color: Colors.white70,
                                   fontSize: 12,
                                   fontWeight: FontWeight.w600,
@@ -621,7 +621,7 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
                     style: const TextStyle(color: Colors.white),
                     decoration: InputDecoration(
                       hintText: context.l10n.searchNameHint,
-                      hintStyle: TextStyle(color: Colors.white54),
+                      hintStyle: const TextStyle(color: Colors.white54),
                       border: InputBorder.none,
                       isDense: true,
                     ),

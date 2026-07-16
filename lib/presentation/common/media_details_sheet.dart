@@ -26,10 +26,9 @@ Future<void> showMediaDetailsSheet(BuildContext context, MediaItem item) {
               const SizedBox(height: 12),
               _row(context.l10n.nameLabel, item.originalName),
               _row(
-                  context.l10n.typeLabel,
-                  item.isVideo
-                      ? context.l10n.typeVideo
-                      : context.l10n.typeImage),
+                context.l10n.typeLabel,
+                item.isVideo ? context.l10n.typeVideo : context.l10n.typeImage,
+              ),
               _row('MIME', item.mimeType),
               _row(context.l10n.sizeLabel, '$sizeMb MB'),
               if (item.width != null && item.height != null)

@@ -367,6 +367,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                                   final messenger =
                                       ScaffoldMessenger.of(context);
                                   final nav = Navigator.of(context);
+                                  final recycleMsg =
+                                      context.l10n.moveToRecycleBin;
                                   await ref
                                       .read(mediaRepositoryProvider)
                                       .softDelete(item.id);
@@ -382,10 +384,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                                     }
                                   });
                                   messenger.showSnackBar(
-                                    SnackBar(
-                                      content:
-                                          Text(context.l10n.moveToRecycleBin),
-                                    ),
+                                    SnackBar(content: Text(recycleMsg)),
                                   );
                                   await _syncVideo();
                                 },

@@ -174,6 +174,8 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
     final preferExternal = ref.read(settingsControllerProvider).playerExternal;
 
     if (a.isVideo && preferExternal) {
+      final openWith = context.l10n.openWith;
+      final couldNotOpen = context.l10n.couldNotOpenExternally;
       // Resolve a real path for external players / chooser.
       final sources = await ref
           .read(galleryServiceProvider)
@@ -186,13 +188,13 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
           filePath: sources.first.path,
           mimeType:
               sources.first.mimeType ?? (a.isVideo ? 'video/*' : 'image/*'),
-          chooserTitle: context.l10n.openWith,
+          chooserTitle: openWith,
         );
         if (ok) return;
       }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(context.l10n.couldNotOpenExternally)),
+          SnackBar(content: Text(couldNotOpen)),
         );
       }
     }
@@ -570,7 +572,7 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
     }
     if (deleted == 0) {
       messenger.showSnackBar(
-        SnackBar(content: Text(context.l10n.noItemsDeleted)),
+        SnackBar(content: Text(l10n.noItemsDeleted)),
       );
       return;
     }
@@ -660,7 +662,7 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
                     style: const TextStyle(color: Colors.white),
                     decoration: InputDecoration(
                       hintText: context.l10n.searchNameHint,
-                      hintStyle: TextStyle(color: Colors.white54),
+                      hintStyle: const TextStyle(color: Colors.white54),
                       border: InputBorder.none,
                       isDense: true,
                     ),

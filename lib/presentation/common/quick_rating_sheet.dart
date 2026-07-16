@@ -24,8 +24,10 @@ Future<int?> showQuickRatingSheet(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(context.l10n.rate,
-                  style: Theme.of(ctx).textTheme.titleLarge),
+              Text(
+                context.l10n.rate,
+                style: Theme.of(ctx).textTheme.titleLarge,
+              ),
               const SizedBox(height: AppSpacing.xl),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
