@@ -110,30 +110,63 @@ class LockController extends Notifier<VaultLockState> {
     );
   }
 
-  Future<void> setupPattern(String pattern) async {
+  /// Persist the first-run pattern.
+  ///
+  /// When [unlockNow] is false, the credential is stored but [LockStatus]
+  /// stays [LockStatus.needsSetup] so the lock UI can finish post-setup
+  /// steps (e.g. biometric opt-in) before [enterAppAfterSetup] opens the vault.
+  /// Unlocking immediately would dispose [LockScreen] and drop that dialog.
+  Future<void> setupPattern(String pattern, {bool unlockNow = true}) async {
     final security = ref.read(securityServiceProvider);
     await security.setPattern(pattern);
     if (!ref.mounted) return;
+    if (unlockNow) {
+      _cancelAutoLockTimer();
+      state = state.copyWith(
+        status: LockStatus.unlocked,
+        lockKind: SecurityService.kindPattern,
+        clearError: true,
+      );
+    } else {
+      // Credential exists; keep setup UI alive for optional biometric prompt.
+      state = state.copyWith(
+        lockKind: SecurityService.kindPattern,
+        clearError: true,
+      );
+    }
+  }
+
+  /// Open the vault after first-run setup (and optional biometric prompt).
+  Future<void> enterAppAfterSetup() async {
+    if (!ref.mounted) return;
+    if (state.status == LockStatus.unlocked) return;
     _cancelAutoLockTimer();
     state = state.copyWith(
       status: LockStatus.unlocked,
-      lockKind: SecurityService.kindPattern,
       clearError: true,
     );
   }
 
   /// Legacy PIN setup (still available if needed).
-  Future<void> setupPin(String pin) async {
+  Future<void> setupPin(String pin, {bool unlockNow = true}) async {
     final security = ref.read(securityServiceProvider);
     await security.setPin(pin);
     if (!ref.mounted) return;
-    _cancelAutoLockTimer();
-    state = state.copyWith(
-      status: LockStatus.unlocked,
-      lockKind: SecurityService.kindPin,
-      pinLength: pin.length,
-      clearError: true,
-    );
+    if (unlockNow) {
+      _cancelAutoLockTimer();
+      state = state.copyWith(
+        status: LockStatus.unlocked,
+        lockKind: SecurityService.kindPin,
+        pinLength: pin.length,
+        clearError: true,
+      );
+    } else {
+      state = state.copyWith(
+        lockKind: SecurityService.kindPin,
+        pinLength: pin.length,
+        clearError: true,
+      );
+    }
   }
 
   Future<bool> unlockWithPattern(String pattern) async {
