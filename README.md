@@ -16,12 +16,16 @@ single-owner personal This is a personal project; simplicity is favored over fea
 ## Quick start
 
 ```bash
-# 1. Install Flutter + Android SDK (see DEVELOPMENT.md)
+# 1. Install the toolchain (Ubuntu/WSL2 one-shot):
+./scripts/install-toolchain.sh && source ~/.bashrc
 # 2. Generate native scaffold, deps, codegen:
 ./scripts/bootstrap.sh
 # 3. Run on a device:
 make run
 ```
+
+Toolchain gotchas & options (WSL2 device setup, FVM, proxies):
+[docs/toolchain-setup.md](./docs/toolchain-setup.md).
 
 Full setup, troubleshooting, and daily commands: **[DEVELOPMENT.md](./DEVELOPMENT.md)**.
 
