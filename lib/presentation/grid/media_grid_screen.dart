@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../application/gallery/gallery_controller.dart';
-import '../../application/import/import_controller.dart';
 import '../../application/lock/lock_controller.dart';
 import '../../application/media/rating_controller.dart';
 import '../../application/media/selection_controller.dart';
@@ -16,9 +15,9 @@ import '../../domain/models/album.dart';
 import '../../domain/models/media_item.dart';
 import '../common/empty_state.dart';
 import '../common/floating_action_capsule.dart';
+import '../common/grid_app_menu.dart';
 import '../common/media_details_sheet.dart';
 import '../common/quick_rating_sheet.dart';
-import '../import/import_progress_sheet.dart';
 import '../player/player_screen.dart';
 import '../viewer/viewer_screen.dart';
 import 'thumbnail_tile.dart';
@@ -29,7 +28,7 @@ import 'thumbnail_tile.dart';
 /// - Recycle: Restore | More (delete forever)
 /// - Normal: Unhide | Rate | More (set cover, move, delete to bin)
 ///
-/// App bar supports search, sort, and rating chips (P1 dense gallery power tools).
+/// App bar ⋮ holds Select / Style / Search / Sort.
 class MediaGridScreen extends ConsumerStatefulWidget {
   const MediaGridScreen({
     super.key,
@@ -51,7 +50,7 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
   bool _searchOpen = false;
   final _searchCtrl = TextEditingController();
   final List<MediaSort> _sorts = [MediaSort.dateAddedDesc];
-  final GlobalKey _sortButtonKey = GlobalKey();
+  final GlobalKey _overflowKey = GlobalKey();
   RatingFilter _rating = RatingFilter.all;
   final Set<int> _heartLevels = {}; // multi-select ♥1/2/3 when Hearts chip used
   final GlobalKey _heartsChipKey = GlobalKey();
@@ -88,20 +87,6 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
     );
   }
 
-  Future<void> _import() async {
-    final messenger = ScaffoldMessenger.of(context);
-    // ignore: unawaited_futures
-    showImportProgressSheet(context);
-    final summary = await ref
-        .read(importControllerProvider.notifier)
-        .pickAndImport(targetUserAlbumId: widget.albumId);
-    if (mounted) Navigator.of(context).pop();
-    if (summary == null) return;
-    messenger.showSnackBar(
-      SnackBar(content: Text('Imported ${summary.imported}')),
-    );
-    ref.read(importControllerProvider.notifier).clearSummary();
-  }
 
   Future<void> _openViewer(List<MediaItem> items, int index) async {
     if (items.isEmpty) return;
@@ -482,133 +467,112 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
   }
 
   Future<void> _pickSort() async {
-    final box = _sortButtonKey.currentContext?.findRenderObject() as RenderBox?;
-    final overlay =
-        Overlay.of(context).context.findRenderObject() as RenderBox?;
-    Offset topLeft = const Offset(16, 80);
-    Size btnSize = Size.zero;
-    if (box != null && overlay != null) {
-      topLeft = box.localToGlobal(Offset.zero, ancestor: overlay);
-      btnSize = box.size;
-    }
+    await GridAppMenu.showSortPicker(
+      context,
+      selected: _sorts,
+      onChanged: (next) {
+        setState(() {
+          _sorts
+            ..clear()
+            ..addAll(next.isEmpty ? [MediaSort.dateAddedDesc] : next);
+        });
+      },
+    );
+  }
 
-    final selected = List<MediaSort>.of(_sorts);
-    await showDialog<void>(
+  Future<void> _pickStyle() async {
+    final current = ref.read(settingsControllerProvider).gridColumns;
+    final next = await GridAppMenu.showStylePicker(
+      context,
+      current: current,
+      options: GridAppMenu.mediaColumnOptions,
+      title: 'Layout style',
+    );
+    if (next == null || !mounted) return;
+    await ref.read(settingsControllerProvider.notifier).setGridColumns(next);
+  }
+
+  void _startSelectFromMenu(List<MediaItem> items) {
+    if (items.isEmpty) return;
+    ref.read(selectionControllerProvider.notifier).enter(items.first.id);
+  }
+
+  void _toggleSearch() {
+    setState(() {
+      if (_searchOpen) {
+        _searchOpen = false;
+        _searchCtrl.clear();
+      } else {
+        _searchOpen = true;
+      }
+    });
+  }
+
+  Future<void> _showOverflowMenu(List<MediaItem> items) async {
+    final choice = await showModalBottomSheet<String>(
       context: context,
-      barrierColor: Colors.black45,
+      showDragHandle: true,
+      backgroundColor: const Color(0xFF1B3A36),
       builder: (ctx) {
-        return StatefulBuilder(
-          builder: (ctx, setLocal) {
-            void toggle(MediaSort s) {
-              setLocal(() {
-                MediaQueryUtils.toggleSort(selected, s);
-              });
-              setState(() {
-                _sorts
-                  ..clear()
-                  ..addAll(
-                    selected.isEmpty ? [MediaSort.dateAddedDesc] : selected,
-                  );
-              });
-            }
-
-            // Anchor under the sort button (right side of app bar).
-            final screenW = MediaQuery.sizeOf(ctx).width;
-            const menuW = 240.0;
-            var left = topLeft.dx + btnSize.width - menuW;
-            if (left < 8) left = 8;
-            if (left + menuW > screenW - 8) left = screenW - menuW - 8;
-            final top = topLeft.dy + btnSize.height + 4;
-
-            return Stack(
-              children: [
-                Positioned(
-                  left: left,
-                  top: top,
-                  width: menuW,
-                  child: Material(
-                    color: const Color(0xFF1B3A36),
-                    elevation: 10,
-                    borderRadius: BorderRadius.circular(12),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 6),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Padding(
-                            padding: EdgeInsets.fromLTRB(14, 8, 14, 6),
-                            child: Align(
-                              alignment: Alignment.centerLeft,
-                              child: Text(
-                                'Sort by',
-                                style: TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          ),
-                          for (final s in MediaSort.values)
-                            InkWell(
-                              onTap: () => toggle(s),
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 10,
-                                ),
-                                child: Row(
-                                  children: [
-                                    Icon(
-                                      MediaQueryUtils.sortIcon(s),
-                                      size: 20,
-                                      color: selected.contains(s)
-                                          ? Theme.of(ctx).colorScheme.primary
-                                          : Colors.white70,
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Text(
-                                        MediaQueryUtils.sortLabel(s),
-                                        style: TextStyle(
-                                          color: selected.contains(s)
-                                              ? Colors.white
-                                              : Colors.white70,
-                                          fontWeight: selected.contains(s)
-                                              ? FontWeight.w600
-                                              : FontWeight.w400,
-                                        ),
-                                      ),
-                                    ),
-                                    Icon(
-                                      selected.contains(s)
-                                          ? Icons.check_box
-                                          : Icons.check_box_outline_blank,
-                                      size: 20,
-                                      color: selected.contains(s)
-                                          ? Theme.of(ctx).colorScheme.primary
-                                          : Colors.white38,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          const Divider(height: 8, color: Colors.white12),
-                          TextButton(
-                            onPressed: () => Navigator.pop(ctx),
-                            child: const Text('Done'),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.checklist_rtl, color: Colors.white70),
+                title: const Text('Select', style: TextStyle(color: Colors.white)),
+                subtitle: const Text(
+                  'Multi-select items',
+                  style: TextStyle(color: Colors.white54, fontSize: 12),
                 ),
-              ],
-            );
-          },
+                onTap: () => Navigator.pop(ctx, 'select'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.grid_view, color: Colors.white70),
+                title: const Text('Style', style: TextStyle(color: Colors.white)),
+                subtitle: Text(
+                  '${ref.read(settingsControllerProvider).gridColumns} columns',
+                  style: const TextStyle(color: Colors.white54, fontSize: 12),
+                ),
+                onTap: () => Navigator.pop(ctx, 'style'),
+              ),
+              ListTile(
+                leading: Icon(
+                  _searchOpen ? Icons.search_off : Icons.search,
+                  color: Colors.white70,
+                ),
+                title: Text(
+                  _searchOpen ? 'Close search' : 'Search',
+                  style: const TextStyle(color: Colors.white),
+                ),
+                onTap: () => Navigator.pop(ctx, 'search'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.sort, color: Colors.white70),
+                title: const Text('Sort', style: TextStyle(color: Colors.white)),
+                subtitle: Text(
+                  MediaQueryUtils.sortsSummary(_sorts),
+                  style: const TextStyle(color: Colors.white54, fontSize: 12),
+                ),
+                onTap: () => Navigator.pop(ctx, 'sort'),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
         );
       },
     );
+    if (!mounted || choice == null) return;
+    switch (choice) {
+      case 'select':
+        _startSelectFromMenu(items);
+      case 'style':
+        await _pickStyle();
+      case 'search':
+        _toggleSearch();
+      case 'sort':
+        await _pickSort();
+    }
   }
 
   @override
@@ -649,27 +613,18 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
                   )
                 : Text(widget.title),
         actions: [
-          if (!selecting) ...[
+          if (selecting)
             IconButton(
-              tooltip: _searchOpen ? 'Close search' : 'Search',
-              icon: Icon(_searchOpen ? Icons.close : Icons.search),
+              tooltip: 'Select all',
+              icon: const Icon(Icons.select_all),
               onPressed: () {
-                setState(() {
-                  if (_searchOpen) {
-                    _searchOpen = false;
-                    _searchCtrl.clear();
-                  } else {
-                    _searchOpen = true;
-                  }
+                asyncMedia.whenData((raw) {
+                  final items = _applyQuery(raw, kind: kind);
+                  sel.selectAll(items.map((e) => e.id));
                 });
               },
-            ),
-            IconButton(
-              key: _sortButtonKey,
-              tooltip: MediaQueryUtils.sortsSummary(_sorts),
-              icon: const Icon(Icons.sort),
-              onPressed: _pickSort,
-            ),
+            )
+          else ...[
             if (!_isRecycle)
               asyncMedia.maybeWhen(
                 data: (items) => IconButton(
@@ -681,15 +636,23 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
                 ),
                 orElse: () => const SizedBox.shrink(),
               ),
-            if (!_isRecycle)
-              PopupMenuButton<String>(
-                onSelected: (v) {
-                  if (v == 'import') _import();
-                },
-                itemBuilder: (_) => const [
-                  PopupMenuItem(value: 'import', child: Text('Import files')),
-                ],
+            asyncMedia.maybeWhen(
+              data: (raw) {
+                final items = _applyQuery(raw, kind: kind);
+                return IconButton(
+                  key: _overflowKey,
+                  tooltip: 'More',
+                  icon: const Icon(Icons.more_vert),
+                  onPressed: () => _showOverflowMenu(items),
+                );
+              },
+              orElse: () => IconButton(
+                key: _overflowKey,
+                tooltip: 'More',
+                icon: const Icon(Icons.more_vert),
+                onPressed: () => _showOverflowMenu(const []),
               ),
+            ),
           ],
         ],
       ),
@@ -715,8 +678,8 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
                   : _isRecycle
                       ? 'Soft-deleted items appear here.'
                       : 'Hide media from the Visible tab.',
-              actionLabel: (!_isFavorites && !_isRecycle) ? 'Import' : null,
-              onAction: (!_isFavorites && !_isRecycle) ? _import : null,
+              actionLabel: null,
+              onAction: null,
             );
           }
           return Column(
