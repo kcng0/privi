@@ -69,10 +69,18 @@ class MediaRepository {
   Future<void> updateRating(String id, int rating) =>
       _db.updateMediaRating(id, rating.clamp(0, 3));
 
+  Future<void> updateRatings(List<String> ids, int rating) =>
+      _db.updateMediaRatings(ids, rating.clamp(0, 3));
+
   Future<void> softDelete(String id) =>
       _db.softDeleteMedia(id, DateTime.now().toUtc());
 
+  Future<void> softDeleteMany(List<String> ids) =>
+      _db.softDeleteMediaMany(ids, DateTime.now().toUtc());
+
   Future<void> restore(String id) => _db.restoreMedia(id);
+
+  Future<void> restoreMany(List<String> ids) => _db.restoreMediaMany(ids);
 
   Future<void> purge(String id) async {
     final row = await _db.getMediaById(id);
@@ -82,6 +90,19 @@ class MediaRepository {
       thumbnailPath: row.thumbnailPath,
     );
     await _db.hardDeleteMedia(id);
+  }
+
+  /// Delete files then drop rows in one DB transaction for the set.
+  Future<void> purgeMany(List<String> ids) async {
+    if (ids.isEmpty) return;
+    final rows = await _db.getMediaByIds(ids);
+    for (final row in rows) {
+      await _storage.deleteMediaFiles(
+        privatePath: row.privatePath,
+        thumbnailPath: row.thumbnailPath,
+      );
+    }
+    await _db.hardDeleteMediaMany(ids);
   }
 
   /// Drop DB membership/row only (media file already renamed/revealed elsewhere).

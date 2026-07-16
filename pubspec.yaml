@@ -75,6 +75,9 @@ dev_dependencies:
   custom_lint: ^0.8.1
   riverpod_lint: ^3.0.0
 
+  # Host-side Drift tests (open.overrideFor libsqlite3.so.0 on Linux/WSL).
+  sqlite3: ^2.9.0
+
 flutter:
   uses-material-design: true
   assets:

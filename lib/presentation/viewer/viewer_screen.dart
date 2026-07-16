@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../application/gallery/gallery_controller.dart';
 import '../../application/lock/lock_controller.dart';
 import '../../application/media/rating_controller.dart';
 import '../../application/providers.dart';
@@ -134,6 +135,11 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       );
       return;
     }
+    final gallery = ref.read(galleryServiceProvider);
+    gallery.invalidateVaultPathCache();
+    gallery.refreshAfterMutation();
+    ref.read(galleryUiEpochProvider.notifier).bump();
+    ref.invalidate(galleryFoldersProvider);
     setState(() {
       widget.items.removeAt(_index);
       if (widget.items.isEmpty) {
