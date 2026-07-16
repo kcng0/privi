@@ -69,8 +69,7 @@ class ImportProgressSheet extends ConsumerWidget {
               const SizedBox(height: AppSpacing.lg),
               TextButton(
                 onPressed: state.running
-                    ? () =>
-                        ref.read(importControllerProvider.notifier).cancel()
+                    ? () => ref.read(importControllerProvider.notifier).cancel()
                     : null,
                 child: const Text('Cancel'),
               ),

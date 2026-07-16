@@ -52,6 +52,7 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
 
   bool _searchOpen = false;
   final _searchCtrl = TextEditingController();
+
   /// Visible grids: date + name only (no ratings).
   final List<MediaSort> _sorts = [MediaSort.dateAddedDesc];
 
@@ -302,7 +303,8 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
             children: [
               ListTile(
                 leading: const Icon(Icons.checklist_rtl, color: Colors.white70),
-                title: const Text('Select', style: TextStyle(color: Colors.white)),
+                title:
+                    const Text('Select', style: TextStyle(color: Colors.white)),
                 subtitle: const Text(
                   'Multi-select items',
                   style: TextStyle(color: Colors.white54, fontSize: 12),
@@ -311,7 +313,8 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
               ),
               ListTile(
                 leading: const Icon(Icons.grid_view, color: Colors.white70),
-                title: const Text('Style', style: TextStyle(color: Colors.white)),
+                title:
+                    const Text('Style', style: TextStyle(color: Colors.white)),
                 subtitle: Text(
                   '${ref.read(settingsControllerProvider).gridColumns} columns',
                   style: const TextStyle(color: Colors.white54, fontSize: 12),
@@ -331,7 +334,8 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
               ),
               ListTile(
                 leading: const Icon(Icons.sort, color: Colors.white70),
-                title: const Text('Sort', style: TextStyle(color: Colors.white)),
+                title:
+                    const Text('Sort', style: TextStyle(color: Colors.white)),
                 subtitle: Text(
                   MediaQueryUtils.sortsSummary(_sorts),
                   style: const TextStyle(color: Colors.white54, fontSize: 12),
@@ -703,74 +707,74 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
                           ),
                         )
                       : Stack(
-                      children: [
-                        GridView.builder(
-                          controller: _scroll,
-                          padding: EdgeInsets.fromLTRB(0, 0, 0, bottomPad),
-                          gridDelegate:
-                              SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: cols,
-                            mainAxisSpacing: GridDefaults.gutter,
-                            crossAxisSpacing: GridDefaults.gutter,
-                          ),
-                          itemCount: visible.length +
-                              (_hasMore || _loadingMore ? 1 : 0),
-                          itemBuilder: (context, i) {
-                            if (i >= visible.length) {
-                              return const Center(
-                                child: Padding(
-                                  padding: EdgeInsets.all(16),
-                                  child: SizedBox(
-                                    width: 24,
-                                    height: 24,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
+                          children: [
+                            GridView.builder(
+                              controller: _scroll,
+                              padding: EdgeInsets.fromLTRB(0, 0, 0, bottomPad),
+                              gridDelegate:
+                                  SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: cols,
+                                mainAxisSpacing: GridDefaults.gutter,
+                                crossAxisSpacing: GridDefaults.gutter,
+                              ),
+                              itemCount: visible.length +
+                                  (_hasMore || _loadingMore ? 1 : 0),
+                              itemBuilder: (context, i) {
+                                if (i >= visible.length) {
+                                  return const Center(
+                                    child: Padding(
+                                      padding: EdgeInsets.all(16),
+                                      child: SizedBox(
+                                        width: 24,
+                                        height: 24,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      ),
                                     ),
+                                  );
+                                }
+                                final a = visible[i];
+                                final sel = _selected.contains(a.id);
+                                return _LazyThumbTile(
+                                  asset: a,
+                                  selected: sel,
+                                  selectMode: _selecting,
+                                  onTap: () {
+                                    if (_selecting) {
+                                      _toggle(a.id);
+                                    } else {
+                                      _openPreview(a);
+                                    }
+                                  },
+                                  onLongPress: () {
+                                    if (_selecting) {
+                                      _toggle(a.id);
+                                    } else {
+                                      _enterSelect(a.id);
+                                    }
+                                  },
+                                );
+                              },
+                            ),
+                            if (_selecting)
+                              FloatingActionCapsule(
+                                onDismiss: _exitSelect,
+                                actions: [
+                                  FloatingActionItem(
+                                    icon: Icons.visibility_off,
+                                    label: 'Hide',
+                                    onTap: _hideSelected,
                                   ),
-                                ),
-                              );
-                            }
-                            final a = visible[i];
-                            final sel = _selected.contains(a.id);
-                            return _LazyThumbTile(
-                              asset: a,
-                              selected: sel,
-                              selectMode: _selecting,
-                              onTap: () {
-                                if (_selecting) {
-                                  _toggle(a.id);
-                                } else {
-                                  _openPreview(a);
-                                }
-                              },
-                              onLongPress: () {
-                                if (_selecting) {
-                                  _toggle(a.id);
-                                } else {
-                                  _enterSelect(a.id);
-                                }
-                              },
-                            );
-                          },
+                                  FloatingActionItem(
+                                    icon: Icons.more_horiz,
+                                    label: 'More',
+                                    onTap: _showMore,
+                                  ),
+                                ],
+                              ),
+                          ],
                         ),
-                        if (_selecting)
-                          FloatingActionCapsule(
-                            onDismiss: _exitSelect,
-                            actions: [
-                              FloatingActionItem(
-                                icon: Icons.visibility_off,
-                                label: 'Hide',
-                                onTap: _hideSelected,
-                              ),
-                              FloatingActionItem(
-                                icon: Icons.more_horiz,
-                                label: 'More',
-                                onTap: _showMore,
-                              ),
-                            ],
-                          ),
-                      ],
-                    ),
     );
   }
 }
