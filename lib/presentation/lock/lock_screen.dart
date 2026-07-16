@@ -118,13 +118,18 @@ class _LockScreenState extends ConsumerState<LockScreen> {
     }
     if (_setupFirst != null && pattern == _setupFirst) {
       setState(() => _busy = true);
-      await ref.read(lockControllerProvider.notifier).setupPattern(pattern);
+      final lockNotifier = ref.read(lockControllerProvider.notifier);
+      // Save pattern but stay on LockScreen so the biometric opt-in dialog
+      // is not disposed when status would otherwise flip to unlocked.
+      await lockNotifier.setupPattern(pattern, unlockNow: false);
       if (!mounted) return;
       setState(() => _busy = false);
+
       final lock = ref.read(lockControllerProvider);
       if (lock.biometricAvailable) {
         final enable = await showDialog<bool>(
           context: context,
+          barrierDismissible: false,
           builder: (ctx) => AlertDialog(
             title: const Text('Enable biometric unlock?'),
             content: const Text(
@@ -144,19 +149,31 @@ class _LockScreenState extends ConsumerState<LockScreen> {
           ),
         );
         if (enable == true && mounted) {
-          final ok = await ref
-              .read(lockControllerProvider.notifier)
-              .setBiometricEnabled(true);
-          if (!ok && mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text(
-                  'Biometric not enabled — you can try again in Settings',
+          setState(() => _busy = true);
+          try {
+            final ok = await lockNotifier.setBiometricEnabled(true);
+            if (!ok && mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text(
+                    'Biometric not enabled — you can try again in Settings',
+                  ),
                 ),
-              ),
-            );
+              );
+            }
+          } catch (e) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('$e')),
+              );
+            }
           }
+          if (mounted) setState(() => _busy = false);
         }
+      }
+      // Always enter the app after setup (with or without biometrics).
+      if (mounted) {
+        await lockNotifier.enterAppAfterSetup();
       }
     } else {
       setState(() {
