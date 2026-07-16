@@ -106,6 +106,39 @@ void main() {
     expect((await db.getMediaById('c'))!.rating, 1);
   });
 
+  test('insertMediaBatch inserts rows and memberships in one transaction',
+      () async {
+    await db.insertAlbum(
+      AlbumsCompanion.insert(
+        id: 'user-batch',
+        name: 'Downloads',
+        isSystem: false,
+        createdAt: DateTime.utc(2026, 1, 1),
+      ),
+    );
+    await db.insertMediaBatch(
+      [
+        _row(id: 'x', path: '/v/x.jpg', sizeBytes: 11),
+        _row(id: 'y', path: '/v/y.jpg', sizeBytes: 22),
+      ],
+      membershipByMediaId: {
+        'x': 'user-batch',
+        'y': 'user-batch',
+      },
+    );
+
+    expect(await db.getMediaById('x'), isNotNull);
+    expect(await db.getMediaById('y'), isNotNull);
+    expect(await db.countMembership('user-batch'), 2);
+    expect(await db.sumMediaBytes(), 33);
+  });
+
+  test('updateMediaThumbnail writes path', () async {
+    await db.insertMedia(_row(id: 't', path: '/v/t.jpg'));
+    await db.updateMediaThumbnail('t', '/thumbs/t.jpg');
+    expect((await db.getMediaById('t'))!.thumbnailPath, '/thumbs/t.jpg');
+  });
+
   test('softDeleteMediaMany and restoreMediaMany', () async {
     await db.insertMedia(_row(id: 'a', path: '/v/a.jpg'));
     await db.insertMedia(_row(id: 'b', path: '/v/b.jpg'));

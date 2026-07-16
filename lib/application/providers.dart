@@ -71,6 +71,7 @@ final maintenanceServiceProvider = Provider<MaintenanceService>((ref) {
     db: ref.watch(databaseProvider),
     media: ref.watch(mediaRepositoryProvider),
     storage: ref.watch(vaultStorageProvider),
+    albums: ref.watch(albumRepositoryProvider),
     import: ref.watch(importServiceProvider),
   );
 });

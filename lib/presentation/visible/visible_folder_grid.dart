@@ -260,6 +260,9 @@ Future<void> _hideFolder({
   final gallery = ref.read(galleryServiceProvider);
   final messenger = ScaffoldMessenger.of(context);
   final nav = Navigator.of(context);
+  final import = ref.read(importControllerProvider.notifier);
+  // Session before listing/resolve so Cancel is live immediately.
+  import.beginSession();
   // ignore: unawaited_futures
   showImportProgressSheet(context);
 
@@ -268,6 +271,7 @@ Future<void> _hideFolder({
     final ids = <String>[];
     var page = 0;
     while (true) {
+      if (import.isCancelRequested) break;
       final batch = await gallery.listAssets(
         pathId: folder.id,
         filter: filter,
@@ -279,6 +283,14 @@ Future<void> _hideFolder({
       if (batch.length < 200) break;
       page++;
       if (page > 200) break; // safety
+    }
+    if (import.isCancelRequested) {
+      if (context.mounted) {
+        messenger.showSnackBar(
+          SnackBar(content: Text(context.l10n.cancelled)),
+        );
+      }
+      return;
     }
     if (ids.isEmpty) {
       if (context.mounted) {
@@ -293,6 +305,14 @@ Future<void> _hideFolder({
       ids,
       sourceFolderName: folder.name,
     );
+    if (import.isCancelRequested) {
+      if (context.mounted) {
+        messenger.showSnackBar(
+          SnackBar(content: Text(context.l10n.cancelled)),
+        );
+      }
+      return;
+    }
     if (sources.isEmpty) {
       if (context.mounted) {
         messenger.showSnackBar(
@@ -302,23 +322,30 @@ Future<void> _hideFolder({
       return;
     }
 
-    final summary = await ref.read(importControllerProvider.notifier).runImport(
-          sources,
-          sourceFolderName: folder.name,
-        );
+    final summary = await import.runImport(
+      sources,
+      sourceFolderName: folder.name,
+      sessionAlreadyStarted: true,
+    );
     imported = summary.imported;
     if (context.mounted) {
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(
-            imported == 0
-                ? context.l10n.nothingHidden
-                : imported == 1
-                    ? context.l10n.hiddenToAlbum(folder.name)
-                    : context.l10n.hiddenCountToAlbum(imported, folder.name),
-          ),
-        ),
-      );
+      final msg = StringBuffer();
+      if (summary.cancelled && imported == 0) {
+        msg.write(context.l10n.cancelled);
+      } else if (imported == 0) {
+        msg.write(context.l10n.nothingHidden);
+      } else if (imported == 1) {
+        msg.write(context.l10n.hiddenToAlbum(folder.name));
+      } else {
+        msg.write(context.l10n.hiddenCountToAlbum(imported, folder.name));
+      }
+      if (summary.cancelled && imported > 0) {
+        msg.write(' · ${context.l10n.cancelled}');
+      }
+      if (summary.failed > 0) {
+        msg.write(' · ${summary.failed} failed');
+      }
+      messenger.showSnackBar(SnackBar(content: Text(msg.toString())));
     }
   } catch (e) {
     if (context.mounted) {
@@ -327,8 +354,11 @@ Future<void> _hideFolder({
       );
     }
   } finally {
-    if (nav.canPop()) nav.pop();
-    ref.read(importControllerProvider.notifier).clearSummary();
+    try {
+      if (nav.canPop()) nav.pop();
+    } catch (_) {}
+    import.clearSummary();
+    // Partial success still refreshes Visible so UI is not stuck stale.
     if (imported > 0) {
       gallery.noteHidden(
         pathId: folder.id,

@@ -141,12 +141,44 @@ class AppDatabase extends _$AppDatabase {
   Future<void> insertMedia(MediaItemsCompanion row) =>
       into(mediaItems).insert(row);
 
+  /// Insert many media rows + optional album memberships in one transaction.
+  Future<void> insertMediaBatch(
+    List<MediaItemsCompanion> rows, {
+    Map<String, String>? membershipByMediaId,
+  }) async {
+    if (rows.isEmpty) return;
+    final now = DateTime.now().toUtc();
+    await transaction(() async {
+      for (final row in rows) {
+        await into(mediaItems).insert(row);
+        final id = row.id.present ? row.id.value : null;
+        if (id == null) continue;
+        final albumId = membershipByMediaId?[id];
+        if (albumId == null || albumId.isEmpty) continue;
+        await into(albumMedia).insert(
+          AlbumMediaCompanion.insert(
+            albumId: albumId,
+            mediaId: id,
+            addedAt: now,
+          ),
+          mode: InsertMode.insertOrIgnore,
+        );
+      }
+    });
+  }
+
   Future<MediaItemRow?> getMediaById(String id) =>
       (select(mediaItems)..where((t) => t.id.equals(id))).getSingleOrNull();
 
   Future<void> updateMediaRating(String id, int rating) {
     return (update(mediaItems)..where((t) => t.id.equals(id))).write(
       MediaItemsCompanion(rating: Value(rating.clamp(0, 3))),
+    );
+  }
+
+  Future<void> updateMediaThumbnail(String id, String? thumbnailPath) {
+    return (update(mediaItems)..where((t) => t.id.equals(id))).write(
+      MediaItemsCompanion(thumbnailPath: Value(thumbnailPath)),
     );
   }
 

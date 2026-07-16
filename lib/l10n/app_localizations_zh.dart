@@ -590,6 +590,29 @@ class AppLocalizationsZh extends AppLocalizations {
   String get scanningOrphans => '正在扫描孤立隐藏文件…';
 
   @override
+  String get recoverVault => '重装后恢复保险库';
+
+  @override
+  String get recoverVaultSubtitle => '重新索引仍在 .privateheart_vault 中的媒体';
+
+  @override
+  String get recoverVaultBody =>
+      '扫描磁盘上的保险库文件夹，把缺失项带回 Invisible。卸载重装后文件仍在手机上时使用。';
+
+  @override
+  String get recoverAndUnhide => '恢复并还原到图库';
+
+  @override
+  String get recoverAndUnhideSubtitle => '重新索引保险库文件并取消隐藏';
+
+  @override
+  String get recoverAndUnhideBody =>
+      '重新索引保险库文件夹中的文件，再移回公共目录（下载/已知原路径）。重装后若希望图库再次可见时使用。';
+
+  @override
+  String get recoveringVault => '正在恢复保险库文件…';
+
+  @override
   String get author => '作者';
 
   @override
@@ -1382,6 +1405,29 @@ class AppLocalizationsZhCn extends AppLocalizationsZh {
   String get scanningOrphans => '正在扫描孤立隐藏文件…';
 
   @override
+  String get recoverVault => '重装后恢复保险库';
+
+  @override
+  String get recoverVaultSubtitle => '重新索引仍在 .privateheart_vault 中的媒体';
+
+  @override
+  String get recoverVaultBody =>
+      '扫描磁盘上的保险库文件夹，把缺失项带回 Invisible。卸载重装后文件仍在手机上时使用。';
+
+  @override
+  String get recoverAndUnhide => '恢复并还原到图库';
+
+  @override
+  String get recoverAndUnhideSubtitle => '重新索引保险库文件并取消隐藏';
+
+  @override
+  String get recoverAndUnhideBody =>
+      '重新索引保险库文件夹中的文件，再移回公共目录（下载/已知原路径）。重装后若希望图库再次可见时使用。';
+
+  @override
+  String get recoveringVault => '正在恢复保险库文件…';
+
+  @override
   String get author => '作者';
 
   @override
@@ -2172,6 +2218,29 @@ class AppLocalizationsZhHk extends AppLocalizationsZh {
 
   @override
   String get scanningOrphans => '正在掃描孤立隱藏檔案…';
+
+  @override
+  String get recoverVault => '重裝後復原保險庫';
+
+  @override
+  String get recoverVaultSubtitle => '重新索引仍在 .privateheart_vault 中的媒體';
+
+  @override
+  String get recoverVaultBody =>
+      '掃描磁碟上的保險庫資料夾，把缺失項目帶回 Invisible。解除安裝重裝後檔案仍在手機上時使用。';
+
+  @override
+  String get recoverAndUnhide => '復原並還原到相簿';
+
+  @override
+  String get recoverAndUnhideSubtitle => '重新索引保險庫檔案並取消隱藏';
+
+  @override
+  String get recoverAndUnhideBody =>
+      '重新索引保險庫資料夾中的檔案，再移回公共目錄（下載/已知原路徑）。重裝後若希望相簿再次可見時使用。';
+
+  @override
+  String get recoveringVault => '正在復原保險庫檔案…';
 
   @override
   String get author => '作者';
