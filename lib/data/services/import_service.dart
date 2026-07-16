@@ -60,7 +60,36 @@ class ImportProgress {
   double get fraction => total == 0 ? 0 : done / total;
 }
 
-/// Hide by **rename in place** (no full-media copy). Timeouts prevent UI hangs.
+/// Prepared hide job (paths resolved, dest ready) before native transfer.
+class _PreparedHide {
+  _PreparedHide({
+    required this.id,
+    required this.src,
+    required this.originalPath,
+    required this.originalName,
+    required this.mime,
+    required this.isVideo,
+    required this.destPath,
+    required this.folderName,
+    required this.albumId,
+  });
+
+  final String id;
+  final ImportSource src;
+  final String originalPath;
+  final String originalName;
+  final String mime;
+  final bool isVideo;
+  final String destPath;
+  final String folderName;
+  final String? albumId;
+}
+
+/// Hide via native atomic rename (prefer) / batch IPC.
+///
+/// Cancel is cooperative: checked between prep steps and **between native
+/// chunks**. A single in-flight native chunk cannot be aborted mid-call, so
+/// chunk size stays small enough that Cancel still feels responsive.
 class ImportService {
   ImportService({
     required VaultStorageService storage,
@@ -88,6 +117,20 @@ class ImportService {
 
   void cancel() => _cancelRequested = true;
 
+  /// Clear cancel for a new session. Prefer [ImportController.beginSession].
+  void resetCancel() => _cancelRequested = false;
+
+  bool get isCancelRequested => _cancelRequested;
+
+  /// Native items processed per MethodChannel call.
+  ///
+  /// Small enough that Cancel is noticed within ~one chunk of renames, and a
+  /// single bad video cannot stall the whole batch for minutes.
+  static const int nativeBatchChunk = 8;
+
+  /// How many deferred thumbs to generate at once (post-insert, best-effort).
+  static const int thumbConcurrency = 2;
+
   static Future<T> _withTimeout<T>(
     Future<T> future, {
     required Duration timeout,
@@ -99,19 +142,17 @@ class ImportService {
     );
   }
 
-  /// How many hide operations may run at once.
-  ///
-  /// 3 keeps storage + MediaStore busy without thrashing large video copies.
-  /// Path resolve already parallelizes separately (see [GalleryService]).
-  static const int hideConcurrency = 3;
-
   Future<ImportProgress> importAll(
     List<ImportSource> sources, {
     void Function(ImportProgress progress)? onProgress,
     String? targetUserAlbumId,
     String? defaultSourceFolderName,
+
+    /// Extra cancel probe (controller session flag). OR'd with [cancel].
+    bool Function()? isCancelRequested,
   }) async {
-    _cancelRequested = false;
+    // Do NOT clear cancel here — caller may have requested cancel during
+    // path resolve before importAll starts. Use resetCancel()/beginSession.
     _folderAlbumCache.clear();
     var imported = 0;
     var skipped = 0;
@@ -120,6 +161,9 @@ class ImportService {
     String? lastError;
     String? currentName;
     final total = sources.length;
+
+    bool cancelledNow() =>
+        _cancelRequested || (isCancelRequested?.call() ?? false);
 
     void emit({
       String? statusMessage,
@@ -133,10 +177,36 @@ class ImportService {
           imported: imported,
           skipped: skipped,
           failed: failed,
-          cancelled: cancelled,
+          cancelled: cancelled || cancelledNow(),
           statusMessage: statusMessage,
         ),
       );
+    }
+
+    ImportProgress cancelledProgress() => ImportProgress(
+          done: completed,
+          total: total,
+          cancelled: true,
+          imported: imported,
+          skipped: skipped,
+          failed: failed,
+          lastError: lastError,
+          statusMessage: 'Cancelled',
+        );
+
+    if (cancelledNow()) {
+      emit(statusMessage: 'Cancelled', cancelled: true);
+      return cancelledProgress();
+    }
+
+    if (total == 0) {
+      const empty = ImportProgress(
+        done: 0,
+        total: 0,
+        statusMessage: 'Done',
+      );
+      onProgress?.call(empty);
+      return empty;
     }
 
     // Pre-resolve mirror albums serially so concurrent hides never race-create
@@ -151,69 +221,266 @@ class ImportService {
         if (folder.isNotEmpty) folders.add(folder);
       }
       for (final folder in folders) {
+        if (cancelledNow()) {
+          emit(statusMessage: 'Cancelled', cancelled: true);
+          return cancelledProgress();
+        }
         await _resolveMirrorAlbumId(folder);
       }
     }
 
-    emit(statusMessage: total <= 1 ? 'Hiding…' : 'Hiding (×$hideConcurrency)…');
+    emit(statusMessage: total <= 1 ? 'Hiding…' : 'Hiding…');
 
-    var nextIndex = 0;
+    // ── Phase 1: prepare dest paths (cancelable per item) ───────────
+    final prepared = <_PreparedHide>[];
+    for (var i = 0; i < sources.length; i++) {
+      if (cancelledNow()) {
+        // Remaining unprepared sources count as not-done (user cancelled).
+        emit(statusMessage: 'Cancelled', cancelled: true);
+        return cancelledProgress();
+      }
+      final src = sources[i];
+      final name = src.name ?? p.basename(src.path);
+      currentName = name;
+      emit(statusMessage: 'Hiding…');
 
-    Future<void> worker() async {
-      while (true) {
-        if (_cancelRequested) return;
-        final i = nextIndex;
-        if (i >= sources.length) return;
-        nextIndex = i + 1;
-
-        final src = sources[i];
-        final name = src.name ?? p.basename(src.path);
-        currentName = name;
-        emit(statusMessage: 'Hiding…');
-
-        try {
-          final ok = await _withTimeout(
-            _hideOne(
-              src,
-              targetUserAlbumId: targetUserAlbumId,
-              defaultSourceFolderName: defaultSourceFolderName,
-            ),
-            timeout: const Duration(seconds: 45),
-            label: 'hide timed out: $name',
-          );
-          if (ok) {
-            imported++;
-          } else {
-            skipped++;
-          }
-        } catch (e, st) {
-          debugPrint('hide failed: $e\n$st');
-          failed++;
-          lastError = e.toString();
-        } finally {
+      try {
+        final job = await _prepareHide(
+          src,
+          targetUserAlbumId: targetUserAlbumId,
+          defaultSourceFolderName: defaultSourceFolderName,
+        );
+        if (job == null) {
+          skipped++;
           completed++;
           emit(statusMessage: 'Hiding…');
+          continue;
         }
+        prepared.add(job);
+      } catch (e, st) {
+        debugPrint('prepare hide failed: $e\n$st');
+        failed++;
+        lastError = e.toString();
+        completed++;
+        emit(statusMessage: 'Hiding…');
       }
     }
 
-    final workers = List.generate(
-      total == 0 ? 0 : (total < hideConcurrency ? total : hideConcurrency),
-      (_) => worker(),
-    );
-    await Future.wait(workers);
-
-    if (_cancelRequested) {
+    if (cancelledNow()) {
       emit(statusMessage: 'Cancelled', cancelled: true);
-      return ImportProgress(
-        done: completed,
-        total: total,
-        cancelled: true,
-        imported: imported,
-        skipped: skipped,
-        failed: failed,
-        lastError: lastError,
-      );
+      return cancelledProgress();
+    }
+
+    // ── Phase 2: native batch moves in cancelable chunks ────────────
+    final pendingDb = <({MediaItem item, String? userAlbumId})>[];
+    final thumbJobs = <_ThumbJob>[];
+
+    for (var offset = 0; offset < prepared.length; offset += nativeBatchChunk) {
+      if (cancelledNow()) {
+        // Flush any already-moved rows so partial work is durable.
+        if (pendingDb.isNotEmpty) {
+          await _flushDb(pendingDb);
+          pendingDb.clear();
+        }
+        emit(statusMessage: 'Cancelled', cancelled: true);
+        return cancelledProgress();
+      }
+
+      final end = offset + nativeBatchChunk > prepared.length
+          ? prepared.length
+          : offset + nativeBatchChunk;
+      final chunk = prepared.sublist(offset, end);
+      currentName = chunk.isEmpty ? null : chunk.last.originalName;
+      emit(statusMessage: 'Hiding…');
+
+      final requests = [
+        for (final job in chunk)
+          MediaHideRequest(
+            clientId: job.id,
+            path: job.originalPath,
+            mediaId: job.src.assetId,
+            newPath: job.destPath,
+            isVideo: job.isVideo,
+          ),
+      ];
+
+      List<MediaRenameResult> results;
+      try {
+        // Cap batch wait: cancel can only take effect after this returns.
+        // Atomic renames should finish well under this; copies of huge videos
+        // fall through to per-item with shorter individual timeouts.
+        results = await _withTimeout(
+          _renamer.hideToVaultBatch(requests),
+          timeout: Duration(seconds: 20 + chunk.length * 5),
+          label: 'hide batch timed out (${chunk.length} items)',
+        );
+      } catch (e, st) {
+        debugPrint('hide batch failed: $e\n$st');
+        results = [];
+      }
+
+      // If batch returned fewer results than requested (or timed out empty),
+      // finish remaining items one-by-one. First recover any dest already
+      // written by a timed-out native batch (no double-move).
+      final byId = <String, MediaRenameResult>{};
+      for (final r in results) {
+        final id = r.clientId;
+        if (id != null) byId[id] = r;
+      }
+      for (var i = 0; i < chunk.length && i < results.length; i++) {
+        byId.putIfAbsent(chunk[i].id, () => results[i]);
+      }
+
+      for (final job in chunk) {
+        if (cancelledNow()) break;
+
+        var native = byId[job.id];
+        // Recover: native batch may have moved the file before Dart timed out.
+        if (native == null || !native.ok) {
+          final recovered = await _recoverExistingDest(job.destPath);
+          if (recovered != null) {
+            native = MediaRenameResult(
+              ok: true,
+              newPath: job.destPath,
+              size: recovered,
+              clientId: job.id,
+              method: 'recovered',
+            );
+          } else if (native == null || !native.ok) {
+            // Per-item fallback for this job only.
+            try {
+              final one = await _withTimeout(
+                _renamer.hideToVault(
+                  path: job.originalPath,
+                  mediaId: job.src.assetId,
+                  newPath: job.destPath,
+                  isVideo: job.isVideo,
+                ),
+                timeout: const Duration(seconds: 30),
+                label: 'hide timed out: ${job.originalName}',
+              );
+              native = MediaRenameResult(
+                ok: one.ok,
+                newPath: one.newPath,
+                error: one.error,
+                needManageStorage: one.needManageStorage,
+                size: one.size,
+                clientId: job.id,
+                method: one.method,
+              );
+              // Second recovery if timed out mid-move.
+              if (!native.ok) {
+                final again = await _recoverExistingDest(job.destPath);
+                if (again != null) {
+                  native = MediaRenameResult(
+                    ok: true,
+                    newPath: job.destPath,
+                    size: again,
+                    clientId: job.id,
+                    method: 'recovered',
+                  );
+                }
+              }
+            } catch (e2) {
+              final again = await _recoverExistingDest(job.destPath);
+              if (again != null) {
+                native = MediaRenameResult(
+                  ok: true,
+                  newPath: job.destPath,
+                  size: again,
+                  clientId: job.id,
+                  method: 'recovered',
+                );
+              } else {
+                native = MediaRenameResult(
+                  ok: false,
+                  error: '$e2',
+                  clientId: job.id,
+                );
+              }
+            }
+          }
+        }
+
+        if (!native.ok) {
+          failed++;
+          lastError = native.error ?? 'transfer_failed';
+          if (native.needManageStorage) {
+            lastError = 'Permission needed to hide media. Allow access in '
+                'Settings and try again.';
+          }
+          completed++;
+          emit(statusMessage: cancelledNow() ? 'Cancelled' : 'Hiding…');
+          continue;
+        }
+
+        final newPath = native.newPath ?? job.destPath;
+        var size = native.size ?? 0;
+        if (size <= 0) {
+          size = await _recoverExistingDest(newPath) ?? 0;
+        }
+        if (size <= 0) {
+          failed++;
+          lastError = 'empty_dest';
+          completed++;
+          emit(statusMessage: 'Hiding…');
+          continue;
+        }
+
+        pendingDb.add(
+          (
+            item: MediaItem(
+              id: job.id,
+              privatePath: newPath,
+              originalPath: job.originalPath,
+              originalName: job.originalName,
+              mimeType: job.mime,
+              isVideo: job.isVideo,
+              width: null,
+              height: null,
+              durationMs: null,
+              rating: 0,
+              dateAdded: DateTime.now().toUtc(),
+              dateTaken: null,
+              sizeBytes: size,
+              thumbnailPath: null,
+            ),
+            userAlbumId: job.albumId,
+          ),
+        );
+        thumbJobs.add(
+          _ThumbJob(
+            id: job.id,
+            privatePath: newPath,
+            isVideo: job.isVideo,
+            assetId: job.src.assetId,
+          ),
+        );
+        imported++;
+        completed++;
+        emit(statusMessage: cancelledNow() ? 'Cancelled' : 'Hiding…');
+      }
+
+      // Always flush after each chunk so cancel/partial failure keeps rows.
+      if (pendingDb.isNotEmpty) {
+        await _flushDb(pendingDb);
+        pendingDb.clear();
+      }
+
+      if (cancelledNow()) {
+        emit(statusMessage: 'Cancelled', cancelled: true);
+        return cancelledProgress();
+      }
+    }
+
+    if (pendingDb.isNotEmpty) {
+      await _flushDb(pendingDb);
+      pendingDb.clear();
+    }
+
+    if (cancelledNow()) {
+      emit(statusMessage: 'Cancelled', cancelled: true);
+      return cancelledProgress();
     }
 
     // One cache clear for the whole batch (per-item clear was a major slowdown).
@@ -221,6 +488,13 @@ class ImportService {
       try {
         await PhotoManager.clearFileCache().timeout(const Duration(seconds: 2));
       } catch (_) {}
+    }
+
+    // ── Phase 3: deferred thumbs (non-blocking for UI completion) ───
+    // Fire-and-forget after progress reports Done so the sheet can dismiss.
+    // Cancel mid-thumb is best-effort only.
+    if (thumbJobs.isNotEmpty && !_cancelRequested) {
+      unawaited(_generateThumbsDeferred(thumbJobs));
     }
 
     final done = ImportProgress(
@@ -236,7 +510,39 @@ class ImportService {
     return done;
   }
 
-  Future<bool> _hideOne(
+  Future<void> _flushDb(
+    List<({MediaItem item, String? userAlbumId})> pending,
+  ) async {
+    if (pending.isEmpty) return;
+    try {
+      await _media.insertMany(List.of(pending));
+    } catch (e, st) {
+      debugPrint('batch DB insert failed: $e\n$st');
+      for (final e2 in pending) {
+        try {
+          await _media.insert(e2.item, userAlbumId: e2.userAlbumId);
+        } catch (err) {
+          debugPrint('single DB insert failed ${e2.item.id}: $err');
+        }
+      }
+    }
+  }
+
+  /// If a dest file already exists with bytes (e.g. timed-out native move),
+  /// treat the hide as successful so we don't leave orphans without DB rows.
+  Future<int?> _recoverExistingDest(String destPath) async {
+    try {
+      final f = File(destPath);
+      if (!await f.exists()) return null;
+      final len = await f.length();
+      if (len <= 0) return null;
+      return len;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<_PreparedHide?> _prepareHide(
     ImportSource src, {
     String? targetUserAlbumId,
     String? defaultSourceFolderName,
@@ -251,25 +557,24 @@ class ImportService {
 
     if (!pathOk && src.assetId != null) {
       final entity = await AssetEntity.fromId(src.assetId!);
-      if (entity == null) return false;
+      if (entity == null) return null;
       File? resolved;
       try {
         resolved = await entity.file.timeout(const Duration(seconds: 15));
       } catch (e) {
         debugPrint('entity.file: $e');
       }
-      if (resolved == null || !await resolved.exists()) return false;
+      if (resolved == null || !await resolved.exists()) return null;
       file = resolved;
     } else if (!pathOk) {
-      return false;
+      return null;
     }
 
     final originalPath = file.path;
-    if (originalPath.startsWith('content:')) return false;
+    if (originalPath.startsWith('content:')) return null;
 
     final name = src.name ?? p.basename(originalPath);
     var mime = _sniffMime(src.mimeType, name, originalPath);
-    // Never hard-fail on unknown mime — default by extension / name.
     mime ??= () {
       final ext = p.extension(name).toLowerCase();
       if ({'.mp4', '.mov', '.mkv', '.webm', '.3gp', '.avi', '.m4v'}
@@ -283,10 +588,9 @@ class ImportService {
         defaultSourceFolderName ??
         _folderNameFromPath(originalPath);
 
-    // Already in vault?
     if (HideNaming.isHiddenVaultPath(originalPath) ||
         await _media.existsByPrivatePath(originalPath)) {
-      return false;
+      return null;
     }
 
     final id = _uuid.v4();
@@ -295,148 +599,50 @@ class ImportService {
       originalName: HideNaming.displayName(name),
       sourceFolder: folderName,
     );
-
-    debugPrint(
-      'PH_HIDE start src=$originalPath dest=$destPath asset=${src.assetId} video=$isVideo',
-    );
-
-    // Single native path: MediaStore stream copy/move into .nomedia vault.
-    final native = await _renamer.hideToVault(
-      path: originalPath,
-      mediaId: src.assetId,
-      newPath: destPath,
-      isVideo: isVideo,
-    );
-
-    File? hiddenFile;
-    if (native.ok &&
-        native.newPath != null &&
-        await File(native.newPath!).exists() &&
-        (native.size == null || native.size! > 0)) {
-      hiddenFile = File(native.newPath!);
-      debugPrint('PH_HIDE native ok len=${native.size} path=${native.newPath}');
-    } else {
-      // Dart fallbacks (rare).
-      try {
-        await Directory(p.dirname(destPath)).create(recursive: true);
-        final dest = File(destPath);
-        if (await dest.exists()) await dest.delete();
-        await file.openRead().pipe(dest.openWrite());
-        if (await dest.exists() && await dest.length() > 0) {
-          hiddenFile = dest;
-          try {
-            if (await file.exists()) await file.delete();
-          } catch (_) {}
-          debugPrint('hide via dart copy fallback');
-        }
-      } catch (e) {
-        debugPrint('dart fallback hide: $e / native=$native');
-      }
-      if (hiddenFile == null && src.assetId != null) {
-        try {
-          final entity = await AssetEntity.fromId(src.assetId!);
-          final origin =
-              await entity?.originFile.timeout(const Duration(seconds: 30));
-          if (origin != null && await origin.exists()) {
-            final dest = File(destPath);
-            await origin.openRead().pipe(dest.openWrite());
-            if (await dest.exists() && await dest.length() > 0) {
-              hiddenFile = dest;
-              debugPrint('hide via originFile fallback');
-            }
-          }
-        } catch (e) {
-          debugPrint('origin fallback: $e');
-        }
-      }
-    }
-
-    if (hiddenFile == null || !await hiddenFile.exists()) {
-      debugPrint('PH_HIDE FAIL native=$native');
-      // User-facing copy stays non-technical; details stay in logcat.
-      throw StateError(
-        native.needManageStorage
-            ? 'Permission needed to hide media. Allow access in Settings '
-                'and try again.'
-            : 'Could not hide media. Please try again.',
-      );
-    }
-    final movedLen = await hiddenFile.length();
-    if (movedLen <= 0) {
-      try {
-        await hiddenFile.delete();
-      } catch (_) {}
-      throw StateError('Could not hide media. Please try again.');
-    }
-
-    final sizeBytes = await hiddenFile.length();
-    String? thumbPath;
-
-    // Capture thumb **before** any index purge (videos need MediaStore still).
-    try {
-      thumbPath = await _makeThumb(
-        hiddenFile: hiddenFile,
-        id: id,
-        isVideo: isVideo,
-        assetId: src.assetId,
-      ).timeout(const Duration(seconds: 4));
-    } catch (e) {
-      debugPrint('thumb skip: $e');
-    }
-
-    // Native hideToVault already drops MediaStore rows; only purge on fallbacks.
-    if (!native.ok) {
-      try {
-        await _mediaStore.purgePath(originalPath);
-      } catch (e) {
-        debugPrint('purge original index: $e');
-      }
-    }
-
-    // Skip expensive full-file decode for dimensions on hide path.
-    // Grid uses thumbs; player/viewer can read size later if needed.
-
-    final item = MediaItem(
-      id: id,
-      privatePath: hiddenFile.path,
-      originalPath: originalPath,
-      originalName: HideNaming.displayName(name),
-      mimeType: mime,
-      isVideo: isVideo,
-      width: null,
-      height: null,
-      durationMs: null,
-      rating: 0,
-      dateAdded: DateTime.now().toUtc(),
-      dateTaken: await hiddenFile.lastModified(),
-      sizeBytes: sizeBytes,
-      thumbnailPath: thumbPath,
-    );
-
     final albumId =
         targetUserAlbumId ?? await _resolveMirrorAlbumId(folderName);
 
-    try {
-      await _media.insert(item, userAlbumId: albumId);
-    } catch (e, st) {
-      debugPrint('hide DB insert failed: $e\n$st');
-      // Retry once; never delete the vault file — leave orphan for scan.
-      try {
-        await Future<void>.delayed(const Duration(milliseconds: 50));
-        await _media.insert(item, userAlbumId: albumId);
-      } catch (e2, st2) {
-        debugPrint(
-          'hide DB insert retry failed; orphan vault file kept at '
-          '${hiddenFile.path}: $e2\n$st2',
-        );
-        throw StateError(
-          'Hide DB insert failed; vault file orphaned at '
-          '${hiddenFile.path}: $e2',
-        );
+    return _PreparedHide(
+      id: id,
+      src: src,
+      originalPath: originalPath,
+      originalName: HideNaming.displayName(name),
+      mime: mime,
+      isVideo: isVideo,
+      destPath: destPath,
+      folderName: folderName,
+      albumId: albumId,
+    );
+  }
+
+  /// Background thumbs after hide completes. Does not block import progress.
+  Future<void> _generateThumbsDeferred(List<_ThumbJob> jobs) async {
+    var next = 0;
+    Future<void> worker() async {
+      while (true) {
+        if (_cancelRequested) return;
+        final i = next;
+        if (i >= jobs.length) return;
+        next = i + 1;
+        final job = jobs[i];
+        try {
+          final path = await _makeThumb(
+            hiddenFile: File(job.privatePath),
+            id: job.id,
+            isVideo: job.isVideo,
+            assetId: job.assetId,
+          ).timeout(const Duration(seconds: 6));
+          if (path != null && path.isNotEmpty) {
+            await _media.updateThumbnail(job.id, path);
+          }
+        } catch (e) {
+          debugPrint('deferred thumb ${job.id}: $e');
+        }
       }
     }
-    debugPrint('PH_HIDE OK $originalPath → ${hiddenFile.path} len=$movedLen');
-    return true;
+
+    final n = jobs.length < thumbConcurrency ? jobs.length : thumbConcurrency;
+    await Future.wait(List.generate(n, (_) => worker()));
   }
 
   Future<String> _resolveMirrorAlbumId(String folderName) async {
@@ -569,8 +775,7 @@ class ImportService {
     required bool isVideo,
     String? assetId,
   }) async {
-    // Fast path: MediaStore thumbnail (no full-file decode). Call this
-    // *before* purging the original index — after purge it often fails.
+    // Fast path: MediaStore thumbnail (may still work briefly after move).
     if (assetId != null) {
       try {
         final entity = await AssetEntity.fromId(assetId);
@@ -589,7 +794,6 @@ class ImportService {
     }
 
     // Videos: decode a still from the vault file (MediaMetadataRetriever).
-    // Image.file cannot render mp4, so without this the grid shows broken.
     if (isVideo) {
       try {
         final out = await _storage.thumbFileFor(id);
@@ -607,10 +811,10 @@ class ImportService {
       return null;
     }
 
-    // Slow path: decode image file (capped). Prefer skipped over stalling hide.
+    // Slow path: decode image file (capped). Prefer skipped over stalling.
     try {
       final len = await hiddenFile.length();
-      if (len > 8 * 1024 * 1024) return null; // skip large stills on hide path
+      if (len > 8 * 1024 * 1024) return null;
       final bytes = await hiddenFile.readAsBytes();
       final codec = await ui.instantiateImageCodec(bytes, targetWidth: 256);
       final frame = await codec.getNextFrame();
@@ -628,4 +832,18 @@ class ImportService {
       return null;
     }
   }
+}
+
+class _ThumbJob {
+  const _ThumbJob({
+    required this.id,
+    required this.privatePath,
+    required this.isVideo,
+    this.assetId,
+  });
+
+  final String id;
+  final String privatePath;
+  final bool isVideo;
+  final String? assetId;
 }

@@ -188,6 +188,18 @@ class SettingsScreen extends ConsumerWidget {
             onTap: () => _scanOrphans(context, ref),
           ),
           ListTile(
+            leading: const Icon(Icons.restore_page_outlined),
+            title: Text(context.l10n.recoverVault),
+            subtitle: Text(context.l10n.recoverVaultSubtitle),
+            onTap: () => _recoverVault(context, ref, alsoUnhide: false),
+          ),
+          ListTile(
+            leading: const Icon(Icons.unarchive_outlined),
+            title: Text(context.l10n.recoverAndUnhide),
+            subtitle: Text(context.l10n.recoverAndUnhideSubtitle),
+            onTap: () => _recoverVault(context, ref, alsoUnhide: true),
+          ),
+          ListTile(
             leading: const Icon(Icons.delete_sweep_outlined),
             title: Text(context.l10n.recycleRetention),
             subtitle: Text(context.l10n.retentionDays(s.recycleRetentionDays)),
@@ -524,12 +536,72 @@ class SettingsScreen extends ConsumerWidget {
       SnackBar(content: Text(context.l10n.scanningOrphans)),
     );
     try {
-      final msg =
-          await ref.read(maintenanceServiceProvider).scanOrphanHiddenFiles();
+      final result = await ref
+          .read(maintenanceServiceProvider)
+          .recoverVaultFiles(alsoUnhide: false);
       ref.invalidate(vaultSizeBytesProvider);
+      ref.invalidate(albumsProvider);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(msg)),
+          SnackBar(content: Text(result.summary)),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(context.l10n.scanFailed('$e'))),
+        );
+      }
+    }
+  }
+
+  /// Reinstall recovery: re-index files still under `.privateheart_vault`.
+  ///
+  /// [alsoUnhide] restores them to the public Gallery after indexing.
+  Future<void> _recoverVault(
+    BuildContext context,
+    WidgetRef ref, {
+    required bool alsoUnhide,
+  }) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(
+          alsoUnhide
+              ? context.l10n.recoverAndUnhide
+              : context.l10n.recoverVault,
+        ),
+        content: Text(
+          alsoUnhide
+              ? context.l10n.recoverAndUnhideBody
+              : context.l10n.recoverVaultBody,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(context.l10n.cancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(context.l10n.continueAction),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !context.mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(context.l10n.recoveringVault)),
+    );
+    try {
+      final result = await ref
+          .read(maintenanceServiceProvider)
+          .recoverVaultFiles(alsoUnhide: alsoUnhide);
+      ref.invalidate(vaultSizeBytesProvider);
+      ref.invalidate(albumsProvider);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(result.summary)),
         );
       }
     } catch (e) {

@@ -16,9 +16,17 @@ class ImportProgressSheet extends ConsumerWidget {
     final state = ref.watch(importControllerProvider);
     final p = state.progress;
     final theme = Theme.of(context);
+    final running = state.running;
+    final cancelling = state.cancelling || (p?.cancelled ?? false);
 
     return PopScope(
-      canPop: !state.running,
+      // Allow system back to request cancel while running (does not pop).
+      canPop: !running,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && running) {
+          ref.read(importControllerProvider.notifier).cancel();
+        }
+      },
       // SafeArea keeps Cancel clear of gesture/nav bars (3-button + gesture).
       child: SafeArea(
         child: Padding(
@@ -32,7 +40,8 @@ class ImportProgressSheet extends ConsumerWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                title ?? context.l10n.hiding,
+                title ??
+                    (cancelling ? context.l10n.cancelled : context.l10n.hiding),
                 style: theme.textTheme.titleLarge,
               ),
               const SizedBox(height: AppSpacing.lg),
@@ -41,7 +50,13 @@ class ImportProgressSheet extends ConsumerWidget {
                   value: p.total == 0 ? null : p.fraction.clamp(0.0, 1.0),
                 ),
                 const SizedBox(height: AppSpacing.sm),
-                Text('${p.done} / ${p.total}'),
+                Text(
+                  p.total == 0
+                      ? (cancelling
+                          ? context.l10n.cancelled
+                          : context.l10n.hiding)
+                      : '${p.done} / ${p.total}',
+                ),
                 if (p.statusMessage != null) ...[
                   const SizedBox(height: AppSpacing.xs),
                   Text(
@@ -51,7 +66,7 @@ class ImportProgressSheet extends ConsumerWidget {
                     ),
                   ),
                 ],
-                if (p.currentName != null) ...[
+                if (p.currentName != null && !cancelling) ...[
                   const SizedBox(height: AppSpacing.xs),
                   Text(
                     p.currentName!,
@@ -73,10 +88,13 @@ class ImportProgressSheet extends ConsumerWidget {
                 const LinearProgressIndicator(),
               const SizedBox(height: AppSpacing.lg),
               TextButton(
-                onPressed: state.running
+                // Always enabled while running so cancel works during resolve.
+                onPressed: running && !cancelling
                     ? () => ref.read(importControllerProvider.notifier).cancel()
                     : null,
-                child: Text(context.l10n.cancel),
+                child: Text(
+                  cancelling ? context.l10n.cancelled : context.l10n.cancel,
+                ),
               ),
             ],
           ),

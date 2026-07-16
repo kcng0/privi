@@ -4,7 +4,7 @@ import 'package:flutter/widgets.dart';
 abstract final class AppInfo {
   static const String name = 'Privi';
   static const String fullName = 'Privi';
-  static const String version = '0.1.2';
+  static const String version = '0.1.3';
   static const String author = 'kcng0';
   static const String authorUrl = 'https://github.com/kcng0';
   static const String tagline =

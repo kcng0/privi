@@ -1156,6 +1156,48 @@ abstract class AppLocalizations {
   /// **'Scanning for orphan hidden files…'**
   String get scanningOrphans;
 
+  /// No description provided for @recoverVault.
+  ///
+  /// In en, this message translates to:
+  /// **'Recover vault after reinstall'**
+  String get recoverVault;
+
+  /// No description provided for @recoverVaultSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Re-index media left in .privateheart_vault'**
+  String get recoverVaultSubtitle;
+
+  /// No description provided for @recoverVaultBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Scan the on-disk vault folder and bring missing items back into Invisible. Use this after reinstalling Privi when files are still on the phone.'**
+  String get recoverVaultBody;
+
+  /// No description provided for @recoverAndUnhide.
+  ///
+  /// In en, this message translates to:
+  /// **'Recover & restore to Gallery'**
+  String get recoverAndUnhide;
+
+  /// No description provided for @recoverAndUnhideSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Re-index vault files and unhide them'**
+  String get recoverAndUnhideSubtitle;
+
+  /// No description provided for @recoverAndUnhideBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Re-index files under the vault folder, then move them back to public folders (Downloads / original when known). Use after reinstall if you want media visible in Gallery again.'**
+  String get recoverAndUnhideBody;
+
+  /// No description provided for @recoveringVault.
+  ///
+  /// In en, this message translates to:
+  /// **'Recovering vault files…'**
+  String get recoveringVault;
+
   /// No description provided for @author.
   ///
   /// In en, this message translates to:

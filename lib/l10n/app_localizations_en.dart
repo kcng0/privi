@@ -598,6 +598,30 @@ class AppLocalizationsEn extends AppLocalizations {
   String get scanningOrphans => 'Scanning for orphan hidden files…';
 
   @override
+  String get recoverVault => 'Recover vault after reinstall';
+
+  @override
+  String get recoverVaultSubtitle =>
+      'Re-index media left in .privateheart_vault';
+
+  @override
+  String get recoverVaultBody =>
+      'Scan the on-disk vault folder and bring missing items back into Invisible. Use this after reinstalling Privi when files are still on the phone.';
+
+  @override
+  String get recoverAndUnhide => 'Recover & restore to Gallery';
+
+  @override
+  String get recoverAndUnhideSubtitle => 'Re-index vault files and unhide them';
+
+  @override
+  String get recoverAndUnhideBody =>
+      'Re-index files under the vault folder, then move them back to public folders (Downloads / original when known). Use after reinstall if you want media visible in Gallery again.';
+
+  @override
+  String get recoveringVault => 'Recovering vault files…';
+
+  @override
   String get author => 'Author';
 
   @override

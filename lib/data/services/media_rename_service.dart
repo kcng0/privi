@@ -9,6 +9,8 @@ class MediaRenameResult {
     this.error,
     this.needManageStorage = false,
     this.size,
+    this.clientId,
+    this.method,
   });
 
   final bool ok;
@@ -16,6 +18,30 @@ class MediaRenameResult {
   final String? error;
   final bool needManageStorage;
   final int? size;
+
+  /// Echo of the request [MediaHideRequest.clientId] (batch path).
+  final String? clientId;
+
+  /// Native transfer method (`Files.move`, `renameTo`, `uri-copy`, …).
+  final String? method;
+}
+
+/// One item for [MediaRenameService.hideToVaultBatch].
+class MediaHideRequest {
+  const MediaHideRequest({
+    required this.clientId,
+    this.path,
+    this.mediaId,
+    required this.newPath,
+    required this.isVideo,
+  });
+
+  /// Opaque id (usually vault media uuid) so Dart can match results.
+  final String clientId;
+  final String? path;
+  final String? mediaId;
+  final String newPath;
+  final bool isVideo;
 }
 
 /// Android MediaStore / filesystem hide helpers.
@@ -84,19 +110,71 @@ class MediaRenameService {
       if (raw is! Map) {
         return const MediaRenameResult(ok: false, error: 'bad_response');
       }
-      final map = Map<String, dynamic>.from(raw);
-      final sizeVal = map['size'];
-      return MediaRenameResult(
-        ok: map['ok'] == true,
-        newPath: map['newPath'] as String?,
-        error: map['error'] as String?,
-        needManageStorage: map['needManageStorage'] == true,
-        size: sizeVal is int ? sizeVal : int.tryParse('$sizeVal'),
-      );
+      return _parseResult(Map<String, dynamic>.from(raw));
     } catch (e) {
       debugPrint('hideToVault: $e');
       return MediaRenameResult(ok: false, error: '$e');
     }
+  }
+
+  /// One IPC for many hides. [clientId] on each request is echoed in the result.
+  ///
+  /// Keep chunk sizes modest (see [ImportService]) so Cancel can stop between
+  /// chunks — a single giant native call cannot be interrupted mid-flight.
+  Future<List<MediaRenameResult>> hideToVaultBatch(
+    List<MediaHideRequest> items,
+  ) async {
+    if (items.isEmpty) return const [];
+    try {
+      final raw = await _channel.invokeMethod<dynamic>('hideToVaultBatch', {
+        'items': [
+          for (final i in items)
+            {
+              'clientId': i.clientId,
+              'path': i.path,
+              'mediaId': i.mediaId,
+              'newPath': i.newPath,
+              'isVideo': i.isVideo,
+            },
+        ],
+      });
+      if (raw is! List) {
+        return [
+          for (final i in items)
+            MediaRenameResult(
+              ok: false,
+              error: 'bad_response',
+              clientId: i.clientId,
+            ),
+        ];
+      }
+      return [
+        for (final entry in raw)
+          if (entry is Map)
+            _parseResult(Map<String, dynamic>.from(entry))
+          else
+            const MediaRenameResult(ok: false, error: 'bad_item'),
+      ];
+    } catch (e) {
+      debugPrint('hideToVaultBatch: $e');
+      return [
+        for (final i in items)
+          MediaRenameResult(ok: false, error: '$e', clientId: i.clientId),
+      ];
+    }
+  }
+
+  MediaRenameResult _parseResult(Map<String, dynamic> map) {
+    final sizeVal = map['size'];
+    return MediaRenameResult(
+      ok: map['ok'] == true,
+      newPath: map['newPath'] as String?,
+      error: map['error'] as String?,
+      needManageStorage: map['needManageStorage'] == true,
+      size: sizeVal is int ? sizeVal : int.tryParse('$sizeVal'),
+      clientId: map['clientId'] as String?,
+      method: map['method'] as String?,
+    );
   }
 
   /// Extract a JPEG still from a local video path into [destPath].

@@ -131,6 +131,16 @@ class MainActivity : FlutterFragmentActivity() {
                             )
                         }
                     }
+                    "hideToVaultBatch" -> {
+                        val rawItems = call.argument<List<*>>("items")
+                        if (rawItems.isNullOrEmpty()) {
+                            result.success(emptyList<Map<String, Any?>>())
+                            return@setMethodCallHandler
+                        }
+                        runIo(result) {
+                            hideToVaultBatch(rawItems)
+                        }
+                    }
                     "videoThumbnail" -> {
                         val path = call.argument<String>("path")
                         val destPath = call.argument<String>("destPath")
@@ -231,8 +241,10 @@ class MainActivity : FlutterFragmentActivity() {
 
     /**
      * Directory hide in one call:
-     * resolve real file → copy/move into .privateheart_vault → remove original
-     * → drop MediaStore index for original. Never scan the vault path.
+     * resolve real file → **atomic move** into .privateheart_vault (prefer O(1)
+     * inode rename with All Files Access) → drop MediaStore index by id.
+     * Byte-copy is only a fallback when rename is impossible.
+     * Never scan the vault path.
      */
     private fun hideToVault(
         sourcePath: String?,
@@ -288,18 +300,66 @@ class MainActivity : FlutterFragmentActivity() {
                 uri = contentUriForMediaId(mediaId, isVideo)
             }
 
-            var copied = false
+            var transferred = false
+            // True only when we had to byte-copy (original may still exist).
+            var usedByteCopy = false
             var srcLen = srcFile?.length() ?: 0L
+            var method = "none"
 
-            // 1) Prefer openInputStream(MediaStore uri) — most reliable on scoped storage.
-            if (uri != null) {
+            // 1) Atomic same-volume rename/move — O(1) metadata, not full-file IO.
+            // With MANAGE_EXTERNAL_STORAGE this is the primary path for vault hide.
+            if (srcFile != null && srcFile!!.exists()) {
+                srcLen = srcFile!!.length()
+                try {
+                    Files.move(
+                        srcFile!!.toPath(),
+                        dest.toPath(),
+                        StandardCopyOption.REPLACE_EXISTING,
+                    )
+                    if (dest.exists() && (srcLen == 0L || dest.length() > 0L)) {
+                        transferred = true
+                        method = "Files.move"
+                        android.util.Log.i(
+                            "PrivateHeart",
+                            "hideToVault Files.move len=${dest.length()}",
+                        )
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.w("PrivateHeart", "Files.move: $e")
+                }
+                if (!transferred) {
+                    try {
+                        if (srcFile!!.renameTo(dest) &&
+                            dest.exists() &&
+                            (srcLen == 0L || dest.length() > 0L)
+                        ) {
+                            transferred = true
+                            method = "renameTo"
+                            android.util.Log.i(
+                                "PrivateHeart",
+                                "hideToVault renameTo len=${dest.length()}",
+                            )
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.w("PrivateHeart", "renameTo: $e")
+                    }
+                }
+            }
+
+            // 2) URI stream copy only when rename is impossible (scoped / missing path).
+            if (!transferred && uri != null) {
                 try {
                     contentResolver.openInputStream(uri)?.use { input ->
                         dest.outputStream().use { output -> input.copyTo(output) }
                     }
                     if (dest.exists() && dest.length() > 0L) {
-                        copied = true
-                        android.util.Log.i("PrivateHeart", "hideToVault uri-copy len=${dest.length()}")
+                        transferred = true
+                        usedByteCopy = true
+                        method = "uri-copy"
+                        android.util.Log.i(
+                            "PrivateHeart",
+                            "hideToVault uri-copy len=${dest.length()}",
+                        )
                     } else if (dest.exists()) {
                         dest.delete()
                     }
@@ -309,48 +369,27 @@ class MainActivity : FlutterFragmentActivity() {
                 }
             }
 
-            // 2) Filesystem move/copy
-            if (!copied && srcFile != null && srcFile!!.exists()) {
-                srcLen = srcFile!!.length()
+            // 3) Filesystem byte-copy fallback.
+            if (!transferred && srcFile != null && srcFile!!.exists()) {
                 try {
-                    Files.move(srcFile!!.toPath(), dest.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                    srcFile!!.inputStream().use { input ->
+                        dest.outputStream().use { output -> input.copyTo(output) }
+                    }
                     if (dest.exists() && dest.length() > 0L) {
-                        copied = true
-                        android.util.Log.i("PrivateHeart", "hideToVault Files.move len=${dest.length()}")
+                        transferred = true
+                        usedByteCopy = true
+                        method = "fs-copy"
+                        android.util.Log.i(
+                            "PrivateHeart",
+                            "hideToVault fs-copy len=${dest.length()}",
+                        )
                     }
                 } catch (e: Exception) {
-                    android.util.Log.w("PrivateHeart", "Files.move: $e")
-                }
-                if (!copied) {
-                    try {
-                        if (srcFile!!.renameTo(dest) && dest.exists() && dest.length() > 0L) {
-                            copied = true
-                            android.util.Log.i("PrivateHeart", "hideToVault renameTo len=${dest.length()}")
-                        }
-                    } catch (e: Exception) {
-                        android.util.Log.w("PrivateHeart", "renameTo: $e")
-                    }
-                }
-                if (!copied) {
-                    try {
-                        srcFile!!.inputStream().use { input ->
-                            dest.outputStream().use { output -> input.copyTo(output) }
-                        }
-                        if (dest.exists() && dest.length() > 0L) {
-                            copied = true
-                            try {
-                                srcFile!!.delete()
-                            } catch (_: Exception) {
-                            }
-                            android.util.Log.i("PrivateHeart", "hideToVault fs-copy len=${dest.length()}")
-                        }
-                    } catch (e: Exception) {
-                        android.util.Log.w("PrivateHeart", "fs-copy: $e")
-                    }
+                    android.util.Log.w("PrivateHeart", "fs-copy: $e")
                 }
             }
 
-            if (!copied || !dest.exists() || dest.length() <= 0L) {
+            if (!transferred || !dest.exists() || dest.length() <= 0L) {
                 if (dest.exists()) dest.delete()
                 return mapOf(
                     "ok" to false,
@@ -362,49 +401,116 @@ class MainActivity : FlutterFragmentActivity() {
                 )
             }
 
-            // Remove original file if still present (after successful vault copy).
-            try {
-                if (srcFile != null && srcFile!!.exists() && srcFile!!.absolutePath != dest.absolutePath) {
-                    srcFile!!.delete()
-                }
-            } catch (_: Exception) {
-            }
-            if (!sourcePath.isNullOrBlank()) {
+            // After byte-copy, remove the original if it is still on disk.
+            // After atomic move/rename the original path is already gone.
+            if (usedByteCopy) {
                 try {
-                    val s = File(sourcePath)
-                    if (s.exists() && s.absolutePath != dest.absolutePath) s.delete()
+                    if (srcFile != null &&
+                        srcFile!!.exists() &&
+                        srcFile!!.absolutePath != dest.absolutePath
+                    ) {
+                        srcFile!!.delete()
+                    }
                 } catch (_: Exception) {
+                }
+                if (!sourcePath.isNullOrBlank()) {
+                    try {
+                        val s = File(sourcePath)
+                        if (s.exists() && s.absolutePath != dest.absolutePath) s.delete()
+                    } catch (_: Exception) {
+                    }
                 }
             }
 
-            // Drop MediaStore index for original (file should be gone).
+            // MediaStore: one targeted delete by content URI (known _ID).
+            // Avoid multi-collection path walks unless the URI delete is unavailable.
+            var indexDropped = false
             if (uri != null) {
                 try {
                     contentResolver.delete(uri, null, null)
+                    indexDropped = true
                 } catch (e: Exception) {
                     android.util.Log.w("PrivateHeart", "delete uri index: $e")
                 }
             }
-            if (!sourcePath.isNullOrBlank()) {
-                hideInMediaStore(sourcePath, isVideo)
-            }
-            if (srcFile != null) {
-                hideInMediaStore(srcFile!!.absolutePath, isVideo)
+            if (!indexDropped) {
+                val pathForIndex = when {
+                    srcFile != null -> srcFile!!.absolutePath
+                    !sourcePath.isNullOrBlank() -> sourcePath
+                    else -> null
+                }
+                if (!pathForIndex.isNullOrBlank()) {
+                    hideInMediaStore(pathForIndex, isVideo)
+                }
             }
 
             android.util.Log.i(
                 "PrivateHeart",
-                "hideToVault OK dest=${dest.absolutePath} len=${dest.length()}",
+                "hideToVault OK method=$method dest=${dest.absolutePath} len=${dest.length()}",
             )
             return mapOf(
                 "ok" to true,
                 "newPath" to dest.absolutePath,
                 "size" to dest.length(),
+                "method" to method,
             )
         } catch (e: Exception) {
             android.util.Log.e("PrivateHeart", "hideToVault fatal: $e")
             return mapOf("ok" to false, "error" to (e.message ?: "fatal"))
         }
+    }
+
+    /**
+     * Batch hide: one MethodChannel call processes many items on the IO pool.
+     * Each entry may include clientId for Dart-side correlation.
+     */
+    private fun hideToVaultBatch(rawItems: List<*>): List<Map<String, Any?>> {
+        val out = ArrayList<Map<String, Any?>>(rawItems.size)
+        for (entry in rawItems) {
+            val map = entry as? Map<*, *>
+            if (map == null) {
+                out.add(mapOf("ok" to false, "error" to "bad_item"))
+                continue
+            }
+            fun str(key: String): String? {
+                val v = map[key] ?: return null
+                val s = v.toString()
+                return s.ifEmpty { null }
+            }
+            val clientId = str("clientId")
+            val destPath = str("newPath")
+            if (destPath.isNullOrEmpty()) {
+                out.add(
+                    buildMap {
+                        put("ok", false)
+                        put("error", "bad_args")
+                        if (clientId != null) put("clientId", clientId)
+                    },
+                )
+                continue
+            }
+            val mediaIdStr = str("mediaId")
+            val mediaId = mediaIdStr?.toLongOrNull()
+            val isVideo = when (val v = map["isVideo"]) {
+                is Boolean -> v
+                is Number -> v.toInt() != 0
+                else -> false
+            }
+            val result = hideToVault(
+                sourcePath = str("path"),
+                mediaId = mediaId,
+                destPath = destPath,
+                isVideo = isVideo,
+            )
+            if (clientId != null) {
+                val withId = result.toMutableMap()
+                withId["clientId"] = clientId
+                out.add(withId)
+            } else {
+                out.add(result)
+            }
+        }
+        return out
     }
 
     private fun contentUriForMediaId(id: Long, isVideo: Boolean): Uri {

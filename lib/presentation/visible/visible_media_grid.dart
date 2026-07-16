@@ -407,6 +407,9 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
     }
 
     if (!mounted) return;
+    final import = ref.read(importControllerProvider.notifier);
+    // Session starts before path resolve so Cancel is live immediately.
+    import.beginSession();
     // ignore: unawaited_futures
     showImportProgressSheet(context, title: null);
 
@@ -416,6 +419,10 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
         ids,
         sourceFolderName: folderName,
       );
+      if (import.isCancelRequested) {
+        // User cancelled during resolve.
+        return;
+      }
       if (sources.isEmpty) {
         if (mounted) {
           messenger.showSnackBar(
@@ -425,26 +432,30 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
         return;
       }
 
-      final summary =
-          await ref.read(importControllerProvider.notifier).runImport(
-                sources,
-                sourceFolderName: folderName,
-              );
+      final summary = await import.runImport(
+        sources,
+        sourceFolderName: folderName,
+        sessionAlreadyStarted: true,
+      );
       imported = summary.imported;
 
       if (!mounted) return;
       final msg = StringBuffer();
-      if (summary.imported > 0) {
+      if (summary.cancelled && summary.imported == 0) {
+        msg.write(context.l10n.cancelled);
+      } else if (summary.imported > 0) {
         msg.write(
           summary.imported == 1
               ? context.l10n.hiddenToAlbum(folderName)
               : context.l10n.hiddenCountToAlbum(summary.imported, folderName),
         );
+        if (summary.cancelled) {
+          msg.write(' · ${context.l10n.cancelled}');
+        }
       }
       if (summary.failed > 0) {
         if (msg.isNotEmpty) msg.write(' · ');
         msg.write('${summary.failed} failed');
-        // Keep snackbars short — no raw exception dumps.
         final err = summary.lastError;
         if (err != null && _looksLikePermissionError(err)) {
           msg.write(' · permission needed');
@@ -464,14 +475,16 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
         );
       }
     } finally {
-      // Dismiss progress sheet immediately — no multi-second "refresh".
-      if (nav.canPop()) {
-        nav.pop();
-      }
-      ref.read(importControllerProvider.notifier).clearSummary();
+      // Always dismiss sheet + clear running state (cancel / fail / success).
+      try {
+        if (nav.canPop()) {
+          nav.pop();
+        }
+      } catch (_) {}
+      import.clearSummary();
 
+      // Refresh UI for any partial success so Visible isn't stuck stale.
       if (imported > 0) {
-        // Instant folder count/cover update (no full-library scan).
         gallery.noteHidden(
           pathId: widget.pathId,
           hiddenCount: imported,
@@ -483,7 +496,9 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
         ref.read(galleryUiEpochProvider.notifier).bump();
         ref.invalidate(galleryFoldersProvider);
         ref.invalidate(albumsProvider);
-        await _reload();
+        try {
+          await _reload();
+        } catch (_) {}
       }
 
       if (mounted) _exitSelect();
