@@ -46,7 +46,6 @@ class _HomeShellState extends ConsumerState<HomeShell>
     super.dispose();
   }
 
-
   Future<void> _newAlbum() async {
     final controller = TextEditingController();
     final name = await showDialog<String>(
@@ -125,7 +124,8 @@ class _HomeShellState extends ConsumerState<HomeShell>
               onTap: () => Navigator.pop(ctx, 'new_album'),
             ),
             ListTile(
-              leading: const Icon(Icons.settings_outlined, color: Colors.white70),
+              leading:
+                  const Icon(Icons.settings_outlined, color: Colors.white70),
               title: const Text(
                 'Settings',
                 style: TextStyle(color: Colors.white),

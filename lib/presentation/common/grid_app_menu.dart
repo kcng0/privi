@@ -83,9 +83,8 @@ abstract final class GridAppMenu {
                                 color: on ? primary : Colors.white,
                               ),
                             ),
-                            trailing: on
-                                ? Icon(Icons.check, color: primary)
-                                : null,
+                            trailing:
+                                on ? Icon(Icons.check, color: primary) : null,
                             onTap: () => toggle(s),
                           );
                         },
