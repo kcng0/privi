@@ -41,14 +41,19 @@ class ThumbnailTile extends StatelessWidget {
           children: [
             Hero(
               tag: 'media-hero-${item.id}',
-              child: Image.file(
-                File(item.displayPath),
-                fit: BoxFit.cover,
-                gaplessPlayback: true,
-                cacheWidth: cachePx,
-                cacheHeight: cachePx,
-                errorBuilder: (_, __, ___) => const _Broken(),
-              ),
+              // Videos without a still can't be decoded by Image.file (mp4).
+              child: item.isVideo && !item.hasThumbnail
+                  ? const _VideoPlaceholder()
+                  : Image.file(
+                      File(item.displayPath),
+                      fit: BoxFit.cover,
+                      gaplessPlayback: true,
+                      cacheWidth: cachePx,
+                      cacheHeight: cachePx,
+                      errorBuilder: (_, __, ___) => item.isVideo
+                          ? const _VideoPlaceholder()
+                          : const _Broken(),
+                    ),
             ),
             if (item.isVideo)
               Positioned(
@@ -146,6 +151,20 @@ class _Broken extends StatelessWidget {
     return const ColoredBox(
       color: Color(0xFF244842),
       child: Icon(Icons.broken_image_outlined, color: Colors.white38),
+    );
+  }
+}
+
+class _VideoPlaceholder extends StatelessWidget {
+  const _VideoPlaceholder();
+
+  @override
+  Widget build(BuildContext context) {
+    return const ColoredBox(
+      color: Color(0xFF244842),
+      child: Center(
+        child: Icon(Icons.videocam_outlined, color: Colors.white38, size: 36),
+      ),
     );
   }
 }

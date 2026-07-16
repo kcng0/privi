@@ -49,12 +49,16 @@ class GalleryAsset {
     required this.isVideo,
     required this.title,
     this.durationMs,
+    this.createDateMs,
   });
 
   final String id;
   final bool isVideo;
   final String title;
   final int? durationMs;
+
+  /// Epoch ms from MediaStore (for client-side sort in Visible grids).
+  final int? createDateMs;
 }
 
 class GalleryService {
@@ -460,6 +464,7 @@ class GalleryService {
           isVideo: a.type == AssetType.video,
           title: title,
           durationMs: a.type == AssetType.video ? a.duration * 1000 : null,
+          createDateMs: (a.createDateSecond ?? 0) * 1000,
         ),
       );
       if (out.length >= size) break;

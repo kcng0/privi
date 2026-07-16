@@ -306,10 +306,12 @@ class ImportService {
 
     if (hiddenFile == null || !await hiddenFile.exists()) {
       debugPrint('PH_HIDE FAIL native=$native');
+      // User-facing copy stays non-technical; details stay in logcat.
       throw StateError(
-        'Hide failed: ${native.error ?? "transfer_failed"} '
-        '(needAllFiles=${native.needManageStorage}). '
-        'Enable All files access and retry.',
+        native.needManageStorage
+            ? 'Permission needed to hide media. Allow access in Settings '
+                'and try again.'
+            : 'Could not hide media. Please try again.',
       );
     }
     final movedLen = await hiddenFile.length();
@@ -317,7 +319,25 @@ class ImportService {
       try {
         await hiddenFile.delete();
       } catch (_) {}
-      throw StateError('Hide failed: vault file is empty after transfer.');
+      throw StateError('Could not hide media. Please try again.');
+    }
+
+    final sizeBytes = await hiddenFile.length();
+    int? width;
+    int? height;
+    String? thumbPath;
+
+    // Capture thumb **before** MediaStore purge / PhotoManager cache clear.
+    // After purge, AssetEntity.thumbnailData often returns null for videos.
+    try {
+      thumbPath = await _makeThumb(
+        hiddenFile: hiddenFile,
+        id: id,
+        isVideo: isVideo,
+        assetId: src.assetId,
+      ).timeout(const Duration(seconds: 12));
+    } catch (e) {
+      debugPrint('thumb skip: $e');
     }
 
     // Soft-hide: ensure MediaStore no longer lists the **original** path.
@@ -330,22 +350,6 @@ class ImportService {
     try {
       await PhotoManager.clearFileCache().timeout(const Duration(seconds: 2));
     } catch (_) {}
-
-    final sizeBytes = await hiddenFile.length();
-    int? width;
-    int? height;
-    String? thumbPath;
-
-    try {
-      thumbPath = await _makeThumb(
-        hiddenFile: hiddenFile,
-        id: id,
-        isVideo: isVideo,
-        assetId: src.assetId,
-      ).timeout(const Duration(seconds: 8));
-    } catch (e) {
-      debugPrint('thumb skip: $e');
-    }
 
     if (!isVideo && thumbPath == null) {
       try {
@@ -534,7 +538,8 @@ class ImportService {
     required bool isVideo,
     String? assetId,
   }) async {
-    // Fast path: MediaStore thumbnail (no full-file decode).
+    // Fast path: MediaStore thumbnail (no full-file decode). Call this
+    // *before* purging the original index — after purge it often fails.
     if (assetId != null) {
       try {
         final entity = await AssetEntity.fromId(assetId);
@@ -552,7 +557,24 @@ class ImportService {
       }
     }
 
-    if (isVideo) return null;
+    // Videos: decode a still from the vault file (MediaMetadataRetriever).
+    // Image.file cannot render mp4, so without this the grid shows broken.
+    if (isVideo) {
+      try {
+        final out = await _storage.thumbFileFor(id);
+        final ok = await _renamer.videoThumbnail(
+          path: hiddenFile.path,
+          destPath: out.path,
+          maxSize: 256,
+        );
+        if (ok && await out.exists() && await out.length() > 0) {
+          return out.path;
+        }
+      } catch (e) {
+        debugPrint('video thumb: $e');
+      }
+      return null;
+    }
 
     // Slow path: decode image file (capped).
     try {

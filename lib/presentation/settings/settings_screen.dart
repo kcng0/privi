@@ -1,4 +1,6 @@
+import 'package:android_intent_plus/android_intent.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -240,10 +242,12 @@ class SettingsScreen extends ConsumerWidget {
             ),
             onTap: () => _showAbout(context),
           ),
-          const ListTile(
-            leading: Icon(Icons.person_outline),
-            title: Text('Author'),
-            subtitle: Text('${AppInfo.author} · ${AppInfo.authorUrl}'),
+          ListTile(
+            leading: const Icon(Icons.person_outline),
+            title: const Text('Author'),
+            subtitle: const Text(AppInfo.author),
+            trailing: const Icon(Icons.open_in_new, size: 18),
+            onTap: () => _openAuthorUrl(context),
           ),
           ListTile(
             leading: const Icon(Icons.gavel_outlined),
@@ -254,6 +258,23 @@ class SettingsScreen extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  Future<void> _openAuthorUrl(BuildContext context) async {
+    try {
+      final intent = AndroidIntent(
+        action: 'action_view',
+        data: AppInfo.authorUrl,
+      );
+      await intent.launch();
+    } catch (e) {
+      debugPrint('open author url: $e');
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not open browser')),
+        );
+      }
+    }
   }
 
   void _showAbout(BuildContext context) {
@@ -291,13 +312,26 @@ class SettingsScreen extends ConsumerWidget {
                 'Version ${AppInfo.version}',
                 style: Theme.of(ctx).textTheme.bodySmall,
               ),
+              const SizedBox(height: 4),
               Text(
                 'Author: ${AppInfo.author}',
                 style: Theme.of(ctx).textTheme.bodySmall,
               ),
-              Text(
-                AppInfo.authorUrl,
-                style: Theme.of(ctx).textTheme.bodySmall,
+              InkWell(
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _openAuthorUrl(context);
+                },
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Text(
+                    AppInfo.authorUrl,
+                    style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(ctx).colorScheme.primary,
+                          decoration: TextDecoration.underline,
+                        ),
+                  ),
+                ),
               ),
               const SizedBox(height: 8),
               Text(

@@ -4,6 +4,7 @@ import 'package:photo_manager/photo_manager.dart';
 
 import '../../application/gallery/gallery_controller.dart';
 import '../../application/providers.dart';
+import '../../application/settings/settings_controller.dart';
 import '../../core/constants.dart';
 import '../../domain/enums.dart';
 import 'folder_cover_cache.dart';
@@ -20,6 +21,8 @@ class VisibleFolderGrid extends ConsumerWidget {
     final perm = ref.watch(galleryPermissionProvider);
     final folders = ref.watch(galleryFoldersProvider);
     final filter = ref.watch(mediaKindFilterProvider);
+    // Same Style setting as Invisible home mosaic (home ⋮ → Style).
+    final cols = ref.watch(settingsControllerProvider).albumColumns;
 
     return perm.when(
       loading: () => const Center(child: CircularProgressIndicator()),
@@ -101,8 +104,8 @@ class VisibleFolderGrid extends ConsumerWidget {
                   GridDefaults.bottomClearance +
                       MediaQuery.paddingOf(context).bottom,
                 ),
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 3,
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: cols,
                   mainAxisSpacing: GridDefaults.gutter,
                   crossAxisSpacing: GridDefaults.gutter,
                   childAspectRatio: 1,

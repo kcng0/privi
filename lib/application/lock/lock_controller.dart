@@ -53,6 +53,10 @@ class VaultLockState {
 class LockController extends Notifier<VaultLockState> {
   Timer? _autoLockTimer;
 
+  /// Wall-clock moment we left the foreground. Dart [Timer]s are unreliable
+  /// while Android suspends the isolate — resume must re-check this stamp.
+  DateTime? _backgroundedAt;
+
   /// Nested counter: viewer / player / external hand-off keep the vault open.
   int _suppressAutoLockDepth = 0;
 
@@ -63,6 +67,7 @@ class LockController extends Notifier<VaultLockState> {
   VaultLockState build() {
     ref.onDispose(() {
       _autoLockTimer?.cancel();
+      _backgroundedAt = null;
       _suppressAutoLockDepth = 0;
       _releaseSuppressOnResume = false;
     });
@@ -73,12 +78,16 @@ class LockController extends Notifier<VaultLockState> {
   void _cancelAutoLockTimer() {
     _autoLockTimer?.cancel();
     _autoLockTimer = null;
+    _backgroundedAt = null;
   }
 
   /// Keep session unlocked (in-app viewer/player). Pair with [releaseAutoLockSuppress].
   void suppressAutoLock() {
     _suppressAutoLockDepth++;
-    _cancelAutoLockTimer();
+    // Cancel only the in-memory timer. Do not clear [_backgroundedAt] — if the
+    // app is already backgrounded, the wall-clock deadline must still apply.
+    _autoLockTimer?.cancel();
+    _autoLockTimer = null;
   }
 
   void releaseAutoLockSuppress() {
@@ -354,21 +363,36 @@ class LockController extends Notifier<VaultLockState> {
   /// Auto-lock when the app leaves the foreground for [autoLockSeconds].
   ///
   /// - Ignores [AppLifecycleState.inactive] (dialogs / transient focus).
-  /// - Always arms the timer on paused/hidden/detached — even while a
-  ///   viewer/player is open or an external app was launched — so hiding the
-  ///   app for ≥ timeout (default 30s) always requires re-auth.
-  /// - [suppressAutoLock] only softens *immediate* lock; it no longer
-  ///   cancels the background timeout.
+  /// - On paused/hidden/detached: stamp wall-clock time and arm a best-effort
+  ///   [Timer]. Android often suspends Dart timers in the background, so the
+  ///   stamp is the source of truth.
+  /// - On resumed: if background duration ≥ timeout, [lock] immediately
+  ///   (before UI paints home). Otherwise clear the stamp/timer.
+  /// - Always applies while unlocked — even with a viewer/player open or after
+  ///   launching VLC — so hiding the app for ≥ timeout requires re-auth.
   void onAppLifecycle(AppLifecycleState lifecycle) {
     if (state.status != LockStatus.unlocked) return;
     final seconds = ref.read(settingsControllerProvider).autoLockSeconds;
 
     switch (lifecycle) {
       case AppLifecycleState.resumed:
-        _cancelAutoLockTimer();
+        final leftAt = _backgroundedAt;
+        _autoLockTimer?.cancel();
+        _autoLockTimer = null;
+        _backgroundedAt = null;
+
         if (_releaseSuppressOnResume) {
           _releaseSuppressOnResume = false;
           releaseAutoLockSuppress();
+        }
+
+        if (leftAt != null) {
+          final elapsed = DateTime.now().difference(leftAt);
+          // Immediate (0) already locked on pause; still lock if we somehow
+          // resumed unlocked after any positive timeout.
+          if (seconds <= 0 || elapsed >= Duration(seconds: seconds)) {
+            lock();
+          }
         }
         return;
       case AppLifecycleState.inactive:
@@ -377,11 +401,23 @@ class LockController extends Notifier<VaultLockState> {
       case AppLifecycleState.paused:
       case AppLifecycleState.hidden:
       case AppLifecycleState.detached:
-        _cancelAutoLockTimer();
+        _autoLockTimer?.cancel();
+        _autoLockTimer = null;
         if (seconds <= 0) {
+          _backgroundedAt = null;
           lock();
         } else {
-          _autoLockTimer = Timer(Duration(seconds: seconds), lock);
+          // Keep first background stamp if we already recorded one (paused
+          // often follows hidden); don't reset the deadline on every event.
+          _backgroundedAt ??= DateTime.now();
+          final remaining = Duration(seconds: seconds) -
+              DateTime.now().difference(_backgroundedAt!);
+          if (remaining <= Duration.zero) {
+            lock();
+          } else {
+            // Best-effort: fires if the isolate keeps running (some OEMs).
+            _autoLockTimer = Timer(remaining, lock);
+          }
         }
     }
   }

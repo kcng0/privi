@@ -6,8 +6,9 @@ import '../../application/lock/lock_controller.dart';
 /// Marks an in-app media route as active.
 ///
 /// System Back from viewer/player does **not** re-auth by itself (status stays
-/// unlocked). Backgrounding the app still arms the auto-lock timer (default
-/// 30s) via [LockController.onAppLifecycle].
+/// unlocked). Backgrounding the app still arms auto-lock: a wall-clock stamp
+/// is checked on [AppLifecycleState.resumed] (Dart timers alone are unreliable
+/// while Android suspends the isolate).
 class KeepVaultUnlocked extends ConsumerStatefulWidget {
   const KeepVaultUnlocked({super.key, required this.child});
 
