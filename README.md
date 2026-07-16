@@ -5,8 +5,7 @@ gallery, rate them **1–3 hearts**, favorite, play playlists (built-in or
 **VLC**), and lock the app with **pattern / PIN + biometric**. Dark theme only.
 Sideload-only — no cloud, no accounts, no analytics.
 
-**Author:** [kcng0](https://github.com/kcng0) · **License:** non-commercial
-personal use only (see [`LICENSE`](./LICENSE)).
+**Author:** [kcng0](https://github.com/kcng0) · **License:** [MIT](./LICENSE).
 
 UI takes reference from the HideSomething / “HD Smith” style. This is a personal
 project; simplicity is favored over features.
@@ -39,6 +38,16 @@ for external video playback. All media stays on-device.
 - **Pattern / PIN + biometric** lock, optional `FLAG_SECURE` (block screenshots)
 - **Share-to-Privi** import intents for images and videos
 - Fully offline — no `INTERNET` permission
+
+### Keywords / search terms
+
+`android photo vault` · `hide photos from gallery` · `private gallery app` ·
+`video vault` · `offline media locker` · `pattern lock gallery` ·
+`biometric photo lock` · `sideload apk vault` · `flutter media vault` ·
+`hide videos android` · `no cloud gallery` · `vlc private player`
+
+GitHub topics: `flutter` `android` `photo-vault` `video-vault` `private-gallery`
+`hide-photos` `biometric-lock` `privacy` `offline` `sideload` `apk` `vlc` `mit-license`
 
 ---
 
@@ -124,6 +133,4 @@ Or run **Actions → Release APK → Run workflow**.
 
 ## License
 
-Non-commercial personal use only. See [`LICENSE`](./LICENSE).
-
-Copyright (c) 2026 [kcng0](https://github.com/kcng0).
+[MIT](./LICENSE) — Copyright (c) 2026 [kcng0](https://github.com/kcng0).

@@ -126,6 +126,6 @@ jobs:
             3. Launch **Privi**.
 
             Offline media vault — no cloud, no accounts, no analytics.
-            Non-commercial personal use only (see `LICENSE`).
+            MIT License (see `LICENSE`).
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
