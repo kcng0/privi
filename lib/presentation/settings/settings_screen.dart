@@ -1,6 +1,5 @@
 import 'package:android_intent_plus/android_intent.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -262,7 +261,7 @@ class SettingsScreen extends ConsumerWidget {
 
   Future<void> _openAuthorUrl(BuildContext context) async {
     try {
-      final intent = AndroidIntent(
+      const intent = AndroidIntent(
         action: 'action_view',
         data: AppInfo.authorUrl,
       );
