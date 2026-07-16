@@ -10,10 +10,12 @@ import '../../application/lock/lock_controller.dart';
 import '../../application/providers.dart';
 import '../../application/settings/settings_controller.dart';
 import '../../core/constants.dart';
+import '../../core/utils/media_query_utils.dart';
 import '../../data/services/intent_service.dart';
 import '../../data/services/media_rename_service.dart';
 import '../../domain/enums.dart';
 import '../common/floating_action_capsule.dart';
+import '../common/grid_app_menu.dart';
 import '../import/import_progress_sheet.dart';
 import 'folder_cover_cache.dart';
 import 'gallery_preview_screen.dart';
@@ -47,6 +49,11 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
   bool _hasMore = true;
   String? _error;
   static const _pageSize = 90;
+
+  bool _searchOpen = false;
+  final _searchCtrl = TextEditingController();
+  /// Visible grids: date + name only (no ratings).
+  final List<MediaSort> _sorts = [MediaSort.dateAddedDesc];
 
   bool get _selecting => _selectMode;
 
@@ -83,6 +90,7 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
 
   @override
   void dispose() {
+    _searchCtrl.dispose();
     _scroll
       ..removeListener(_onScroll)
       ..dispose();
@@ -202,6 +210,153 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
   }
 
   /// HD Smith hide: **rename in place** (e.g. `a.mp4` → `a.vid.pg.mp4`).
+
+  List<GalleryAsset> get _visibleItems {
+    var list = List<GalleryAsset>.of(_items);
+    final q = _searchCtrl.text.trim().toLowerCase();
+    if (q.isNotEmpty) {
+      list = list
+          .where((a) => a.title.toLowerCase().contains(q))
+          .toList(growable: false);
+    }
+    // Client-side sort on loaded page(s). Rating sorts ignored for Visible.
+    final sorts = _sorts.isEmpty ? [MediaSort.dateAddedDesc] : _sorts;
+    list.sort((a, b) {
+      for (final s in sorts) {
+        final c = switch (s) {
+          MediaSort.dateAddedDesc =>
+            (b.createDateMs ?? 0).compareTo(a.createDateMs ?? 0),
+          MediaSort.dateAddedAsc =>
+            (a.createDateMs ?? 0).compareTo(b.createDateMs ?? 0),
+          MediaSort.nameAsc =>
+            a.title.toLowerCase().compareTo(b.title.toLowerCase()),
+          MediaSort.nameDesc =>
+            b.title.toLowerCase().compareTo(a.title.toLowerCase()),
+          MediaSort.ratingDesc || MediaSort.ratingAsc => 0,
+        };
+        if (c != 0) return c;
+      }
+      return (b.createDateMs ?? 0).compareTo(a.createDateMs ?? 0);
+    });
+    return list;
+  }
+
+  void _toggleSearch() {
+    setState(() {
+      if (_searchOpen) {
+        _searchOpen = false;
+        _searchCtrl.clear();
+      } else {
+        _searchOpen = true;
+      }
+    });
+  }
+
+  Future<void> _pickSort() async {
+    await GridAppMenu.showSortPicker(
+      context,
+      selected: _sorts,
+      options: const [
+        MediaSort.dateAddedDesc,
+        MediaSort.dateAddedAsc,
+        MediaSort.nameAsc,
+        MediaSort.nameDesc,
+      ],
+      onChanged: (next) {
+        setState(() {
+          _sorts
+            ..clear()
+            ..addAll(next.isEmpty ? [MediaSort.dateAddedDesc] : next);
+        });
+      },
+    );
+  }
+
+  Future<void> _pickStyle() async {
+    final current = ref.read(settingsControllerProvider).gridColumns;
+    final next = await GridAppMenu.showStylePicker(
+      context,
+      current: current,
+      options: GridAppMenu.mediaColumnOptions,
+      title: 'Layout style',
+    );
+    if (next == null || !mounted) return;
+    await ref.read(settingsControllerProvider.notifier).setGridColumns(next);
+  }
+
+  void _startSelectFromMenu() {
+    final items = _visibleItems;
+    if (items.isEmpty) return;
+    _enterSelect(items.first.id);
+  }
+
+  Future<void> _showOverflowMenu() async {
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: const Color(0xFF1B3A36),
+      builder: (ctx) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.checklist_rtl, color: Colors.white70),
+                title: const Text('Select', style: TextStyle(color: Colors.white)),
+                subtitle: const Text(
+                  'Multi-select items',
+                  style: TextStyle(color: Colors.white54, fontSize: 12),
+                ),
+                onTap: () => Navigator.pop(ctx, 'select'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.grid_view, color: Colors.white70),
+                title: const Text('Style', style: TextStyle(color: Colors.white)),
+                subtitle: Text(
+                  '${ref.read(settingsControllerProvider).gridColumns} columns',
+                  style: const TextStyle(color: Colors.white54, fontSize: 12),
+                ),
+                onTap: () => Navigator.pop(ctx, 'style'),
+              ),
+              ListTile(
+                leading: Icon(
+                  _searchOpen ? Icons.search_off : Icons.search,
+                  color: Colors.white70,
+                ),
+                title: Text(
+                  _searchOpen ? 'Close search' : 'Search',
+                  style: const TextStyle(color: Colors.white),
+                ),
+                onTap: () => Navigator.pop(ctx, 'search'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.sort, color: Colors.white70),
+                title: const Text('Sort', style: TextStyle(color: Colors.white)),
+                subtitle: Text(
+                  MediaQueryUtils.sortsSummary(_sorts),
+                  style: const TextStyle(color: Colors.white54, fontSize: 12),
+                ),
+                onTap: () => Navigator.pop(ctx, 'sort'),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+    if (!mounted || choice == null) return;
+    switch (choice) {
+      case 'select':
+        _startSelectFromMenu();
+      case 'style':
+        await _pickStyle();
+      case 'search':
+        _toggleSearch();
+      case 'sort':
+        await _pickSort();
+    }
+  }
+
   Future<void> _hideSelected() async {
     if (_selected.isEmpty) return;
     final ids = _selected.toList();
@@ -211,18 +366,17 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
     final folderName = widget.title.trim().isEmpty ? 'Imported' : widget.title;
     final renamer = MediaRenameService();
 
-    // Android 11+: File.rename needs All files access for Downloads/DCIM.
+    // Android 11+: hide needs broader storage access on many folders.
     final hasAllFiles = await renamer.isExternalStorageManager();
     if (!hasAllFiles) {
       if (!mounted) return;
       final go = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Text('Allow file access to hide'),
+          title: const Text('Permission needed'),
           content: const Text(
-            'To hide media by renaming (e.g. video.mp4 → video.vid.pg.mp4), '
-            'Android requires “All files access” for this app.\n\n'
-            'Open settings, enable it for Privi, then try Hide again.',
+            'Privi needs permission to hide photos and videos from your '
+            'gallery. Open Settings to allow it, then try again.',
           ),
           actions: [
             TextButton(
@@ -282,9 +436,10 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
       if (summary.failed > 0) {
         if (msg.isNotEmpty) msg.write(' · ');
         msg.write('${summary.failed} failed');
+        // Keep snackbars short — no raw exception dumps.
         final err = summary.lastError;
-        if (err != null && err.isNotEmpty) {
-          msg.write(': $err');
+        if (err != null && _looksLikePermissionError(err)) {
+          msg.write(' · permission needed');
         }
       }
       if (summary.skipped > 0) {
@@ -296,7 +451,9 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
       messenger.showSnackBar(SnackBar(content: Text(msg.toString())));
     } catch (e) {
       if (mounted) {
-        messenger.showSnackBar(SnackBar(content: Text('Hide failed: $e')));
+        messenger.showSnackBar(
+          SnackBar(content: Text(_friendlyHideError(e))),
+        );
       }
     } finally {
       // Dismiss progress sheet immediately — no multi-second "refresh".
@@ -323,6 +480,36 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
 
       if (mounted) _exitSelect();
     }
+  }
+
+  bool _looksLikePermissionError(String err) {
+    final lower = err.toLowerCase();
+    return lower.contains('permission') ||
+        lower.contains('all files') ||
+        lower.contains('manage') ||
+        lower.contains('needallfiles') ||
+        lower.contains('need_manage');
+  }
+
+  String _friendlyHideError(Object e) {
+    final s = e.toString();
+    if (_looksLikePermissionError(s)) {
+      return 'Permission needed to hide media. Allow access in Settings '
+          'and try again.';
+    }
+    // Strip common Exception prefixes so snackbars stay short.
+    final cleaned = s
+        .replaceFirst(RegExp(r'^(Bad state:|Exception:|StateError:)\s*'), '')
+        .trim();
+    if (cleaned.isEmpty || cleaned.length > 120) {
+      return 'Could not hide media. Please try again.';
+    }
+    // Prefer our already-friendly messages from ImportService.
+    if (cleaned.startsWith('Permission needed') ||
+        cleaned.startsWith('Could not hide')) {
+      return cleaned;
+    }
+    return 'Could not hide media. Please try again.';
   }
 
   Future<void> _shareSelected() async {
@@ -430,6 +617,8 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
       _reload();
     });
 
+    final cols = ref.watch(settingsControllerProvider).gridColumns;
+    final visible = _visibleItems;
     final bottomPad = GridDefaults.bottomClearance +
         MediaQuery.paddingOf(context).bottom +
         (_selecting ? GridDefaults.selectionCapsuleClearance : 0);
@@ -444,27 +633,52 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
           onPressed: () {
             if (_selecting) {
               _exitSelect();
+            } else if (_searchOpen) {
+              setState(() {
+                _searchOpen = false;
+                _searchCtrl.clear();
+              });
             } else {
               Navigator.pop(context);
             }
           },
         ),
-        title: Text(
-          _selecting ? '${_selected.length} selected' : widget.title,
-        ),
+        title: _selecting
+            ? Text('${_selected.length} selected')
+            : _searchOpen
+                ? TextField(
+                    controller: _searchCtrl,
+                    autofocus: true,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: const InputDecoration(
+                      hintText: 'Search name…',
+                      hintStyle: TextStyle(color: Colors.white54),
+                      border: InputBorder.none,
+                      isDense: true,
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  )
+                : Text(widget.title),
         actions: [
           if (_selecting)
             IconButton(
               tooltip: 'Select all',
               icon: const Icon(Icons.select_all),
               onPressed: () {
-                if (_items.isEmpty) return;
+                final items = _visibleItems;
+                if (items.isEmpty) return;
                 setState(() {
                   _selected
                     ..clear()
-                    ..addAll(_items.map((e) => e.id));
+                    ..addAll(items.map((e) => e.id));
                 });
               },
+            )
+          else
+            IconButton(
+              tooltip: 'More',
+              icon: const Icon(Icons.more_vert),
+              onPressed: _showOverflowMenu,
             ),
         ],
       ),
@@ -481,21 +695,28 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
                         style: const TextStyle(color: Colors.white70),
                       ),
                     )
-                  : Stack(
+                  : visible.isEmpty
+                      ? const Center(
+                          child: Text(
+                            'No matches',
+                            style: TextStyle(color: Colors.white70),
+                          ),
+                        )
+                      : Stack(
                       children: [
                         GridView.builder(
                           controller: _scroll,
                           padding: EdgeInsets.fromLTRB(0, 0, 0, bottomPad),
                           gridDelegate:
-                              const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 3,
+                              SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: cols,
                             mainAxisSpacing: GridDefaults.gutter,
                             crossAxisSpacing: GridDefaults.gutter,
                           ),
-                          itemCount: _items.length +
+                          itemCount: visible.length +
                               (_hasMore || _loadingMore ? 1 : 0),
                           itemBuilder: (context, i) {
-                            if (i >= _items.length) {
+                            if (i >= visible.length) {
                               return const Center(
                                 child: Padding(
                                   padding: EdgeInsets.all(16),
@@ -509,7 +730,7 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
                                 ),
                               );
                             }
-                            final a = _items[i];
+                            final a = visible[i];
                             final sel = _selected.contains(a.id);
                             return _LazyThumbTile(
                               asset: a,

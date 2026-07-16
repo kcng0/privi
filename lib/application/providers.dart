@@ -1,5 +1,4 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-
 import '../data/db/database.dart';
 import '../data/repositories/album_repository.dart';
 import '../data/repositories/media_repository.dart';
@@ -10,8 +9,10 @@ import '../data/services/media_store_service.dart';
 import '../data/services/security_service.dart';
 import '../data/services/vault_backup_service.dart';
 import '../data/services/vault_storage_service.dart';
+import '../domain/enums.dart';
 import '../domain/models/album_view.dart';
 import '../domain/models/media_item.dart';
+import 'gallery/gallery_controller.dart';
 
 /// Core DI graph. Manual providers for Phase 1 (codegen can replace later).
 
@@ -80,8 +81,13 @@ final vaultSizeBytesProvider = FutureProvider.autoDispose<int>((ref) {
 });
 
 /// Home album cards (system + user) with live counts/covers.
+/// Respects the shared photo XOR video mode so Invisible matches Visible.
 final albumsProvider = StreamProvider<List<AlbumView>>((ref) {
-  return ref.watch(albumRepositoryProvider).watchAlbumViewsReactive();
+  final kind = ref.watch(mediaKindFilterProvider);
+  final isVideo = kind == MediaKindFilter.video;
+  return ref
+      .watch(albumRepositoryProvider)
+      .watchAlbumViewsReactive(isVideo: isVideo);
 });
 
 /// Media stream for a given album id (system virtual or user).

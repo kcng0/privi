@@ -220,11 +220,16 @@ class AppDatabase extends _$AppDatabase {
         );
   }
 
-  Future<int> countActiveMedia() async {
+  /// [isVideo] null = all kinds; true/false = photos XOR videos (home filter).
+  Future<int> countActiveMedia({bool? isVideo}) async {
     final c = countAll();
+    var pred = mediaItems.deletedAt.isNull();
+    if (isVideo != null) {
+      pred = pred & mediaItems.isVideo.equals(isVideo);
+    }
     final q = selectOnly(mediaItems)
       ..addColumns([c])
-      ..where(mediaItems.deletedAt.isNull());
+      ..where(pred);
     final row = await q.getSingle();
     return row.read(c) ?? 0;
   }
@@ -263,48 +268,64 @@ class AppDatabase extends _$AppDatabase {
         .getSingleOrNull();
   }
 
-  Future<int> countFavorites() async {
+  Future<int> countFavorites({bool? isVideo}) async {
     final c = countAll();
+    var pred = mediaItems.deletedAt.isNull() &
+        mediaItems.rating.isBiggerOrEqualValue(1);
+    if (isVideo != null) {
+      pred = pred & mediaItems.isVideo.equals(isVideo);
+    }
     final q = selectOnly(mediaItems)
       ..addColumns([c])
-      ..where(
-        mediaItems.deletedAt.isNull() &
-            mediaItems.rating.isBiggerOrEqualValue(1),
-      );
+      ..where(pred);
     final row = await q.getSingle();
     return row.read(c) ?? 0;
   }
 
-  Future<int> countRecycle() async {
+  Future<int> countRecycle({bool? isVideo}) async {
     final c = countAll();
+    var pred = mediaItems.deletedAt.isNotNull();
+    if (isVideo != null) {
+      pred = pred & mediaItems.isVideo.equals(isVideo);
+    }
     final q = selectOnly(mediaItems)
       ..addColumns([c])
-      ..where(mediaItems.deletedAt.isNotNull());
+      ..where(pred);
     final row = await q.getSingle();
     return row.read(c) ?? 0;
   }
 
-  Future<MediaItemRow?> latestActiveMedia() {
+  Future<MediaItemRow?> latestActiveMedia({bool? isVideo}) {
     return (select(mediaItems)
-          ..where((t) => t.deletedAt.isNull())
+          ..where((t) {
+            var p = t.deletedAt.isNull();
+            if (isVideo != null) p = p & t.isVideo.equals(isVideo);
+            return p;
+          })
           ..orderBy([(t) => OrderingTerm.desc(t.dateAdded)])
           ..limit(1))
         .getSingleOrNull();
   }
 
-  Future<MediaItemRow?> latestFavorite() {
+  Future<MediaItemRow?> latestFavorite({bool? isVideo}) {
     return (select(mediaItems)
-          ..where(
-            (t) => t.deletedAt.isNull() & t.rating.isBiggerOrEqualValue(1),
-          )
+          ..where((t) {
+            var p = t.deletedAt.isNull() & t.rating.isBiggerOrEqualValue(1);
+            if (isVideo != null) p = p & t.isVideo.equals(isVideo);
+            return p;
+          })
           ..orderBy([(t) => OrderingTerm.desc(t.dateAdded)])
           ..limit(1))
         .getSingleOrNull();
   }
 
-  Future<MediaItemRow?> latestRecycle() {
+  Future<MediaItemRow?> latestRecycle({bool? isVideo}) {
     return (select(mediaItems)
-          ..where((t) => t.deletedAt.isNotNull())
+          ..where((t) {
+            var p = t.deletedAt.isNotNull();
+            if (isVideo != null) p = p & t.isVideo.equals(isVideo);
+            return p;
+          })
           ..orderBy([(t) => OrderingTerm.desc(t.deletedAt)])
           ..limit(1))
         .getSingleOrNull();
@@ -332,8 +353,13 @@ class AppDatabase extends _$AppDatabase {
     );
   }
 
-  Future<int> countMembership(String albumId) async {
+  Future<int> countMembership(String albumId, {bool? isVideo}) async {
     final c = countAll();
+    var pred =
+        albumMedia.albumId.equals(albumId) & mediaItems.deletedAt.isNull();
+    if (isVideo != null) {
+      pred = pred & mediaItems.isVideo.equals(isVideo);
+    }
     final q = selectOnly(albumMedia).join([
       innerJoin(
         mediaItems,
@@ -341,23 +367,27 @@ class AppDatabase extends _$AppDatabase {
       ),
     ])
       ..addColumns([c])
-      ..where(
-        albumMedia.albumId.equals(albumId) & mediaItems.deletedAt.isNull(),
-      );
+      ..where(pred);
     final row = await q.getSingle();
     return row.read(c) ?? 0;
   }
 
-  Future<MediaItemRow?> latestInUserAlbum(String albumId) async {
+  Future<MediaItemRow?> latestInUserAlbum(
+    String albumId, {
+    bool? isVideo,
+  }) async {
+    var pred =
+        albumMedia.albumId.equals(albumId) & mediaItems.deletedAt.isNull();
+    if (isVideo != null) {
+      pred = pred & mediaItems.isVideo.equals(isVideo);
+    }
     final query = select(mediaItems).join([
       innerJoin(
         albumMedia,
         albumMedia.mediaId.equalsExp(mediaItems.id),
       ),
     ])
-      ..where(
-        albumMedia.albumId.equals(albumId) & mediaItems.deletedAt.isNull(),
-      )
+      ..where(pred)
       ..orderBy([OrderingTerm.desc(mediaItems.dateAdded)])
       ..limit(1);
     final rows = await query.get();

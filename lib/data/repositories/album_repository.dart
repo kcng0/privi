@@ -20,7 +20,10 @@ class AlbumRepository {
   ///
   /// Uses lightweight table-update notifications (not full media row streams)
   /// and debounces rapid multi-select writes.
-  Stream<List<AlbumView>> watchAlbumViewsReactive() {
+  ///
+  /// [isVideo] filters home mosaic counts/covers to match the shared
+  /// photo XOR video mode (same as Visible). Null = all kinds.
+  Stream<List<AlbumView>> watchAlbumViewsReactive({bool? isVideo}) {
     return Stream.multi((controller) {
       var closed = false;
       Timer? debounce;
@@ -28,7 +31,7 @@ class AlbumRepository {
       Future<void> emitNow() async {
         if (closed) return;
         try {
-          final views = await _buildViews();
+          final views = await _buildViews(isVideo: isVideo);
           if (closed) return;
           controller.add(views);
         } catch (e, st) {
@@ -61,14 +64,14 @@ class AlbumRepository {
     });
   }
 
-  Future<List<AlbumView>> _buildViews() async {
+  Future<List<AlbumView>> _buildViews({bool? isVideo}) async {
     final albums = await _db.getAllAlbums();
     final views = await Future.wait(
       albums.map((row) async {
         final album = _mapAlbum(row);
         final results = await Future.wait<Object?>([
-          _countFor(album),
-          _coverFor(album, row.coverMediaId),
+          _countFor(album, isVideo: isVideo),
+          _coverFor(album, row.coverMediaId, isVideo: isVideo),
         ]);
         return AlbumView(
           album: album,
@@ -94,29 +97,41 @@ class AlbumRepository {
     return views;
   }
 
-  Future<int> _countFor(Album album) {
+  Future<int> _countFor(Album album, {bool? isVideo}) {
     switch (album.systemKind) {
       case SystemAlbumKind.all:
-        return _db.countActiveMedia();
+        return _db.countActiveMedia(isVideo: isVideo);
       case SystemAlbumKind.favorites:
-        return _db.countFavorites();
+        return _db.countFavorites(isVideo: isVideo);
       case SystemAlbumKind.recycle:
-        return _db.countRecycle();
+        return _db.countRecycle(isVideo: isVideo);
       case null:
-        return _db.countMembership(album.id);
+        return _db.countMembership(album.id, isVideo: isVideo);
     }
   }
 
-  Future<MediaItem?> _coverFor(Album album, String? coverMediaId) async {
+  Future<MediaItem?> _coverFor(
+    Album album,
+    String? coverMediaId, {
+    bool? isVideo,
+  }) async {
     MediaItemRow? row;
     if (coverMediaId != null) {
-      row = await _db.getMediaById(coverMediaId);
+      final pinned = await _db.getMediaById(coverMediaId);
+      // Respect photo/video filter for pinned covers too.
+      if (pinned != null &&
+          (isVideo == null || pinned.isVideo == isVideo) &&
+          // Recycle cover may be deleted; others should be active.
+          (album.systemKind == SystemAlbumKind.recycle ||
+              pinned.deletedAt == null)) {
+        row = pinned;
+      }
     }
     row ??= switch (album.systemKind) {
-      SystemAlbumKind.all => await _db.latestActiveMedia(),
-      SystemAlbumKind.favorites => await _db.latestFavorite(),
-      SystemAlbumKind.recycle => await _db.latestRecycle(),
-      null => await _db.latestInUserAlbum(album.id),
+      SystemAlbumKind.all => await _db.latestActiveMedia(isVideo: isVideo),
+      SystemAlbumKind.favorites => await _db.latestFavorite(isVideo: isVideo),
+      SystemAlbumKind.recycle => await _db.latestRecycle(isVideo: isVideo),
+      null => await _db.latestInUserAlbum(album.id, isVideo: isVideo),
     };
     return row == null ? null : _mapMedia(row);
   }

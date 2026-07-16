@@ -18,55 +18,64 @@ class ImportProgressSheet extends ConsumerWidget {
 
     return PopScope(
       canPop: !state.running,
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.xl),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(title, style: theme.textTheme.titleLarge),
-            const SizedBox(height: AppSpacing.lg),
-            if (p != null) ...[
-              LinearProgressIndicator(
-                value: p.total == 0 ? null : p.fraction.clamp(0.0, 1.0),
+      // SafeArea keeps Cancel clear of gesture/nav bars (3-button + gesture).
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.xl,
+            AppSpacing.xl,
+            AppSpacing.xl,
+            AppSpacing.lg,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(title, style: theme.textTheme.titleLarge),
+              const SizedBox(height: AppSpacing.lg),
+              if (p != null) ...[
+                LinearProgressIndicator(
+                  value: p.total == 0 ? null : p.fraction.clamp(0.0, 1.0),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                Text('${p.done} / ${p.total}'),
+                if (p.statusMessage != null) ...[
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(
+                    p.statusMessage!,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+                if (p.currentName != null) ...[
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(
+                    p.currentName!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall,
+                  ),
+                ],
+                if (p.failed > 0 || p.skipped > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      'ok ${p.imported} · skip ${p.skipped} · fail ${p.failed}',
+                      style: theme.textTheme.labelSmall,
+                    ),
+                  ),
+              ] else
+                const LinearProgressIndicator(),
+              const SizedBox(height: AppSpacing.lg),
+              TextButton(
+                onPressed: state.running
+                    ? () =>
+                        ref.read(importControllerProvider.notifier).cancel()
+                    : null,
+                child: const Text('Cancel'),
               ),
-              const SizedBox(height: AppSpacing.sm),
-              Text('${p.done} / ${p.total}'),
-              if (p.statusMessage != null) ...[
-                const SizedBox(height: AppSpacing.xs),
-                Text(
-                  p.statusMessage!,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-              if (p.currentName != null) ...[
-                const SizedBox(height: AppSpacing.xs),
-                Text(
-                  p.currentName!,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall,
-                ),
-              ],
-              if (p.failed > 0 || p.skipped > 0)
-                Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Text(
-                    'ok ${p.imported} · skip ${p.skipped} · fail ${p.failed}',
-                    style: theme.textTheme.labelSmall,
-                  ),
-                ),
-            ] else
-              const LinearProgressIndicator(),
-            const SizedBox(height: AppSpacing.lg),
-            TextButton(
-              onPressed: state.running
-                  ? () => ref.read(importControllerProvider.notifier).cancel()
-                  : null,
-              child: const Text('Cancel'),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
