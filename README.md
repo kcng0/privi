@@ -16,9 +16,21 @@ This is a personal project; simplicity is favored over features.
 Privi is not on Google Play. Download a release APK and sideload it:
 
 1. Open the latest **[Release](https://github.com/kcng0/privi/releases/latest)**.
-2. Download `privi-<version>.apk`.
-3. On your phone, allow install from your browser/file manager if prompted.
-4. Open the APK and install.
+2. Download `privi-<version>.apk` (and optionally `SHA256SUMS`).
+3. Verify the download (desktop):
+   ```bash
+   sha256sum -c SHA256SUMS
+   ```
+4. On your phone, allow install from your browser/file manager if prompted.
+5. Open the APK and install.
+
+Each release includes:
+
+| Asset | Purpose |
+|-------|---------|
+| `privi-<version>.apk` | Sideload install |
+| `SHA256SUMS` / `.sha256` / `CHECKSUMS.txt` | Integrity check |
+| **Source code (zip / tar.gz)** | Auto-attached by GitHub for the tag |
 
 **Requirements:** Android 8.0+ (API 26). Optional: [VLC](https://www.videolan.org/)
 for external video playback. All media stays on-device.
@@ -116,7 +128,7 @@ Full environment notes, troubleshooting, and CI details:
 | Workflow | Trigger | What it does |
 |----------|---------|--------------|
 | [CI](./.github/workflows/ci.yaml) | push / PR to `main` | format, codegen, analyze, test, debug APK artifact |
-| [Release](./.github/workflows/release.yml) | tag `v*` or manual dispatch | build release APK, attach to a GitHub Release |
+| [Release](./.github/workflows/release.yml) | tag `v*` or manual dispatch | release APK + checksums (+ GitHub source zip/tar) |
 
 To cut a release from a clean `main`:
 

@@ -1,6 +1,10 @@
 name: Release APK
 
-# Build a sideloadable release APK and publish it as a GitHub Release.
+# Build a sideloadable release APK and publish a GitHub Release with:
+#   - privi-<version>.apk
+#   - SHA256SUMS (+ .sha256 sidecar)
+# GitHub also auto-attaches Source code (zip) and Source code (tar.gz) for the tag.
+#
 # Triggers:
 #   - push of a version tag: v0.1.0, v1.2.3, …
 #   - manual run from the Actions tab (workflow_dispatch)
@@ -66,7 +70,6 @@ jobs:
           else
             TAG="v${NAME}"
           fi
-          # strip leading v for the filename version segment
           FILE_VER="${TAG#v}"
           {
             echo "full=${FULL}"
@@ -81,21 +84,59 @@ jobs:
       - name: Build release APK
         run: flutter build apk --release
 
-      - name: Stage APK
+      - name: Stage APK and checksums
+        id: artifacts
         run: |
           set -euo pipefail
           SRC="build/app/outputs/flutter-apk/app-release.apk"
-          DEST="privi-${{ steps.version.outputs.file_ver }}.apk"
+          APK="privi-${{ steps.version.outputs.file_ver }}.apk"
           test -f "$SRC"
-          cp "$SRC" "$DEST"
-          ls -lh "$DEST"
-          echo "APK_PATH=$DEST" >> "$GITHUB_ENV"
+          cp "$SRC" "$APK"
 
-      - name: Upload APK artifact
+          # SHA-256 (standard for release verification)
+          SHA256=$(sha256sum "$APK" | awk '{print $1}')
+          # SHA-512 optional companion
+          SHA512=$(sha512sum "$APK" | awk '{print $1}')
+          SIZE_BYTES=$(stat -c%s "$APK")
+          SIZE_HUMAN=$(numfmt --to=iec --suffix=B "$SIZE_BYTES")
+
+          # GNU coreutils style checksum file (sha256sum -c SHA256SUMS)
+          echo "${SHA256}  ${APK}" > SHA256SUMS
+          # Sidecar next to the APK
+          echo "${SHA256}" > "${APK}.sha256"
+          # Combined checksums file for the release
+          {
+            echo "# Privi ${{ steps.version.outputs.tag }} checksums"
+            echo "# Generated $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "#"
+            echo "# Verify:"
+            echo "#   sha256sum -c SHA256SUMS"
+            echo "#   sha256sum -c ${APK}.sha256  # (needs filename mapping; prefer SHA256SUMS)"
+            echo "#"
+            echo "SHA256 (${APK}) = ${SHA256}"
+            echo "SHA512 (${APK}) = ${SHA512}"
+            echo "SIZE   (${APK}) = ${SIZE_BYTES} bytes (${SIZE_HUMAN})"
+          } > CHECKSUMS.txt
+
+          ls -lh "$APK" SHA256SUMS "${APK}.sha256" CHECKSUMS.txt
+
+          {
+            echo "apk_path=${APK}"
+            echo "sha256=${SHA256}"
+            echo "sha512=${SHA512}"
+            echo "size_bytes=${SIZE_BYTES}"
+            echo "size_human=${SIZE_HUMAN}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.version.outputs.apk_name }}
-          path: ${{ env.APK_PATH }}
+          name: privi-${{ steps.version.outputs.file_ver }}-release
+          path: |
+            ${{ steps.artifacts.outputs.apk_path }}
+            ${{ steps.artifacts.outputs.apk_path }}.sha256
+            SHA256SUMS
+            CHECKSUMS.txt
           if-no-files-found: error
           retention-days: 30
 
@@ -107,25 +148,51 @@ jobs:
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(steps.version.outputs.tag, '-') }}
-          files: ${{ env.APK_PATH }}
+          # APK + checksum files. Source code zip/tar.gz are attached by GitHub automatically.
+          files: |
+            ${{ steps.artifacts.outputs.apk_path }}
+            ${{ steps.artifacts.outputs.apk_path }}.sha256
+            SHA256SUMS
+            CHECKSUMS.txt
           fail_on_unmatched_files: true
           body: |
             ## Privi ${{ steps.version.outputs.tag }}
 
-            Sideload APK for Android 8.0+ (API 26).
+            Sideload APK for Android 8.0+ (API 26). Offline media vault — no cloud, no accounts, no analytics.
+            **License:** MIT (see `LICENSE`).
+
+            ### Downloads
+
+            | Asset | Notes |
+            |-------|--------|
+            | `${{ steps.version.outputs.apk_name }}` | Installable APK (~${{ steps.artifacts.outputs.size_human }}) |
+            | `SHA256SUMS` | `sha256sum -c SHA256SUMS` |
+            | `${{ steps.version.outputs.apk_name }}.sha256` | Raw SHA-256 of the APK |
+            | `CHECKSUMS.txt` | SHA-256, SHA-512, and size |
+            | **Source code (zip / tar.gz)** | Auto-attached by GitHub for this tag |
+
+            ### Checksums
+
+            ```
+            SHA256 (${{ steps.version.outputs.apk_name }}) = ${{ steps.artifacts.outputs.sha256 }}
+            SHA512 (${{ steps.version.outputs.apk_name }}) = ${{ steps.artifacts.outputs.sha512 }}
+            SIZE   (${{ steps.version.outputs.apk_name }}) = ${{ steps.artifacts.outputs.size_bytes }} bytes
+            ```
+
+            ### Install
+
+            1. Download `${{ steps.version.outputs.apk_name }}` (and optionally `SHA256SUMS`).
+            2. Verify (desktop):
+               ```bash
+               sha256sum -c SHA256SUMS
+               ```
+            3. On your phone, open the APK and allow install from that source if asked.
+            4. Launch **Privi**.
 
             | | |
             |---|---|
-            | **APK** | `${{ steps.version.outputs.apk_name }}` |
             | **pubspec version** | `${{ steps.version.outputs.full }}` |
             | **Signing** | debug keystore (personal sideload build) |
-
-            ### Install
-            1. Download `${{ steps.version.outputs.apk_name }}` below.
-            2. Open it on your phone and allow install from this source if asked.
-            3. Launch **Privi**.
-
-            Offline media vault — no cloud, no accounts, no analytics.
-            MIT License (see `LICENSE`).
+            | **Min Android** | 8.0 (API 26) |
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
