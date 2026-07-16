@@ -63,9 +63,7 @@ class ThumbnailTile extends StatelessWidget {
                 top: 4,
                 right: 4,
                 child: Icon(
-                  selected
-                      ? Icons.check_circle
-                      : Icons.circle_outlined,
+                  selected ? Icons.check_circle : Icons.circle_outlined,
                   color: selected
                       ? Theme.of(context).colorScheme.primary
                       : Colors.white70,

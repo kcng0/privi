@@ -184,9 +184,9 @@ class GalleryService {
         else
           f,
     ]
-      // Drop empty folders (except keep All if it still has items).
-      .where((f) => f.count > 0)
-      .toList();
+        // Drop empty folders (except keep All if it still has items).
+        .where((f) => f.count > 0)
+        .toList();
 
     return _lastFolders;
   }
@@ -396,8 +396,7 @@ class GalleryService {
       if (path == null) return null;
       const pageSize = 24;
       for (var page = 0; page < 8; page++) {
-        final assets =
-            await path.getAssetListPaged(page: page, size: pageSize);
+        final assets = await path.getAssetListPaged(page: page, size: pageSize);
         if (assets.isEmpty) return null;
         for (final a in assets) {
           if (_isExcluded(a)) continue;
@@ -465,20 +464,22 @@ class GalleryService {
     final store = MediaStoreService();
     for (final id in assetIds) {
       try {
-        final entity = await AssetEntity.fromId(id)
-            .timeout(const Duration(seconds: 5));
+        final entity =
+            await AssetEntity.fromId(id).timeout(const Duration(seconds: 5));
         if (entity == null) continue;
 
         final isVideo = entity.type == AssetType.video;
-        final mime = entity.mimeType ??
-            (isVideo ? 'video/mp4' : 'image/jpeg');
+        final mime = entity.mimeType ?? (isVideo ? 'video/mp4' : 'image/jpeg');
 
         // 1) MediaStore DATA column via native (true path under DCIM/Pictures/…).
-        final String? absPath = await store.resolveMediaPath(id: id, isVideo: isVideo);
+        final String? absPath =
+            await store.resolveMediaPath(id: id, isVideo: isVideo);
 
         // 2) Fallbacks: entity.file / originFile — reject obvious cache paths.
         File? file;
-        if (absPath != null && absPath.isNotEmpty && File(absPath).existsSync()) {
+        if (absPath != null &&
+            absPath.isNotEmpty &&
+            File(absPath).existsSync()) {
           file = File(absPath);
         } else {
           try {
@@ -488,7 +489,8 @@ class GalleryService {
           }
           if (file == null || !await file.exists()) {
             try {
-              file = await entity.originFile.timeout(const Duration(seconds: 20));
+              file =
+                  await entity.originFile.timeout(const Duration(seconds: 20));
             } catch (e) {
               debugPrint('originFile fail $id: $e');
             }

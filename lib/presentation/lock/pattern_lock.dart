@@ -199,7 +199,8 @@ class _PatternPainter extends CustomPainter {
 
     // Lines between selected cells + trailing finger.
     if (selected.isNotEmpty) {
-      final path = Path()..moveTo(centers[selected.first].dx, centers[selected.first].dy);
+      final path = Path()
+        ..moveTo(centers[selected.first].dx, centers[selected.first].dy);
       for (var i = 1; i < selected.length; i++) {
         path.lineTo(centers[selected[i]].dx, centers[selected[i]].dy);
       }
@@ -219,7 +220,8 @@ class _PatternPainter extends CustomPainter {
         c,
         outer,
         Paint()
-          ..color = (isSel ? selectedDotColor : dotColor).withValues(alpha: 0.25)
+          ..color =
+              (isSel ? selectedDotColor : dotColor).withValues(alpha: 0.25)
           ..style = PaintingStyle.fill,
       );
       canvas.drawCircle(

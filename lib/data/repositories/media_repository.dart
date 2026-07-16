@@ -100,8 +100,7 @@ class MediaRepository {
     return _db.watchInUserAlbum(albumId).map(_mapList);
   }
 
-  Future<List<String>> listActivePrivatePaths() =>
-      _db.listActivePrivatePaths();
+  Future<List<String>> listActivePrivatePaths() => _db.listActivePrivatePaths();
 
   Future<int> totalBytes() => _db.sumMediaBytes();
 

@@ -25,11 +25,10 @@ Future<void> main() async {
       await SecureWindowService().setFlagSecure(true);
     }
     try {
-      final summary = await container
-          .read(maintenanceServiceProvider)
-          .runLaunchMaintenance(
-            retentionDays: s.recycleRetentionDays,
-          );
+      final summary =
+          await container.read(maintenanceServiceProvider).runLaunchMaintenance(
+                retentionDays: s.recycleRetentionDays,
+              );
       debugPrint('maintenance: $summary');
     } catch (e) {
       debugPrint('maintenance failed: $e');

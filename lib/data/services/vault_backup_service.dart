@@ -108,7 +108,8 @@ class VaultBackupService {
     };
 
     final man = File(p.join(destDir, manifestName));
-    await man.writeAsString(const JsonEncoder.withIndent('  ').convert(manifest));
+    await man
+        .writeAsString(const JsonEncoder.withIndent('  ').convert(manifest));
     return copied;
   }
 
@@ -119,8 +120,8 @@ class VaultBackupService {
       throw StateError('No $manifestName in folder');
     }
     final map = jsonDecode(await man.readAsString()) as Map<String, dynamic>;
-    final mediaList = (map['media'] as List<dynamic>? ?? [])
-        .cast<Map<String, dynamic>>();
+    final mediaList =
+        (map['media'] as List<dynamic>? ?? []).cast<Map<String, dynamic>>();
     final mediaDir = Directory(p.join(srcDir, 'media'));
     var n = 0;
 
@@ -145,11 +146,9 @@ class VaultBackupService {
       final unique = await _uniquePath(destVisible);
       await src.copy(unique.path);
 
-      final hiddenPath =
-          HideNaming.toHiddenPath(unique.path, isVideo: isVideo);
-      final hidden = unique.path == hiddenPath
-          ? unique
-          : await unique.rename(hiddenPath);
+      final hiddenPath = HideNaming.toHiddenPath(unique.path, isVideo: isVideo);
+      final hidden =
+          unique.path == hiddenPath ? unique : await unique.rename(hiddenPath);
 
       final id = (m['id'] as String?) ?? _uuid.v4();
       String? thumbPath;
@@ -167,8 +166,8 @@ class VaultBackupService {
         id: id,
         privatePath: hidden.path,
         originalName: originalName,
-        mimeType: m['mimeType'] as String? ??
-            (isVideo ? 'video/mp4' : 'image/jpeg'),
+        mimeType:
+            m['mimeType'] as String? ?? (isVideo ? 'video/mp4' : 'image/jpeg'),
         isVideo: isVideo,
         width: m['width'] as int?,
         height: m['height'] as int?,
@@ -194,8 +193,8 @@ class VaultBackupService {
     }
 
     // User albums from manifest (optional, best-effort).
-    final albumList = (map['albums'] as List<dynamic>? ?? [])
-        .cast<Map<String, dynamic>>();
+    final albumList =
+        (map['albums'] as List<dynamic>? ?? []).cast<Map<String, dynamic>>();
     for (final a in albumList) {
       final isSystem = a['isSystem'] as bool? ?? true;
       if (isSystem) continue;

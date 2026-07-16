@@ -122,9 +122,8 @@ class _PrivateHeartAppState extends ConsumerState<PrivateHeartApp>
     // ignore: unawaited_futures
     showImportProgressSheet(ctx);
     try {
-      final summary = await ref
-          .read(importControllerProvider.notifier)
-          .runImport(sources);
+      final summary =
+          await ref.read(importControllerProvider.notifier).runImport(sources);
       if (ctx.mounted) Navigator.of(ctx).pop();
       if (ctx.mounted) {
         ScaffoldMessenger.of(ctx).showSnackBar(

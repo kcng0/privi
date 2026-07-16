@@ -88,8 +88,7 @@ class _HomeShellState extends ConsumerState<HomeShell>
       ),
     );
     if (name == null || name.trim().isEmpty) return;
-    final album =
-        await ref.read(albumRepositoryProvider).createUserAlbum(name);
+    final album = await ref.read(albumRepositoryProvider).createUserAlbum(name);
     if (!mounted) return;
     _openAlbum(album.id, album.name);
   }

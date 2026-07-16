@@ -91,9 +91,9 @@ abstract final class HideNaming {
     final rest = norm.substring(idx + marker.length);
     if (rest.isEmpty) return null;
     final folder = rest.split('/').firstWhere(
-      (s) => s.isNotEmpty,
-      orElse: () => '',
-    );
+          (s) => s.isNotEmpty,
+          orElse: () => '',
+        );
     return folder.isEmpty ? null : folder;
   }
 

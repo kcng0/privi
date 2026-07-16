@@ -8,11 +8,14 @@ abstract final class MediaQueryUtils {
   static List<MediaItem> apply({
     required List<MediaItem> items,
     String search = '',
+
     /// Ordered sort keys (first = primary). Empty → newest first.
     List<MediaSort> sorts = const [MediaSort.dateAddedDesc],
+
     /// Back-compat single sort used by older tests.
     MediaSort? sort,
     RatingFilter rating = RatingFilter.all,
+
     /// When non-empty, keep items whose rating is in this set (♥ multi-select).
     /// Takes precedence over single [RatingFilter.hearts1/2/3].
     Set<int>? heartLevels,

@@ -77,9 +77,8 @@ class SettingsController extends Notifier<AppSettings> {
     if (!ref.mounted) return;
     final p = _prefs!;
     final kindRaw = p.getString(_kMediaKind);
-    final kind = kindRaw == 'video'
-        ? MediaKindFilter.video
-        : MediaKindFilter.image;
+    final kind =
+        kindRaw == 'video' ? MediaKindFilter.video : MediaKindFilter.image;
     state = AppSettings(
       gridColumns: p.getInt(_kGrid) ?? 3,
       albumColumns: p.getInt(_kAlbum) ?? 3,

@@ -184,8 +184,7 @@ class _FolderTile extends ConsumerWidget {
               right: 6,
               bottom: 6,
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
                   color: Colors.black.withValues(alpha: 0.55),
                   borderRadius: BorderRadius.circular(10),
@@ -231,6 +230,7 @@ class _LazyFolderCover extends ConsumerStatefulWidget {
   });
   final String pathId;
   final MediaKindFilter filter;
+
   /// Folder visible count (or other stamp) — changes force a new cover load.
   final int contentVersion;
 

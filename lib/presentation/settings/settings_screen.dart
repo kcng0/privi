@@ -235,7 +235,7 @@ class SettingsScreen extends ConsumerWidget {
           ListTile(
             leading: const Icon(Icons.info_outline),
             title: const Text(AppInfo.name),
-            subtitle: Text(
+            subtitle: const Text(
               'v${AppInfo.version} · ${AppInfo.licenseShort}',
             ),
             onTap: () => _showAbout(context),
@@ -285,7 +285,7 @@ class SettingsScreen extends ConsumerWidget {
                 style: Theme.of(ctx).textTheme.titleSmall,
               ),
               const SizedBox(height: 12),
-              Text(AppInfo.about),
+              const Text(AppInfo.about),
               const SizedBox(height: 16),
               Text(
                 'Version ${AppInfo.version}',

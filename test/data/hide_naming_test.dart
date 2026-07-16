@@ -26,7 +26,7 @@ void main() {
     });
 
     test('hidden vault path detection', () {
-      final p =
+      const p =
           '/storage/emulated/0/${VaultPaths.hiddenRootName}/Downloads/ab_photo.jpg';
       expect(HideNaming.isHiddenVaultPath(p), isTrue);
       expect(HideNaming.isHiddenPath(p), isTrue);
@@ -42,21 +42,20 @@ void main() {
     });
 
     test('vaultMirrorFolder extracts segment', () {
-      final p =
+      const p =
           '/storage/emulated/0/${VaultPaths.hiddenRootName}/Downloads/ab_photo.jpg';
       expect(HideNaming.vaultMirrorFolder(p), 'Downloads');
     });
   });
 
   group('HideNaming.resolveUnhidePath', () {
-    final vaultDownloads =
+    const vaultDownloads =
         '/storage/emulated/0/${VaultPaths.hiddenRootName}/Downloads/ab_photo.jpg';
-    final vaultCamera =
+    const vaultCamera =
         '/storage/emulated/0/${VaultPaths.hiddenRootName}/Camera/img.jpg';
-    final vaultImported =
+    const vaultImported =
         '/storage/emulated/0/${VaultPaths.hiddenRootName}/Imported/x.png';
-    final legacy =
-        '/storage/emulated/0/DCIM/Camera/clip.vid.pg.mp4';
+    const legacy = '/storage/emulated/0/DCIM/Camera/clip.vid.pg.mp4';
 
     test('originalPath wins when present', () {
       expect(

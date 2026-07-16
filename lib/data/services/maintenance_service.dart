@@ -155,7 +155,8 @@ class MaintenanceService {
   Future<int> _purgeExpiredRecycle(int retentionDays) async {
     if (retentionDays <= 0) return 0;
     final bin = await _db.watchRecycleBin().first;
-    final cutoff = DateTime.now().toUtc().subtract(Duration(days: retentionDays));
+    final cutoff =
+        DateTime.now().toUtc().subtract(Duration(days: retentionDays));
     var n = 0;
     for (final r in bin) {
       final del = r.deletedAt;

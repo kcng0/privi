@@ -139,8 +139,10 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen> {
             child: _loading
                 ? const CircularProgressIndicator(color: Colors.white54)
                 : _error != null
-                    ? Text(_error!,
-                        style: const TextStyle(color: Colors.white70))
+                    ? Text(
+                        _error!,
+                        style: const TextStyle(color: Colors.white70),
+                      )
                     : widget.isVideo &&
                             _video != null &&
                             _video!.value.isInitialized
