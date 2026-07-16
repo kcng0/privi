@@ -79,10 +79,11 @@ final galleryFoldersProvider =
     }
   }
   // Cold-start: subtract vault private paths so counts match after restart.
+  // Cached until invalidateVaultPathCache (hide/unhide).
   try {
-    final paths =
-        await ref.read(mediaRepositoryProvider).listActivePrivatePaths();
-    gallery.hydrateFromVaultPaths(paths);
+    await gallery.ensureVaultHydrated(
+      () => ref.read(mediaRepositoryProvider).listActivePrivatePaths(),
+    );
   } catch (_) {
     // DB may not be ready in pure widget tests — ignore.
   }
@@ -96,9 +97,9 @@ final galleryAssetsProvider = FutureProvider.autoDispose
   final filter = ref.watch(mediaKindFilterProvider);
   final gallery = ref.watch(galleryServiceProvider);
   try {
-    final paths =
-        await ref.read(mediaRepositoryProvider).listActivePrivatePaths();
-    gallery.hydrateFromVaultPaths(paths);
+    await gallery.ensureVaultHydrated(
+      () => ref.read(mediaRepositoryProvider).listActivePrivatePaths(),
+    );
   } catch (_) {}
   return gallery.listAssets(pathId: pathId, filter: filter);
 });

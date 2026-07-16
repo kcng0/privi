@@ -11,6 +11,10 @@ class RatingController extends Notifier<void> {
     return ref.read(mediaRepositoryProvider).updateRating(id, rating);
   }
 
+  Future<void> setRatings(List<String> ids, int rating) {
+    return ref.read(mediaRepositoryProvider).updateRatings(ids, rating);
+  }
+
   Future<void> clear(String id) => setRating(id, 0);
 }
 

@@ -27,9 +27,9 @@ class ThumbnailTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final path = item.displayPath;
-    final file = File(path);
-    final hasFile = file.existsSync();
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    // Decode near cell size; clamp so low/high DPR stay reasonable.
+    final cachePx = (256 * dpr).round().clamp(128, 384);
 
     return Material(
       color: const Color(0xFF1B3A36),
@@ -39,18 +39,17 @@ class ThumbnailTile extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            if (hasFile)
-              Hero(
-                tag: 'media-hero-${item.id}',
-                child: Image.file(
-                  file,
-                  fit: BoxFit.cover,
-                  gaplessPlayback: true,
-                  errorBuilder: (_, __, ___) => const _Broken(),
-                ),
-              )
-            else
-              const _Broken(),
+            Hero(
+              tag: 'media-hero-${item.id}',
+              child: Image.file(
+                File(item.displayPath),
+                fit: BoxFit.cover,
+                gaplessPlayback: true,
+                cacheWidth: cachePx,
+                cacheHeight: cachePx,
+                errorBuilder: (_, __, ___) => const _Broken(),
+              ),
+            ),
             if (item.isVideo)
               Positioned(
                 top: 4,
