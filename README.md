@@ -128,7 +128,7 @@ Full environment notes, troubleshooting, and CI details:
 
 | Workflow | Trigger | What it does |
 |----------|---------|--------------|
-| [CI](./.github/workflows/ci.yaml) | push / PR to `main` | format, codegen, analyze, test, debug APK artifact |
+| [CI](./.github/workflows/ci.yaml) | push / PR to `main` | format, codegen, analyze, test only |
 | [Release](./.github/workflows/release.yml) | tag `v*` or manual dispatch | release APK + checksums (+ GitHub source zip/tar) |
 
 To cut a release from a clean `main`:

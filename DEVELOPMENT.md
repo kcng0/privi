@@ -144,12 +144,12 @@ scripts/         # bootstrap + toolchain installer
 
 - Default branch: **`main`**. Feature work on branches; open PRs into `main`.
 - **CI** (`.github/workflows/ci.yaml`) on push/PR to `main`: format check,
-  codegen, analyze, test, debug APK artifact.
-- **Release** (`.github/workflows/release.yml`) on tag `v*` (or
+  codegen, analyze, test. **No APK build** — that is release-only.
+- **Release** (`.github/workflows/release.yml`) on tag `v*` only (or
   `workflow_dispatch`): builds a release APK, publishes
   `privi-<version>.apk` plus SHA-256/SHA-512 checksum files, and creates a
   GitHub Release. GitHub also auto-attaches **Source code (zip/tar.gz)** for
-  the tag.
+  the tag. A normal commit to `main` never triggers this workflow.
 
 Cut a release:
 
