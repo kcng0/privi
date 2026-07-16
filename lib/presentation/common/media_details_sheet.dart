@@ -1,8 +1,7 @@
 import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-
+import '../../core/l10n.dart';
 import '../../domain/models/media_item.dart';
 
 Future<void> showMediaDetailsSheet(BuildContext context, MediaItem item) {
@@ -25,17 +24,21 @@ Future<void> showMediaDetailsSheet(BuildContext context, MediaItem item) {
                 style: Theme.of(ctx).textTheme.titleMedium,
               ),
               const SizedBox(height: 12),
-              _row('Name', item.originalName),
-              _row('Type', item.isVideo ? 'Video' : 'Image'),
+              _row(context.l10n.nameLabel, item.originalName),
+              _row(
+                  context.l10n.typeLabel,
+                  item.isVideo
+                      ? context.l10n.typeVideo
+                      : context.l10n.typeImage),
               _row('MIME', item.mimeType),
-              _row('Size', '$sizeMb MB'),
+              _row(context.l10n.sizeLabel, '$sizeMb MB'),
               if (item.width != null && item.height != null)
                 _row('Dimensions', '${item.width} × ${item.height}'),
-              _row('Rating', '${item.rating} / 3 hearts'),
+              _row(context.l10n.ratingLabel, '${item.rating} / 3 hearts'),
               _row('Added', fmt.format(item.dateAdded.toLocal())),
               if (item.dateTaken != null)
                 _row('Taken', fmt.format(item.dateTaken!.toLocal())),
-              _row('Path', item.privatePath),
+              _row(context.l10n.pathLabel, item.privatePath),
               _row('On disk', exists ? 'Yes' : 'Missing'),
             ],
           ),

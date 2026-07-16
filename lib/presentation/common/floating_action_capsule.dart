@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/l10n.dart';
 
 /// Floating horizontal pill menu (bottom-center).
 class FloatingActionItem {
@@ -63,7 +64,7 @@ class FloatingActionCapsule extends StatelessWidget {
                     _CapsuleButton(
                       item: FloatingActionItem(
                         icon: Icons.close,
-                        label: 'Close',
+                        label: context.l10n.close,
                         onTap: onDismiss!,
                       ),
                     ),

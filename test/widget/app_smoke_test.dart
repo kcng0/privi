@@ -63,6 +63,9 @@ class _FakeBio extends BiometricService {
   Future<bool> authenticate({
     String reason = 'Unlock Privi',
     bool biometricOnly = true,
+    String signInTitle = 'Privi',
+    String biometricHint = 'Verify identity',
+    String cancelButton = 'Cancel',
   }) async =>
       false;
 }

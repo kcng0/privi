@@ -14,6 +14,7 @@ class AppSettings {
     this.recycleRetentionDays = 7,
     this.flagSecure = false,
     this.mediaKindFilter = MediaKindFilter.image,
+    this.localeCode = '',
   });
 
   final int gridColumns; // 2–5
@@ -28,6 +29,9 @@ class AppSettings {
   /// Shared Visible + Invisible photo XOR video mode (persisted).
   final MediaKindFilter mediaKindFilter;
 
+  /// UI language override. Empty = follow device. Values: en, zh_CN, zh_HK.
+  final String localeCode;
+
   AppSettings copyWith({
     int? gridColumns,
     int? albumColumns,
@@ -38,6 +42,7 @@ class AppSettings {
     int? recycleRetentionDays,
     bool? flagSecure,
     MediaKindFilter? mediaKindFilter,
+    String? localeCode,
   }) {
     return AppSettings(
       gridColumns: gridColumns ?? this.gridColumns,
@@ -49,6 +54,7 @@ class AppSettings {
       recycleRetentionDays: recycleRetentionDays ?? this.recycleRetentionDays,
       flagSecure: flagSecure ?? this.flagSecure,
       mediaKindFilter: mediaKindFilter ?? this.mediaKindFilter,
+      localeCode: localeCode ?? this.localeCode,
     );
   }
 }
@@ -63,6 +69,7 @@ class SettingsController extends Notifier<AppSettings> {
   static const _kRecycle = 'recycle_retention_days';
   static const _kFlagSecure = 'flag_secure';
   static const _kMediaKind = 'media_kind_filter'; // image | video
+  static const _kLocale = 'locale_code'; // '' | en | zh_CN | zh_HK
 
   SharedPreferences? _prefs;
 
@@ -89,6 +96,7 @@ class SettingsController extends Notifier<AppSettings> {
       recycleRetentionDays: p.getInt(_kRecycle) ?? 7,
       flagSecure: p.getBool(_kFlagSecure) ?? false,
       mediaKindFilter: kind,
+      localeCode: p.getString(_kLocale) ?? '',
     );
   }
 
@@ -138,6 +146,16 @@ class SettingsController extends Notifier<AppSettings> {
       _kMediaKind,
       kind == MediaKindFilter.video ? 'video' : 'image',
     );
+  }
+
+  /// Empty [code] follows the device language.
+  Future<void> setLocaleCode(String code) async {
+    final normalized = switch (code) {
+      'en' || 'zh_CN' || 'zh_HK' => code,
+      _ => '',
+    };
+    state = state.copyWith(localeCode: normalized);
+    await _prefs?.setString(_kLocale, normalized);
   }
 }
 

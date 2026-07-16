@@ -19,10 +19,13 @@ import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import android.os.Handler
+import android.os.Looper
 import java.io.File
 import java.io.FileOutputStream
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import java.util.concurrent.Executors
 
 /// Host activity: FileProvider, FLAG_SECURE, MediaStore rename for directory hide.
 /// Extends [FlutterFragmentActivity] so [local_auth] can show BiometricPrompt.
@@ -30,6 +33,23 @@ class MainActivity : FlutterFragmentActivity() {
     private val mediaStoreChannel = "com.privateheart.vault/mediastore"
     private val filesChannel = "com.privateheart.vault/files"
     private val windowChannel = "com.privateheart.vault/window"
+
+    // IO for hide/thumbnail so concurrent Dart workers can overlap.
+    private val ioExecutor = Executors.newFixedThreadPool(3)
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    private fun <T> runIo(result: MethodChannel.Result, block: () -> T) {
+        ioExecutor.execute {
+            try {
+                val value = block()
+                mainHandler.post { result.success(value) }
+            } catch (e: Exception) {
+                mainHandler.post {
+                    result.error("io_error", e.message, null)
+                }
+            }
+        }
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -102,14 +122,14 @@ class MainActivity : FlutterFragmentActivity() {
                             result.success(mapOf("ok" to false, "error" to "bad_args"))
                             return@setMethodCallHandler
                         }
-                        result.success(
+                        runIo(result) {
                             hideToVault(
                                 sourcePath = path,
                                 mediaId = mediaId?.toLongOrNull(),
                                 destPath = newPath,
                                 isVideo = isVideo,
-                            ),
-                        )
+                            )
+                        }
                     }
                     "videoThumbnail" -> {
                         val path = call.argument<String>("path")
@@ -119,7 +139,9 @@ class MainActivity : FlutterFragmentActivity() {
                             result.success(false)
                             return@setMethodCallHandler
                         }
-                        result.success(extractVideoThumbnail(path, destPath, maxSize))
+                        runIo(result) {
+                            extractVideoThumbnail(path, destPath, maxSize)
+                        }
                     }
                     else -> result.notImplemented()
                 }

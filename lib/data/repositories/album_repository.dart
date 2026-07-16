@@ -85,6 +85,8 @@ class AlbumRepository {
       if (a.systemKind == SystemAlbumKind.all) return 0;
       if (a.systemKind == SystemAlbumKind.favorites) return 1;
       if (a.systemKind == SystemAlbumKind.recycle) return 1000;
+      // Pinned user albums sit above other user albums.
+      if (a.isPinned) return 50;
       return 100;
     }
 
@@ -92,6 +94,13 @@ class AlbumRepository {
       final ra = rank(a.album);
       final rb = rank(b.album);
       if (ra != rb) return ra.compareTo(rb);
+      // Among pinned: most recently pinned first.
+      if (a.album.isPinned && b.album.isPinned) {
+        final pa = a.album.pinnedAt!;
+        final pb = b.album.pinnedAt!;
+        final c = pb.compareTo(pa);
+        if (c != 0) return c;
+      }
       return a.album.name.toLowerCase().compareTo(b.album.name.toLowerCase());
     });
     return views;
@@ -170,6 +179,12 @@ class AlbumRepository {
   Future<void> setCover(String albumId, String mediaId) =>
       _db.setAlbumCover(albumId, mediaId);
 
+  Future<void> setPinned(String albumId, {required bool pinned}) =>
+      _db.setAlbumPinnedAt(
+        albumId,
+        pinned ? DateTime.now().toUtc() : null,
+      );
+
   Future<void> addMediaToUserAlbum(String albumId, String mediaId) =>
       _db.addMembership(albumId, mediaId, DateTime.now().toUtc());
 
@@ -185,6 +200,17 @@ class AlbumRepository {
     return row == null ? null : _mapAlbum(row);
   }
 
+  /// Snapshot of media currently in [albumId] (active only).
+  Future<List<MediaItem>> listMediaForAlbum(String albumId) async {
+    final rows = switch (albumId) {
+      SystemAlbumIds.all => await _db.listActiveMedia(),
+      SystemAlbumIds.favorites => await _db.listFavorites(),
+      SystemAlbumIds.recycle => const <MediaItemRow>[],
+      _ => await _db.listInUserAlbum(albumId),
+    };
+    return rows.map(_mapMedia).toList(growable: false);
+  }
+
   Album _mapAlbum(AlbumRow r) => Album(
         id: r.id,
         name: r.name,
@@ -192,6 +218,7 @@ class AlbumRepository {
         coverMediaId: r.coverMediaId,
         createdAt: r.createdAt,
         systemKind: SystemAlbumKind.fromStorage(r.systemKind),
+        pinnedAt: r.pinnedAt,
       );
 
   MediaItem _mapMedia(MediaItemRow r) => MediaItem(

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/l10n.dart';
 
 import '../../core/theme/vault_colors.dart';
 
@@ -106,7 +107,7 @@ class _HeartRatingBarState extends State<HeartRatingBar>
     );
 
     row = Semantics(
-      label: 'Rated $clamped of 3 hearts',
+      label: context.l10n.ratedHearts(clamped),
       child: row,
     );
 

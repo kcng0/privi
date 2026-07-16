@@ -12,6 +12,7 @@ import '../../application/media/rating_controller.dart';
 import '../../application/providers.dart';
 import '../../application/settings/settings_controller.dart';
 import '../../core/constants.dart';
+import '../../core/l10n.dart';
 import '../../core/theme/vault_colors.dart';
 import '../../data/services/intent_service.dart';
 import '../../domain/models/media_item.dart';
@@ -131,7 +132,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     if (!mounted) return;
     if (!ok) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not unhide file')),
+        SnackBar(content: Text(context.l10n.couldNotUnhideFile)),
       );
       return;
     }
@@ -149,7 +150,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       if (_index >= widget.items.length) _index = widget.items.length - 1;
     });
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Restored to Gallery name')),
+      SnackBar(content: Text(context.l10n.restoredToGallery)),
     );
     await _syncVideo();
   }
@@ -240,7 +241,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                             ),
                             if (item.isVideo)
                               IconButton(
-                                tooltip: 'Open external',
+                                tooltip: context.l10n.openExternal,
                                 icon: const Icon(
                                   Icons.open_in_new,
                                   color: Colors.white70,
@@ -257,14 +258,15 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                                 if (v == 'external') unawaited(_openExternal());
                               },
                               itemBuilder: (_) => [
-                                const PopupMenuItem(
+                                PopupMenuItem(
                                   value: 'unhide',
-                                  child: Text('Unhide (restore original name)'),
+                                  child:
+                                      Text(context.l10n.unhideRestoreOriginal),
                                 ),
                                 if (item.isVideo)
-                                  const PopupMenuItem(
+                                  PopupMenuItem(
                                     value: 'external',
-                                    child: Text('Open in VLC / external'),
+                                    child: Text(context.l10n.openExternal),
                                   ),
                               ],
                             ),
@@ -322,7 +324,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                             children: [
                               IconButton(
-                                tooltip: 'Favorite toggle',
+                                tooltip: context.l10n.favoriteToggle,
                                 icon: Icon(Icons.favorite, color: vc.heart),
                                 onPressed: () {
                                   final n = item.rating >= 1 ? 0 : 1;
@@ -356,7 +358,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                                   },
                                 ),
                               IconButton(
-                                tooltip: 'Delete',
+                                tooltip: context.l10n.delete,
                                 icon: const Icon(
                                   Icons.delete_outline,
                                   color: Colors.white70,
@@ -380,8 +382,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                                     }
                                   });
                                   messenger.showSnackBar(
-                                    const SnackBar(
-                                      content: Text('Moved to Recycle Bin'),
+                                    SnackBar(
+                                      content:
+                                          Text(context.l10n.moveToRecycleBin),
                                     ),
                                   );
                                   await _syncVideo();

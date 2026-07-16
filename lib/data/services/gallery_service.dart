@@ -136,6 +136,25 @@ class GalleryService {
     _vaultHiddenBasenames.clear();
   }
 
+  /// Clear session-only hide bookkeeping (deductions + asset ids).
+  ///
+  /// Required after unhide/restore: [noteHidden] subtracts from Visible counts,
+  /// and without reversing those deductions restored folders stay at 0 and are
+  /// filtered out of [listFolders] until process restart.
+  void clearSessionHideDeductions() {
+    _hiddenDeduction.clear();
+    _hiddenAssetIds.clear();
+    _lastFolders = null;
+    _lastFoldersFilter = null;
+    invalidateCache();
+  }
+
+  /// Full refresh after unhide/restore: drop hide deductions + MediaStore path cache.
+  void refreshAfterReveal() {
+    clearSessionHideDeductions();
+    invalidateVaultPathCache();
+  }
+
   /// Hydrate once per process until [invalidateVaultPathCache] / force hydrate.
   Future<void> ensureVaultHydrated(
     Future<List<String>> Function() loadPaths,
@@ -482,53 +501,55 @@ class GalleryService {
     List<String> assetIds, {
     String? sourceFolderName,
   }) async {
-    final sources = <ImportSource>[];
+    if (assetIds.isEmpty) return const [];
     final store = MediaStoreService();
-    for (final id in assetIds) {
+    const concurrency = 6;
+    final out = <ImportSource?>[];
+
+    Future<ImportSource?> one(String id) async {
       try {
         final entity =
-            await AssetEntity.fromId(id).timeout(const Duration(seconds: 5));
-        if (entity == null) continue;
+            await AssetEntity.fromId(id).timeout(const Duration(seconds: 3));
+        if (entity == null) return null;
 
         final isVideo = entity.type == AssetType.video;
         final mime = entity.mimeType ?? (isVideo ? 'video/mp4' : 'image/jpeg');
 
-        // 1) MediaStore DATA column via native (true path under DCIM/Pictures/…).
+        // Prefer native MediaStore DATA path (fast, no full file open).
         final String? absPath =
             await store.resolveMediaPath(id: id, isVideo: isVideo);
 
-        // 2) Fallbacks: entity.file / originFile — reject obvious cache paths.
         File? file;
         if (absPath != null &&
             absPath.isNotEmpty &&
             File(absPath).existsSync()) {
           file = File(absPath);
         } else {
+          // Short timeouts — skip rather than stall the batch.
           try {
-            file = await entity.file.timeout(const Duration(seconds: 12));
+            file = await entity.file.timeout(const Duration(seconds: 4));
           } catch (e) {
             debugPrint('entity.file timeout/fail $id: $e');
           }
           if (file == null || !await file.exists()) {
             try {
               file =
-                  await entity.originFile.timeout(const Duration(seconds: 20));
+                  await entity.originFile.timeout(const Duration(seconds: 6));
             } catch (e) {
               debugPrint('originFile fail $id: $e');
             }
           }
         }
-        if (file == null || !await file.exists()) continue;
-        if (file.path.startsWith('content:')) continue;
+        if (file == null || !await file.exists()) return null;
+        if (file.path.startsWith('content:')) return null;
         final path = file.path;
-        // Cache / app-private exports cannot be "hidden" from Gallery (original remains).
         final lower = path.toLowerCase();
         if (lower.contains('/cache/') ||
             lower.contains('/.thumbnails/') ||
             lower.contains('/android/data/') ||
             lower.contains('/app_flutter/')) {
           debugPrint('PH_HIDE reject path $path');
-          continue;
+          return null;
         }
 
         var folder = sourceFolderName?.trim();
@@ -547,19 +568,31 @@ class GalleryService {
         if (folder.isEmpty) folder = 'Imported';
         if (folder.toLowerCase() == 'download') folder = 'Downloads';
 
-        sources.add(
-          ImportSource(
-            path: file.path,
-            name: entity.title ?? p.basename(file.path),
-            mimeType: mime,
-            assetId: id,
-            sourceFolderName: folder,
-          ),
+        return ImportSource(
+          path: file.path,
+          name: entity.title ?? p.basename(file.path),
+          mimeType: mime,
+          assetId: id,
+          sourceFolderName: folder,
         );
       } catch (e) {
         debugPrint('resolve $id: $e');
+        return null;
       }
     }
-    return sources;
+
+    // Bounded parallelism keeps MediaStore responsive.
+    for (var i = 0; i < assetIds.length; i += concurrency) {
+      final chunk = assetIds.sublist(
+        i,
+        i + concurrency > assetIds.length ? assetIds.length : i + concurrency,
+      );
+      final part = await Future.wait(chunk.map(one));
+      out.addAll(part);
+    }
+    return [
+      for (final s in out)
+        if (s != null) s,
+    ];
   }
 }

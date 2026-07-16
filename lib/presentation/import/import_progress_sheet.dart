@@ -3,12 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/import/import_controller.dart';
 import '../../core/constants.dart';
+import '../../core/l10n.dart';
 
 /// Progress UI for hide/import. Title says “Hiding…” (not stuck-looking silence).
 class ImportProgressSheet extends ConsumerWidget {
-  const ImportProgressSheet({super.key, this.title = 'Hiding…'});
+  const ImportProgressSheet({super.key, this.title});
 
-  final String title;
+  final String? title;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -30,7 +31,10 @@ class ImportProgressSheet extends ConsumerWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(title, style: theme.textTheme.titleLarge),
+              Text(
+                title ?? context.l10n.hiding,
+                style: theme.textTheme.titleLarge,
+              ),
               const SizedBox(height: AppSpacing.lg),
               if (p != null) ...[
                 LinearProgressIndicator(
@@ -41,7 +45,7 @@ class ImportProgressSheet extends ConsumerWidget {
                 if (p.statusMessage != null) ...[
                   const SizedBox(height: AppSpacing.xs),
                   Text(
-                    p.statusMessage!,
+                    _statusMessage(context, p.statusMessage!),
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
@@ -60,7 +64,8 @@ class ImportProgressSheet extends ConsumerWidget {
                   Padding(
                     padding: const EdgeInsets.only(top: 4),
                     child: Text(
-                      'ok ${p.imported} · skip ${p.skipped} · fail ${p.failed}',
+                      context.l10n
+                          .progressOkSkipFail(p.imported, p.skipped, p.failed),
                       style: theme.textTheme.labelSmall,
                     ),
                   ),
@@ -71,7 +76,7 @@ class ImportProgressSheet extends ConsumerWidget {
                 onPressed: state.running
                     ? () => ref.read(importControllerProvider.notifier).cancel()
                     : null,
-                child: const Text('Cancel'),
+                child: Text(context.l10n.cancel),
               ),
             ],
           ),
@@ -83,7 +88,7 @@ class ImportProgressSheet extends ConsumerWidget {
 
 Future<void> showImportProgressSheet(
   BuildContext context, {
-  String title = 'Hiding…',
+  String? title,
 }) {
   return showModalBottomSheet<void>(
     context: context,
@@ -92,4 +97,13 @@ Future<void> showImportProgressSheet(
     isScrollControlled: true,
     builder: (_) => ImportProgressSheet(title: title),
   );
+}
+
+String _statusMessage(BuildContext context, String raw) {
+  final l10n = context.l10n;
+  if (raw == 'Hiding…' || raw == 'Hiding...') return l10n.hiding;
+  if (raw == 'Cancelled') return l10n.cancelled;
+  if (raw == 'Done') return l10n.done;
+  if (raw.startsWith('Hiding (')) return l10n.hiding; // parallel banner
+  return raw;
 }

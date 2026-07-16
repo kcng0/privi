@@ -214,15 +214,23 @@ class LockController extends Notifier<VaultLockState> {
   }
 
   /// Biometric convenience unlock (requires root credential + enabled).
-  Future<bool> unlockWithBiometric() async {
+  Future<bool> unlockWithBiometric({
+    String reason = 'Unlock Privi',
+    String signInTitle = 'Privi',
+    String biometricHint = 'Verify identity',
+    String cancelButton = 'Cancel',
+  }) async {
     final security = ref.read(securityServiceProvider);
     final bio = ref.read(biometricServiceProvider);
     if (!await security.hasCredential()) return false;
     if (!await security.isBiometricEnabled()) return false;
     // Prefer biometrics; still allow device credential if OEM cancels bio-only.
     final ok = await bio.authenticate(
-      reason: 'Unlock Privi',
+      reason: reason,
       biometricOnly: false,
+      signInTitle: signInTitle,
+      biometricHint: biometricHint,
+      cancelButton: cancelButton,
     );
     if (!ref.mounted) return false;
     if (ok) {
@@ -235,7 +243,13 @@ class LockController extends Notifier<VaultLockState> {
 
   /// Enable/disable biometric. Cancel is soft-fail (returns false, no throw).
   /// Throws only when hardware truly unavailable.
-  Future<bool> setBiometricEnabled(bool enabled) async {
+  Future<bool> setBiometricEnabled(
+    bool enabled, {
+    String? reason,
+    String? signInTitle,
+    String? biometricHint,
+    String? cancelButton,
+  }) async {
     final security = ref.read(securityServiceProvider);
     final bio = ref.read(biometricServiceProvider);
     if (enabled) {
@@ -249,8 +263,11 @@ class LockController extends Notifier<VaultLockState> {
       // Confirm with a live biometric before enabling.
       // Allow device credential fallback if OEM biometric-only is flaky.
       final ok = await bio.authenticate(
-        reason: 'Confirm to enable biometric unlock',
+        reason: reason ?? 'Confirm to enable biometric unlock',
         biometricOnly: false,
+        signInTitle: signInTitle ?? 'Privi',
+        biometricHint: biometricHint ?? 'Verify identity',
+        cancelButton: cancelButton ?? 'Cancel',
       );
       debugPrint('setBiometricEnabled auth ok=$ok');
       if (!ok) {
@@ -267,7 +284,12 @@ class LockController extends Notifier<VaultLockState> {
   /// Forgot pattern: verify via Android system auth (biometrics or device PIN/pattern),
   /// then clear the vault credential so the user can set a new pattern.
   /// Returns true if recovery completed (status → needsSetup).
-  Future<bool> recoverWithSystemAuth() async {
+  Future<bool> recoverWithSystemAuth({
+    String? reason,
+    String? signInTitle,
+    String? biometricHint,
+    String? cancelButton,
+  }) async {
     final security = ref.read(securityServiceProvider);
     final bio = ref.read(biometricServiceProvider);
     if (!await security.hasCredential()) {
@@ -285,8 +307,11 @@ class LockController extends Notifier<VaultLockState> {
       return false;
     }
     final ok = await bio.authenticate(
-      reason: 'Confirm it is you to reset Privi pattern',
+      reason: reason ?? 'Confirm it is you to reset Privi pattern',
       biometricOnly: false, // allow device PIN / pattern / biometric
+      signInTitle: signInTitle ?? 'Privi',
+      biometricHint: biometricHint ?? 'Verify identity',
+      cancelButton: cancelButton ?? 'Cancel',
     );
     if (!ok) {
       if (!ref.mounted) return false;

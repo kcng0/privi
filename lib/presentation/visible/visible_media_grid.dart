@@ -10,6 +10,7 @@ import '../../application/lock/lock_controller.dart';
 import '../../application/providers.dart';
 import '../../application/settings/settings_controller.dart';
 import '../../core/constants.dart';
+import '../../core/l10n.dart';
 import '../../core/utils/media_query_utils.dart';
 import '../../data/services/intent_service.dart';
 import '../../data/services/media_rename_service.dart';
@@ -185,15 +186,13 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
           filePath: sources.first.path,
           mimeType:
               sources.first.mimeType ?? (a.isVideo ? 'video/*' : 'image/*'),
-          chooserTitle: 'Open with',
+          chooserTitle: context.l10n.openWith,
         );
         if (ok) return;
       }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Could not open externally — preview in-app'),
-          ),
+          SnackBar(content: Text(context.l10n.couldNotOpenExternally)),
         );
       }
     }
@@ -279,7 +278,7 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
       context,
       current: current,
       options: GridAppMenu.mediaColumnOptions,
-      title: 'Layout style',
+      title: context.l10n.layoutStyle,
     );
     if (next == null || !mounted) return;
     await ref.read(settingsControllerProvider.notifier).setGridColumns(next);
@@ -303,20 +302,26 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
             children: [
               ListTile(
                 leading: const Icon(Icons.checklist_rtl, color: Colors.white70),
-                title:
-                    const Text('Select', style: TextStyle(color: Colors.white)),
-                subtitle: const Text(
-                  'Multi-select items',
-                  style: TextStyle(color: Colors.white54, fontSize: 12),
+                title: Text(
+                  context.l10n.select,
+                  style: const TextStyle(color: Colors.white),
+                ),
+                subtitle: Text(
+                  context.l10n.multiSelectItems,
+                  style: const TextStyle(color: Colors.white54, fontSize: 12),
                 ),
                 onTap: () => Navigator.pop(ctx, 'select'),
               ),
               ListTile(
                 leading: const Icon(Icons.grid_view, color: Colors.white70),
-                title:
-                    const Text('Style', style: TextStyle(color: Colors.white)),
+                title: Text(
+                  context.l10n.style,
+                  style: const TextStyle(color: Colors.white),
+                ),
                 subtitle: Text(
-                  '${ref.read(settingsControllerProvider).gridColumns} columns',
+                  context.l10n.columnsCount(
+                    ref.read(settingsControllerProvider).gridColumns,
+                  ),
                   style: const TextStyle(color: Colors.white54, fontSize: 12),
                 ),
                 onTap: () => Navigator.pop(ctx, 'style'),
@@ -327,15 +332,17 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
                   color: Colors.white70,
                 ),
                 title: Text(
-                  _searchOpen ? 'Close search' : 'Search',
+                  _searchOpen ? context.l10n.closeSearch : context.l10n.search,
                   style: const TextStyle(color: Colors.white),
                 ),
                 onTap: () => Navigator.pop(ctx, 'search'),
               ),
               ListTile(
                 leading: const Icon(Icons.sort, color: Colors.white70),
-                title:
-                    const Text('Sort', style: TextStyle(color: Colors.white)),
+                title: Text(
+                  context.l10n.sort,
+                  style: const TextStyle(color: Colors.white),
+                ),
                 subtitle: Text(
                   MediaQueryUtils.sortsSummary(_sorts),
                   style: const TextStyle(color: Colors.white54, fontSize: 12),
@@ -377,19 +384,16 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
       final go = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Text('Permission needed'),
-          content: const Text(
-            'Privi needs permission to hide photos and videos from your '
-            'gallery. Open Settings to allow it, then try again.',
-          ),
+          title: Text(context.l10n.permissionNeeded),
+          content: Text(context.l10n.permissionNeededBody),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel'),
+              child: Text(context.l10n.cancel),
             ),
             FilledButton(
               onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Open settings'),
+              child: Text(context.l10n.openSettings),
             ),
           ],
         ),
@@ -402,7 +406,7 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
 
     if (!mounted) return;
     // ignore: unawaited_futures
-    showImportProgressSheet(context, title: 'Hiding…');
+    showImportProgressSheet(context, title: null);
 
     var imported = 0;
     try {
@@ -413,9 +417,7 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
       if (sources.isEmpty) {
         if (mounted) {
           messenger.showSnackBar(
-            const SnackBar(
-              content: Text('Could not open file paths to rename.'),
-            ),
+            SnackBar(content: Text(context.l10n.couldNotOpenPathsToRename)),
           );
         }
         return;
@@ -433,8 +435,8 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
       if (summary.imported > 0) {
         msg.write(
           summary.imported == 1
-              ? 'Hidden → Invisible / $folderName'
-              : 'Hidden ${summary.imported} → Invisible / $folderName',
+              ? context.l10n.hiddenToAlbum(folderName)
+              : context.l10n.hiddenCountToAlbum(summary.imported, folderName),
         );
       }
       if (summary.failed > 0) {
@@ -450,7 +452,7 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
         if (msg.isNotEmpty) msg.write(' · ');
         msg.write('${summary.skipped} skipped');
       }
-      if (msg.isEmpty) msg.write('Nothing hidden');
+      if (msg.isEmpty) msg.write(context.l10n.nothingHidden);
 
       messenger.showSnackBar(SnackBar(content: Text(msg.toString())));
     } catch (e) {
@@ -535,19 +537,18 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Delete from device?'),
+        title: Text(context.l10n.deleteFromDeviceTitle),
         content: Text(
-          'Permanently delete ${ids.length} item(s) from the system gallery. '
-          'This cannot be undone.',
+          context.l10n.deleteFromDeviceBody(ids.length),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: Text(context.l10n.cancel),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Delete'),
+            child: Text(context.l10n.delete),
           ),
         ],
       ),
@@ -555,18 +556,21 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
     if (confirm != true || !mounted) return;
 
     final messenger = ScaffoldMessenger.of(context);
+    final l10n = context.l10n;
     var deleted = 0;
     try {
       // photo_manager: remove from MediaStore / gallery (may show system confirm).
       final result = await PhotoManager.editor.deleteWithIds(ids);
       deleted = result.length;
     } catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text('Delete failed: $e')));
+      messenger.showSnackBar(
+        SnackBar(content: Text(l10n.deleteFailed('$e'))),
+      );
       return;
     }
     if (deleted == 0) {
       messenger.showSnackBar(
-        const SnackBar(content: Text('No items deleted')),
+        SnackBar(content: Text(context.l10n.noItemsDeleted)),
       );
       return;
     }
@@ -585,7 +589,7 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
     await _reload();
     if (mounted) _exitSelect();
     messenger.showSnackBar(
-      SnackBar(content: Text('Deleted $deleted item(s)')),
+      SnackBar(content: Text(l10n.deletedItems(deleted))),
     );
   }
 
@@ -595,12 +599,12 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
       actions: [
         FloatingActionItem(
           icon: Icons.share_outlined,
-          label: 'Share',
+          label: context.l10n.share,
           onTap: _shareSelected,
         ),
         FloatingActionItem(
           icon: Icons.delete_outline,
-          label: 'Delete',
+          label: context.l10n.delete,
           destructive: true,
           onTap: _deleteSelected,
         ),
@@ -648,14 +652,14 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
           },
         ),
         title: _selecting
-            ? Text('${_selected.length} selected')
+            ? Text(context.l10n.selectedCount(_selected.length))
             : _searchOpen
                 ? TextField(
                     controller: _searchCtrl,
                     autofocus: true,
                     style: const TextStyle(color: Colors.white),
-                    decoration: const InputDecoration(
-                      hintText: 'Search name…',
+                    decoration: InputDecoration(
+                      hintText: context.l10n.searchNameHint,
                       hintStyle: TextStyle(color: Colors.white54),
                       border: InputBorder.none,
                       isDense: true,
@@ -666,7 +670,7 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
         actions: [
           if (_selecting)
             IconButton(
-              tooltip: 'Select all',
+              tooltip: context.l10n.selectAll,
               icon: const Icon(Icons.select_all),
               onPressed: () {
                 final items = _visibleItems;
@@ -680,7 +684,7 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
             )
           else
             IconButton(
-              tooltip: 'More',
+              tooltip: context.l10n.more,
               icon: const Icon(Icons.more_vert),
               onPressed: _showOverflowMenu,
             ),
@@ -694,8 +698,8 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
                   ? Center(
                       child: Text(
                         filter == MediaKindFilter.video
-                            ? 'No videos in this folder'
-                            : 'No photos in this folder',
+                            ? context.l10n.noVideosInFolder
+                            : context.l10n.noPhotosInFolder,
                         style: const TextStyle(color: Colors.white70),
                       ),
                     )
@@ -763,12 +767,12 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
                                 actions: [
                                   FloatingActionItem(
                                     icon: Icons.visibility_off,
-                                    label: 'Hide',
+                                    label: context.l10n.hide,
                                     onTap: _hideSelected,
                                   ),
                                   FloatingActionItem(
                                     icon: Icons.more_horiz,
-                                    label: 'More',
+                                    label: context.l10n.more,
                                     onTap: _showMore,
                                   ),
                                 ],

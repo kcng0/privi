@@ -1,0 +1,508 @@
+{
+  "@@locale": "en",
+  "appName": "Privi",
+  "visible": "Visible",
+  "invisible": "Invisible",
+  "settings": "Settings",
+  "more": "More",
+  "cancel": "Cancel",
+  "save": "Save",
+  "create": "Create",
+  "continueAction": "Continue",
+  "enable": "Enable",
+  "notNow": "Not now",
+  "close": "Close",
+  "retry": "Retry",
+  "done": "Done",
+  "next": "Next",
+  "clear": "Clear",
+  "select": "Select",
+  "selectAll": "Select all",
+  "search": "Search",
+  "searchNameHint": "Search name…",
+  "closeSearch": "Close search",
+  "sort": "Sort",
+  "style": "Style",
+  "layoutStyle": "Layout style",
+  "columnsCount": "{count} columns",
+  "@columnsCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "multiSelectItems": "Multi-select items",
+  "photosOnly": "Photos only",
+  "videosOnly": "Videos only",
+  "photosOnlyTapVideos": "Photos only · tap for videos",
+  "videosOnlyTapPhotos": "Videos only · tap for photos",
+  "newAlbum": "New album",
+  "newVaultAlbum": "New vault album",
+  "albumNameHint": "Album name",
+  "rename": "Rename",
+  "renameAlbum": "Rename album",
+  "deleteAlbum": "Delete album",
+  "deleteAlbumSubtitle": "Media stays in All Media",
+  "shuffle": "Shuffle",
+  "restore": "Restore",
+  "restoreAlbumTitle": "Restore album?",
+  "restoreAlbumBody": "Unhide {count} item(s) from “{name}” back to the system gallery.",
+  "@restoreAlbumBody": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "unhideAllInAlbum": "Unhide all items in this album",
+  "pinToTop": "Pin to top",
+  "unpin": "Unpin",
+  "pinnedToTop": "Pinned to top",
+  "unpinned": "Unpinned",
+  "noMediaToPlay": "No media to play",
+  "nothingToRestore": "Nothing to restore",
+  "restoredItems": "Restored {count} item(s)",
+  "@restoredItems": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "itemsCount": "{count} items",
+  "@itemsCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "errorWithDetails": "Error: {error}",
+  "@errorWithDetails": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "hide": "Hide",
+  "hiding": "Hiding…",
+  "hidingParallel": "Hiding (×{workers})…",
+  "@hidingParallel": {
+    "placeholders": {
+      "workers": {
+        "type": "int"
+      }
+    }
+  },
+  "hideFolderTitle": "Hide folder?",
+  "hideFolderBody": "Hide media in “{name}” from the system gallery ({count} item(s)).",
+  "@hideFolderBody": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "moveFolderToVault": "Move this folder into the vault",
+  "permissionNeeded": "Permission needed",
+  "permissionNeededBody": "Privi needs permission to hide photos and videos from your gallery. Open Settings to allow it, then try again.",
+  "openSettings": "Open settings",
+  "openSystemSettings": "Open system settings",
+  "grantPermission": "Grant permission",
+  "allowGalleryAccess": "Allow gallery access",
+  "allowGalleryAccessBody": "Visible lists your photo or video folders. Grant permission to browse and hide them.",
+  "noPhotoFolders": "No photo folders found",
+  "noVideoFolders": "No video folders found",
+  "couldNotLoadGallery": "Could not load gallery: {error}",
+  "@couldNotLoadGallery": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "noMediaToHide": "No media to hide",
+  "couldNotOpenFilesToHide": "Could not open files to hide",
+  "couldNotOpenPathsToRename": "Could not open file paths to rename.",
+  "couldNotHideMedia": "Could not hide media. Please try again.",
+  "nothingHidden": "Nothing hidden",
+  "hiddenToAlbum": "Hidden → Invisible / {name}",
+  "@hiddenToAlbum": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hiddenCountToAlbum": "Hidden {count} → Invisible / {name}",
+  "@hiddenCountToAlbum": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hiddenSharedItems": "Hidden {count} shared items",
+  "@hiddenSharedItems": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "unlockToHideShared": "Unlock to hide shared media",
+  "unhide": "Unhide",
+  "unhiddenItems": "Unhidden {count} item(s)",
+  "@unhiddenItems": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "share": "Share",
+  "delete": "Delete",
+  "deleteFromDeviceTitle": "Delete from device?",
+  "deleteFromDeviceBody": "Permanently delete {count} item(s) from the system gallery. This cannot be undone.",
+  "@deleteFromDeviceBody": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "deleteFailed": "Delete failed: {error}",
+  "@deleteFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "noItemsDeleted": "No items deleted",
+  "deletedItems": "Deleted {count} item(s)",
+  "@deletedItems": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "selectedCount": "{count} selected",
+  "@selectedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "noMatches": "No matches",
+  "noPhotosInFolder": "No photos in this folder",
+  "noVideosInFolder": "No videos in this folder",
+  "playPlaylist": "Play playlist",
+  "playPlaylistShuffleOn": "Start with shuffle on?",
+  "playPlaylistShuffleOff": "Start with shuffle off? You can toggle in the player.",
+  "inOrder": "In order",
+  "noExternalPlayer": "No external player found — opening in-app",
+  "openedExternalPlayer": "Opened in external player",
+  "rate": "Rate",
+  "details": "Details",
+  "moveToAlbum": "Move to album",
+  "moveToRecycleBin": "Move to Recycle Bin",
+  "deleteForever": "Delete forever",
+  "setAsCover": "Set as cover",
+  "coverUpdated": "Cover updated",
+  "unhideRestoreOriginal": "Unhide (restore original name)",
+  "restoredCount": "Restored {count}",
+  "@restoredCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "movedToRecycleBinCount": "Moved {count} to Recycle Bin",
+  "@movedToRecycleBinCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "deletedForeverCount": "Deleted {count} forever",
+  "@deletedForeverCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "movedToAlbumCount": "Moved {count} to album",
+  "@movedToAlbumCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "createUserAlbumFirst": "Create a user album first",
+  "openUserAlbumToSetCover": "Open a user album to set its cover",
+  "noMediaYet": "No media yet",
+  "noFavoritesYet": "No favorites yet",
+  "recycleBinEmpty": "Recycle Bin is empty",
+  "noFavoritesHint": "Long-press media and Rate with hearts.",
+  "recycleEmptyHint": "Soft-deleted items appear here.",
+  "noMediaHint": "Hide media from the Visible tab.",
+  "favorites": "Favorites",
+  "allMedia": "All Media",
+  "recycleBin": "Recycle Bin",
+  "hearts": "Hearts",
+  "unrated": "Unrated",
+  "all": "All",
+  "emptyRecycleBin": "Empty Recycle Bin",
+  "emptyRecycleBinTitle": "Empty Recycle Bin?",
+  "emptyRecycleBinBody": "Permanently delete all soft-deleted items.",
+  "purgedItems": "Purged {count} items",
+  "@purgedItems": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "sortNewestFirst": "Newest first",
+  "sortOldestFirst": "Oldest first",
+  "sortNameAsc": "Name A–Z",
+  "sortNameDesc": "Name Z–A",
+  "sortHighestRating": "Highest rating",
+  "sortLowestRating": "Lowest rating",
+  "sortsCount": "{count} sorts",
+  "@sortsCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "progressOkSkipFail": "ok {imported} · skip {skipped} · fail {failed}",
+  "@progressOkSkipFail": {
+    "placeholders": {
+      "imported": {
+        "type": "int"
+      },
+      "skipped": {
+        "type": "int"
+      },
+      "failed": {
+        "type": "int"
+      }
+    }
+  },
+  "drawPattern": "Draw a pattern",
+  "confirmPattern": "Confirm pattern",
+  "drawYourPattern": "Draw your pattern",
+  "enterYourPin": "Enter your PIN",
+  "connectAtLeast4Dots": "Connect at least 4 dots",
+  "unlockWithBiometric": "Unlock with biometric",
+  "forgotPattern": "Forgot pattern?",
+  "forgotPatternTitle": "Forgot pattern?",
+  "forgotPatternBody": "Use your phone’s fingerprint, face, or screen lock to prove it is you. Then you can draw a new vault pattern.\n\nYour media stays on the device; only the vault unlock pattern is reset.",
+  "enableBiometricTitle": "Enable biometric unlock?",
+  "enableBiometricBody": "Use fingerprint or face for faster unlock. Your pattern remains the backup unlock.",
+  "biometricNotEnabled": "Biometric not enabled — you can try again in Settings",
+  "patternsDidNotMatch": "Patterns did not match — try again",
+  "drawNewPatternProtect": "Draw a new pattern to protect the vault",
+  "sectionSecurity": "Security",
+  "sectionDisplay": "Display",
+  "sectionPlayback": "Playback",
+  "sectionStorage": "Storage",
+  "sectionAbout": "About",
+  "lockNow": "Lock now",
+  "changePattern": "Change pattern",
+  "rootUnlockCredential": "Root unlock credential",
+  "biometricUnlock": "Biometric unlock",
+  "autoLock": "Auto-lock",
+  "autoLockImmediately": "Immediately",
+  "autoLockSeconds": "{seconds} seconds",
+  "@autoLockSeconds": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "autoLockMinutes": "{minutes} minute",
+  "@autoLockMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "autoLockMinutesPlural": "{minutes} minutes",
+  "@autoLockMinutesPlural": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "blockScreenshots": "Block screenshots",
+  "blockScreenshotsSubtitle": "FLAG_SECURE — hide content in recents",
+  "mediaGridColumns": "Media grid columns",
+  "albumColumns": "Album columns",
+  "preferExternalPlayer": "Prefer external player",
+  "shuffleByDefault": "Shuffle by default",
+  "slideshowDelay": "Slideshow delay",
+  "recycleRetention": "Recycle Bin retention",
+  "vaultSize": "Vault size",
+  "exportVault": "Export vault…",
+  "exportVaultSubtitle": "Media + metadata to a folder",
+  "importVault": "Import vault…",
+  "importVaultSubtitle": "From a previous export folder",
+  "scanOrphans": "Scan orphan hidden files",
+  "scanningOrphans": "Scanning for orphan hidden files…",
+  "author": "Author",
+  "license": "License",
+  "couldNotOpenBrowser": "Could not open browser",
+  "versionLabel": "Version {version}",
+  "@versionLabel": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "authorLabel": "Author: {author}",
+  "@authorLabel": {
+    "placeholders": {
+      "author": {
+        "type": "String"
+      }
+    }
+  },
+  "exportFailed": "Export failed: {error}",
+  "@exportFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "importFailed": "Import failed: {error}",
+  "@importFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "scanFailed": "Scan failed: {error}",
+  "@scanFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "exportedMedia": "Exported {count} media files + manifest",
+  "@exportedMedia": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "playing": "Playing",
+  "emptyPlaylist": "Empty playlist",
+  "openExternal": "Open external",
+  "typeLabel": "Type",
+  "typeVideo": "Video",
+  "typeImage": "Image",
+  "nameLabel": "Name",
+  "sizeLabel": "Size",
+  "pathLabel": "Path",
+  "ratingLabel": "Rating",
+  "currentPattern": "Current pattern",
+  "newPattern": "New pattern",
+  "confirmNewPattern": "Confirm new pattern",
+  "patternUpdated": "Pattern updated",
+  "newPatternsDidNotMatch": "New patterns did not match",
+  "drawCurrentPattern": "Draw your current pattern to continue",
+  "drawSamePatternAgain": "Draw the same pattern again",
+  "currentPin": "Current PIN",
+  "enterPinThenPattern": "Enter PIN, then set a new pattern",
+  "pin": "PIN",
+  "retention": "Retention",
+  "language": "Language",
+  "languageSystem": "System default",
+  "languageEnglish": "English",
+  "languageZhCn": "简体中文",
+  "languageZhHk": "繁體中文（香港）",
+  "verifyIdentity": "Verify identity",
+  "unlockPrivi": "Unlock Privi",
+  "biometricAvailable": "Fingerprint / face when available",
+  "biometricUnavailable": "Not available on this device",
+  "biometricCancelled": "Biometric not enabled (cancelled or failed)",
+  "biometricUpdateFailed": "Could not update biometric setting",
+  "externalPlayerSubtitle": "Hand off videos to VLC / system player",
+  "scanOrphansSubtitle": "Find vault files missing from the library",
+  "retentionDays": "{days} days",
+  "@retentionDays": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "retention1Day": "1 day",
+  "secondsCount": "{n} seconds",
+  "@secondsCount": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "secondCount": "{n} second",
+  "@secondCount": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "empty": "Empty",
+  "couldNotOpenExternally": "Could not open externally — preview in-app",
+  "openWith": "Open with",
+  "playVideoWith": "Play video with",
+  "calculating": "Calculating…",
+  "cancelled": "Cancelled",
+  "restoredToGallery": "Restored to Gallery",
+  "couldNotUnhideFile": "Could not unhide file",
+  "favoriteToggle": "Favorite",
+  "ratedHearts": "Rated {rating} of 3 hearts",
+  "@ratedHearts": {
+    "placeholders": {
+      "rating": {
+        "type": "int"
+      }
+    }
+  },
+  "confirmBiometricEnable": "Confirm to enable biometric unlock",
+  "confirmResetPattern": "Confirm it is you to reset Privi pattern",
+  "wrongPattern": "Wrong pattern",
+  "wrongPin": "Wrong PIN",
+  "systemAuthCancelled": "System authentication cancelled"
+}

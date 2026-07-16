@@ -1,18 +1,23 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:photo_manager/photo_manager.dart';
 
 import '../../application/gallery/gallery_controller.dart';
+import '../../application/import/import_controller.dart';
 import '../../application/providers.dart';
 import '../../application/settings/settings_controller.dart';
 import '../../core/constants.dart';
+import '../../core/l10n.dart';
+import '../../data/services/media_rename_service.dart';
 import '../../domain/enums.dart';
+import '../import/import_progress_sheet.dart';
 import 'folder_cover_cache.dart';
 import 'visible_media_grid.dart';
 
 export 'folder_cover_cache.dart';
 
-/// dense gallery **Visible** tab: system Gallery folders (photo mode XOR video mode).
+/// Visible tab: system Gallery folders (photo mode XOR video mode).
 class VisibleFolderGrid extends ConsumerWidget {
   const VisibleFolderGrid({super.key});
 
@@ -51,7 +56,8 @@ class VisibleFolderGrid extends ConsumerWidget {
 
         return folders.when(
           loading: () => const Center(child: CircularProgressIndicator()),
-          error: (e, _) => Center(child: Text('Could not load gallery: $e')),
+          error: (e, _) =>
+              Center(child: Text(context.l10n.couldNotLoadGallery('$e'))),
           data: (list) {
             if (list.isEmpty) {
               return Center(
@@ -59,8 +65,8 @@ class VisibleFolderGrid extends ConsumerWidget {
                   padding: AppSpacing.screen,
                   child: Text(
                     filter == MediaKindFilter.video
-                        ? 'No video folders found'
-                        : 'No photo folders found',
+                        ? context.l10n.noVideoFolders
+                        : context.l10n.noPhotoFolders,
                     style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                           color: Colors.white70,
                         ),
@@ -74,7 +80,14 @@ class VisibleFolderGrid extends ConsumerWidget {
               onRefresh: () async {
                 FolderCoverCache.clear();
                 final gallery = ref.read(galleryServiceProvider);
+                // Drop session hide deductions so restored folders can reappear
+                // even if MediaStore was slow on the previous invalidate.
+                gallery.clearSessionHideDeductions();
                 gallery.refreshAfterMutation();
+                try {
+                  await PhotoManager.clearFileCache()
+                      .timeout(const Duration(seconds: 2));
+                } catch (_) {}
                 // Accurate recount per folder (single-album scans) so counts
                 // match after cold-start vault hydration + rename hides.
                 try {
@@ -131,6 +144,12 @@ class VisibleFolderGrid extends ConsumerWidget {
                         ref.invalidate(galleryFoldersProvider);
                       }
                     },
+                    onLongPress: () => _hideFolder(
+                      context: context,
+                      ref: ref,
+                      folder: f,
+                      filter: filter,
+                    ),
                   );
                 },
               ),
@@ -142,16 +161,201 @@ class VisibleFolderGrid extends ConsumerWidget {
   }
 }
 
+Future<void> _hideFolder({
+  required BuildContext context,
+  required WidgetRef ref,
+  required GalleryFolder folder,
+  required MediaKindFilter filter,
+}) async {
+  // ignore: unawaited_futures
+  HapticFeedback.mediumImpact();
+
+  final choice = await showModalBottomSheet<String>(
+    context: context,
+    showDragHandle: true,
+    backgroundColor: const Color(0xFF1B3A36),
+    builder: (ctx) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            title: Text(
+              folder.name,
+              style: const TextStyle(color: Colors.white),
+            ),
+            subtitle: Text(
+              context.l10n.itemsCount(folder.count),
+              style: const TextStyle(color: Colors.white54),
+            ),
+          ),
+          ListTile(
+            leading: const Icon(
+              Icons.visibility_off_outlined,
+              color: Colors.white70,
+            ),
+            title: Text(
+              context.l10n.hide,
+              style: const TextStyle(color: Colors.white),
+            ),
+            subtitle: Text(
+              context.l10n.moveFolderToVault,
+              style: const TextStyle(color: Colors.white54, fontSize: 12),
+            ),
+            onTap: () => Navigator.pop(ctx, 'hide'),
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    ),
+  );
+  if (choice != 'hide' || !context.mounted) return;
+
+  final renamer = MediaRenameService();
+  final hasAllFiles = await renamer.isExternalStorageManager();
+  if (!hasAllFiles) {
+    if (!context.mounted) return;
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(context.l10n.permissionNeeded),
+        content: Text(context.l10n.permissionNeededBody),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(context.l10n.cancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(context.l10n.openSettings),
+          ),
+        ],
+      ),
+    );
+    if (go == true) await renamer.openManageAllFilesSettings();
+    return;
+  }
+  if (!context.mounted) return;
+
+  final confirm = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: Text(context.l10n.hideFolderTitle),
+      content: Text(
+        context.l10n.hideFolderBody(folder.name, folder.count),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: Text(context.l10n.cancel),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(ctx, true),
+          child: Text(context.l10n.hide),
+        ),
+      ],
+    ),
+  );
+  if (confirm != true || !context.mounted) return;
+
+  final gallery = ref.read(galleryServiceProvider);
+  final messenger = ScaffoldMessenger.of(context);
+  final nav = Navigator.of(context);
+  // ignore: unawaited_futures
+  showImportProgressSheet(context);
+
+  var imported = 0;
+  try {
+    final ids = <String>[];
+    var page = 0;
+    while (true) {
+      final batch = await gallery.listAssets(
+        pathId: folder.id,
+        filter: filter,
+        page: page,
+        size: 200,
+      );
+      if (batch.isEmpty) break;
+      ids.addAll(batch.map((a) => a.id));
+      if (batch.length < 200) break;
+      page++;
+      if (page > 200) break; // safety
+    }
+    if (ids.isEmpty) {
+      if (context.mounted) {
+        messenger.showSnackBar(
+          SnackBar(content: Text(context.l10n.noMediaToHide)),
+        );
+      }
+      return;
+    }
+
+    final sources = await gallery.resolveForHide(
+      ids,
+      sourceFolderName: folder.name,
+    );
+    if (sources.isEmpty) {
+      if (context.mounted) {
+        messenger.showSnackBar(
+          SnackBar(content: Text(context.l10n.couldNotOpenFilesToHide)),
+        );
+      }
+      return;
+    }
+
+    final summary = await ref.read(importControllerProvider.notifier).runImport(
+          sources,
+          sourceFolderName: folder.name,
+        );
+    imported = summary.imported;
+    if (context.mounted) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            imported == 0
+                ? context.l10n.nothingHidden
+                : imported == 1
+                    ? context.l10n.hiddenToAlbum(folder.name)
+                    : context.l10n.hiddenCountToAlbum(imported, folder.name),
+          ),
+        ),
+      );
+    }
+  } catch (e) {
+    if (context.mounted) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(context.l10n.couldNotHideMedia)),
+      );
+    }
+  } finally {
+    if (nav.canPop()) nav.pop();
+    ref.read(importControllerProvider.notifier).clearSummary();
+    if (imported > 0) {
+      gallery.noteHidden(
+        pathId: folder.id,
+        hiddenCount: imported,
+      );
+      gallery.invalidateVaultPathCache();
+      FolderCoverCache.clear(pathId: folder.id);
+      gallery.refreshAfterMutation();
+      ref.read(galleryUiEpochProvider.notifier).bump();
+      ref.invalidate(galleryFoldersProvider);
+      ref.invalidate(albumsProvider);
+    }
+  }
+}
+
 class _FolderTile extends ConsumerWidget {
   const _FolderTile({
     required this.folder,
     required this.filter,
     required this.onTap,
+    required this.onLongPress,
   });
 
   final GalleryFolder folder;
   final MediaKindFilter filter;
   final VoidCallback onTap;
+  final VoidCallback onLongPress;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -159,6 +363,7 @@ class _FolderTile extends ConsumerWidget {
       color: const Color(0xFF1B3A36),
       child: InkWell(
         onTap: onTap,
+        onLongPress: onLongPress,
         child: Stack(
           fit: StackFit.expand,
           children: [
@@ -331,20 +536,19 @@ class _PermDenied extends StatelessWidget {
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 8),
-            const Text(
-              'Visible lists your photo or video folders. '
-              'Grant permission to browse and hide them.',
+            Text(
+              context.l10n.allowGalleryAccessBody,
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.white70),
             ),
             const SizedBox(height: 20),
             FilledButton(
               onPressed: onRetry,
-              child: const Text('Grant permission'),
+              child: Text(context.l10n.grantPermission),
             ),
             TextButton(
               onPressed: onRequest,
-              child: const Text('Open system settings'),
+              child: Text(context.l10n.openSystemSettings),
             ),
           ],
         ),
@@ -365,7 +569,7 @@ class _PermError extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(message, style: const TextStyle(color: Colors.white70)),
-          TextButton(onPressed: onRetry, child: const Text('Retry')),
+          TextButton(onPressed: onRetry, child: Text(context.l10n.retry)),
         ],
       ),
     );

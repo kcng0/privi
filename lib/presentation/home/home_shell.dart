@@ -3,16 +3,21 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:photo_manager/photo_manager.dart';
 
 import '../../application/gallery/gallery_controller.dart';
 import '../../application/providers.dart';
 import '../../application/settings/settings_controller.dart';
 import '../../core/constants.dart';
+import '../../core/l10n.dart';
 import '../../core/theme/vault_colors.dart';
 import '../../domain/enums.dart';
+import '../../domain/models/album.dart';
 import '../../domain/models/album_view.dart';
+import '../../domain/models/media_item.dart';
 import '../common/grid_app_menu.dart';
 import '../grid/media_grid_screen.dart';
+import '../player/player_screen.dart';
 import '../settings/settings_screen.dart';
 import '../visible/visible_folder_grid.dart';
 
@@ -51,22 +56,22 @@ class _HomeShellState extends ConsumerState<HomeShell>
     final name = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('New album'),
+        title: Text(context.l10n.newAlbum),
         content: TextField(
           controller: controller,
           autofocus: true,
-          decoration: const InputDecoration(hintText: 'Album name'),
+          decoration: InputDecoration(hintText: context.l10n.albumNameHint),
           textCapitalization: TextCapitalization.sentences,
           onSubmitted: (v) => Navigator.pop(ctx, v),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
+            child: Text(context.l10n.cancel),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, controller.text),
-            child: const Text('Create'),
+            child: Text(context.l10n.create),
           ),
         ],
       ),
@@ -77,10 +82,16 @@ class _HomeShellState extends ConsumerState<HomeShell>
     _openAlbum(album.id, album.name);
   }
 
-  void _openAlbum(String id, String name) {
+  void _openAlbum(String id, String name, {SystemAlbumKind? systemKind}) {
+    final title = localizedAlbumTitle(
+      context.l10n,
+      name: name,
+      systemKind: systemKind,
+      albumId: id,
+    );
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => MediaGridScreen(albumId: id, title: name),
+        builder: (_) => MediaGridScreen(albumId: id, title: title),
       ),
     );
   }
@@ -105,9 +116,12 @@ class _HomeShellState extends ConsumerState<HomeShell>
           children: [
             ListTile(
               leading: const Icon(Icons.grid_view, color: Colors.white70),
-              title: const Text('Style', style: TextStyle(color: Colors.white)),
+              title: Text(
+                context.l10n.style,
+                style: const TextStyle(color: Colors.white),
+              ),
               subtitle: Text(
-                '$cols columns',
+                context.l10n.columnsCount(cols),
                 style: const TextStyle(color: Colors.white54, fontSize: 12),
               ),
               onTap: () => Navigator.pop(ctx, 'style'),
@@ -117,18 +131,18 @@ class _HomeShellState extends ConsumerState<HomeShell>
                 Icons.create_new_folder_outlined,
                 color: Colors.white70,
               ),
-              title: const Text(
-                'New vault album',
-                style: TextStyle(color: Colors.white),
+              title: Text(
+                context.l10n.newVaultAlbum,
+                style: const TextStyle(color: Colors.white),
               ),
               onTap: () => Navigator.pop(ctx, 'new_album'),
             ),
             ListTile(
               leading:
                   const Icon(Icons.settings_outlined, color: Colors.white70),
-              title: const Text(
-                'Settings',
-                style: TextStyle(color: Colors.white),
+              title: Text(
+                context.l10n.settings,
+                style: const TextStyle(color: Colors.white),
               ),
               onTap: () => Navigator.pop(ctx, 'settings'),
             ),
@@ -154,7 +168,7 @@ class _HomeShellState extends ConsumerState<HomeShell>
       context,
       current: current,
       options: GridAppMenu.albumColumnOptions,
-      title: 'Layout style',
+      title: context.l10n.layoutStyle,
     );
     if (next == null || !mounted) return;
     await ref.read(settingsControllerProvider.notifier).setAlbumColumns(next);
@@ -170,7 +184,9 @@ class _HomeShellState extends ConsumerState<HomeShell>
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          f == MediaKindFilter.image ? 'Photos only' : 'Videos only',
+          f == MediaKindFilter.image
+              ? context.l10n.photosOnly
+              : context.l10n.videosOnly,
         ),
         duration: const Duration(milliseconds: 800),
       ),
@@ -234,18 +250,24 @@ class _HomeShellState extends ConsumerState<HomeShell>
                             fontWeight: FontWeight.w500,
                             height: 1.1,
                           ),
-                          tabs: const [
+                          tabs: [
                             Tab(
                               height: 52,
-                              icon: Icon(Icons.photo_camera_outlined, size: 18),
-                              text: 'Visible',
-                              iconMargin: EdgeInsets.only(bottom: 2),
+                              icon: const Icon(
+                                Icons.photo_camera_outlined,
+                                size: 18,
+                              ),
+                              text: context.l10n.visible,
+                              iconMargin: const EdgeInsets.only(bottom: 2),
                             ),
                             Tab(
                               height: 52,
-                              icon: Icon(Icons.lock, size: 18),
-                              text: 'Invisible',
-                              iconMargin: EdgeInsets.only(bottom: 2),
+                              icon: const Icon(
+                                Icons.lock,
+                                size: 18,
+                              ),
+                              text: context.l10n.invisible,
+                              iconMargin: const EdgeInsets.only(bottom: 2),
                             ),
                           ],
                         ),
@@ -253,14 +275,14 @@ class _HomeShellState extends ConsumerState<HomeShell>
                       // Photo XOR video mode — same control on Visible & Invisible.
                       IconButton(
                         tooltip: filter == MediaKindFilter.image
-                            ? 'Photos only · tap for videos'
-                            : 'Videos only · tap for photos',
+                            ? context.l10n.photosOnlyTapVideos
+                            : context.l10n.videosOnlyTapPhotos,
                         icon: Icon(_filterIcon(filter), size: 22),
                         color: Colors.white70,
                         onPressed: _toggleMediaFilter,
                       ),
                       IconButton(
-                        tooltip: 'More',
+                        tooltip: context.l10n.more,
                         icon: const Icon(Icons.more_vert, size: 22),
                         color: Colors.white70,
                         onPressed: _menu,
@@ -296,7 +318,8 @@ class _InvisibleTab extends ConsumerWidget {
     required this.onNewAlbum,
   });
 
-  final void Function(String id, String name) onOpenAlbum;
+  final void Function(String id, String name, {SystemAlbumKind? systemKind})
+      onOpenAlbum;
   final VoidCallback onNewAlbum;
 
   @override
@@ -307,7 +330,7 @@ class _InvisibleTab extends ConsumerWidget {
 
     return albumsAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => Center(child: Text('Error: $e')),
+      error: (e, _) => Center(child: Text(context.l10n.errorWithDetails('$e'))),
       data: (views) {
         AlbumView? favorites;
         AlbumView? allMedia;
@@ -342,7 +365,7 @@ class _InvisibleTab extends ConsumerWidget {
               preferCover: true,
             ),
           _Cell.action(
-            label: 'New album',
+            label: context.l10n.newAlbum,
             icon: Icons.add,
             onTap: onNewAlbum,
           ),
@@ -381,7 +404,7 @@ class _InvisibleTab extends ConsumerWidget {
               final tileKey = v == null
                   ? ValueKey('action-${c.label}')
                   : ValueKey(
-                      '${v.album.id}-${kind.name}-${v.count}-${v.cover?.displayPath ?? ''}-${v.cover?.id ?? ''}',
+                      '${v.album.id}-${kind.name}-${v.album.isPinned}-${v.count}-${v.cover?.displayPath ?? ''}-${v.cover?.id ?? ''}',
                     );
               return _MosaicTile(
                 key: tileKey,
@@ -391,11 +414,16 @@ class _InvisibleTab extends ConsumerWidget {
                     c.onTap!();
                     return;
                   }
-                  if (v != null) onOpenAlbum(v.album.id, v.album.name);
+                  if (v != null) {
+                    onOpenAlbum(
+                      v.album.id,
+                      v.album.name,
+                      systemKind: v.album.systemKind,
+                    );
+                  }
                 },
-                onLongPress: v != null && v.album.systemKind == null
-                    ? () => _albumMenu(context, ref, v)
-                    : null,
+                onLongPress:
+                    v != null ? () => _albumMenu(context, ref, v) : null,
               );
             },
           ),
@@ -409,60 +437,322 @@ class _InvisibleTab extends ConsumerWidget {
     WidgetRef ref,
     AlbumView view,
   ) async {
+    final album = view.album;
+    final isUser = album.systemKind == null;
+    final canShuffle = album.systemKind != SystemAlbumKind.recycle;
+    final canRestore = album.systemKind != SystemAlbumKind.recycle;
+    final pinned = album.isPinned;
+
     final action = await showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              title: Text(view.album.name),
-              subtitle: Text('${view.count} items'),
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF1B3A36),
+      builder: (ctx) {
+        final maxH = MediaQuery.sizeOf(ctx).height * 0.55;
+        return SafeArea(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: maxH),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          localizedAlbumTitle(
+                            context.l10n,
+                            name: album.name,
+                            systemKind: album.systemKind,
+                            albumId: album.id,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        Text(
+                          context.l10n.itemsCount(view.count),
+                          style: const TextStyle(
+                            color: Colors.white54,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                Flexible(
+                  child: ListView(
+                    shrinkWrap: true,
+                    children: [
+                      if (canShuffle)
+                        ListTile(
+                          dense: true,
+                          visualDensity: VisualDensity.compact,
+                          leading:
+                              const Icon(Icons.shuffle, color: Colors.white70),
+                          title: Text(
+                            context.l10n.shuffle,
+                            style: const TextStyle(color: Colors.white),
+                          ),
+                          onTap: () => Navigator.pop(ctx, 'shuffle'),
+                        ),
+                      if (canRestore)
+                        ListTile(
+                          dense: true,
+                          visualDensity: VisualDensity.compact,
+                          leading: const Icon(
+                            Icons.unarchive_outlined,
+                            color: Colors.white70,
+                          ),
+                          title: Text(
+                            context.l10n.restore,
+                            style: const TextStyle(color: Colors.white),
+                          ),
+                          subtitle: Text(
+                            context.l10n.unhideAllInAlbum,
+                            style: const TextStyle(
+                              color: Colors.white54,
+                              fontSize: 12,
+                            ),
+                          ),
+                          onTap: () => Navigator.pop(ctx, 'restore'),
+                        ),
+                      if (isUser)
+                        ListTile(
+                          dense: true,
+                          visualDensity: VisualDensity.compact,
+                          leading: const Icon(
+                            Icons.drive_file_rename_outline,
+                            color: Colors.white70,
+                          ),
+                          title: Text(
+                            context.l10n.rename,
+                            style: const TextStyle(color: Colors.white),
+                          ),
+                          onTap: () => Navigator.pop(ctx, 'rename'),
+                        ),
+                      if (isUser)
+                        ListTile(
+                          dense: true,
+                          visualDensity: VisualDensity.compact,
+                          leading: Icon(
+                            pinned ? Icons.push_pin : Icons.push_pin_outlined,
+                            color: Colors.white70,
+                          ),
+                          title: Text(
+                            pinned ? context.l10n.unpin : context.l10n.pinToTop,
+                            style: const TextStyle(color: Colors.white),
+                          ),
+                          onTap: () =>
+                              Navigator.pop(ctx, pinned ? 'unpin' : 'pin'),
+                        ),
+                      if (isUser)
+                        ListTile(
+                          dense: true,
+                          visualDensity: VisualDensity.compact,
+                          leading: const Icon(
+                            Icons.delete_outline,
+                            color: Colors.redAccent,
+                          ),
+                          title: Text(
+                            context.l10n.deleteAlbum,
+                            style: const TextStyle(color: Colors.white),
+                          ),
+                          subtitle: Text(
+                            context.l10n.deleteAlbumSubtitle,
+                            style: const TextStyle(
+                              color: Colors.white54,
+                              fontSize: 12,
+                            ),
+                          ),
+                          onTap: () => Navigator.pop(ctx, 'delete'),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 4),
+              ],
             ),
-            ListTile(
-              leading: const Icon(Icons.drive_file_rename_outline),
-              title: const Text('Rename'),
-              onTap: () => Navigator.pop(ctx, 'rename'),
-            ),
-            ListTile(
-              leading:
-                  const Icon(Icons.delete_outline, color: Colors.redAccent),
-              title: const Text('Delete album'),
-              subtitle: const Text('Media stays in All Media'),
-              onTap: () => Navigator.pop(ctx, 'delete'),
-            ),
-          ],
+          ),
+        );
+      },
+    );
+    if (action == null || !context.mounted) return;
+
+    switch (action) {
+      case 'shuffle':
+        await _shuffleAlbum(context, ref, album);
+      case 'restore':
+        await _restoreAlbum(context, ref, album);
+      case 'rename':
+        await _renameAlbum(context, ref, album);
+      case 'pin':
+        await ref
+            .read(albumRepositoryProvider)
+            .setPinned(album.id, pinned: true);
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(context.l10n.pinnedToTop)),
+          );
+        }
+      case 'unpin':
+        await ref
+            .read(albumRepositoryProvider)
+            .setPinned(album.id, pinned: false);
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(context.l10n.unpinned)),
+          );
+        }
+      case 'delete':
+        await ref.read(albumRepositoryProvider).deleteUserAlbum(album.id);
+    }
+  }
+
+  Future<List<MediaItem>> _mediaForAlbum(WidgetRef ref, Album album) async {
+    final kind = ref.read(mediaKindFilterProvider);
+    final items =
+        await ref.read(albumRepositoryProvider).listMediaForAlbum(album.id);
+    return items
+        .where((m) => kind == MediaKindFilter.video ? m.isVideo : !m.isVideo)
+        .toList(growable: false);
+  }
+
+  Future<void> _shuffleAlbum(
+    BuildContext context,
+    WidgetRef ref,
+    Album album,
+  ) async {
+    final items = await _mediaForAlbum(ref, album);
+    if (!context.mounted) return;
+    if (items.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(context.l10n.noMediaToPlay)),
+      );
+      return;
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => PlayerScreen(
+          items: List.of(items),
+          shuffle: true,
+          title: localizedAlbumTitle(
+            context.l10n,
+            name: album.name,
+            systemKind: album.systemKind,
+            albumId: album.id,
+          ),
         ),
       ),
     );
-    if (action == null || !context.mounted) return;
-    if (action == 'delete') {
-      await ref.read(albumRepositoryProvider).deleteUserAlbum(view.album.id);
+  }
+
+  Future<void> _restoreAlbum(
+    BuildContext context,
+    WidgetRef ref,
+    Album album,
+  ) async {
+    final items = await _mediaForAlbum(ref, album);
+    if (!context.mounted) return;
+    if (items.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(context.l10n.nothingToRestore)),
+      );
       return;
     }
-    if (action == 'rename') {
-      final c = TextEditingController(text: view.album.name);
-      final name = await showDialog<String>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Rename album'),
-          content: TextField(controller: c, autofocus: true),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel'),
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(context.l10n.restoreAlbumTitle),
+        content: Text(
+          context.l10n.restoreAlbumBody(
+            items.length,
+            localizedAlbumTitle(
+              context.l10n,
+              name: album.name,
+              systemKind: album.systemKind,
+              albumId: album.id,
             ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, c.text),
-              child: const Text('Save'),
-            ),
-          ],
+          ),
         ),
-      );
-      if (name != null && name.trim().isNotEmpty) {
-        await ref.read(albumRepositoryProvider).rename(view.album.id, name);
-      }
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(context.l10n.cancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(context.l10n.restore),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !context.mounted) return;
+
+    final import = ref.read(importServiceProvider);
+    var n = 0;
+    for (final item in items) {
+      try {
+        // Batch: clear gallery cache once after all items.
+        if (await import.reveal(item, clearGalleryCache: false)) n++;
+      } catch (_) {}
+    }
+    final gallery = ref.read(galleryServiceProvider);
+    // Reverse session hide deductions so Visible folders reappear immediately.
+    gallery.refreshAfterReveal();
+    try {
+      await PhotoManager.clearFileCache().timeout(const Duration(seconds: 2));
+    } catch (_) {}
+    // Give MediaStore a beat to index scanned paths before re-list.
+    await Future<void>.delayed(const Duration(milliseconds: 350));
+    gallery.invalidateCache();
+    ref.read(galleryUiEpochProvider.notifier).bump();
+    ref.invalidate(galleryFoldersProvider);
+    ref.invalidate(albumsProvider);
+    // Force provider rebuild while still on Invisible so Visible is fresh on tab switch.
+    try {
+      await ref.read(galleryFoldersProvider.future);
+    } catch (_) {}
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(context.l10n.restoredItems(n))),
+    );
+  }
+
+  Future<void> _renameAlbum(
+    BuildContext context,
+    WidgetRef ref,
+    Album album,
+  ) async {
+    final c = TextEditingController(text: album.name);
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(context.l10n.renameAlbum),
+        content: TextField(controller: c, autofocus: true),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(context.l10n.cancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, c.text),
+            child: Text(context.l10n.save),
+          ),
+        ],
+      ),
+    );
+    if (name != null && name.trim().isNotEmpty) {
+      await ref.read(albumRepositoryProvider).rename(album.id, name);
     }
   }
 }
@@ -587,6 +877,16 @@ class _MosaicTile extends StatelessWidget {
                   ),
                 ),
               ),
+            if (view != null && view.album.isPinned)
+              const Positioned(
+                top: 6,
+                left: 6,
+                child: Icon(
+                  Icons.push_pin,
+                  size: 16,
+                  color: Colors.white70,
+                ),
+              ),
             if (view != null)
               Positioned(
                 top: (cell.icon != null && !useCover) ? 6 : null,
@@ -601,7 +901,14 @@ class _MosaicTile extends StatelessWidget {
               child: Text(
                 cell.action
                     ? (cell.label ?? '')
-                    : (view?.album.name ?? cell.label ?? ''),
+                    : (view == null
+                        ? (cell.label ?? '')
+                        : localizedAlbumTitle(
+                            context.l10n,
+                            name: view.album.name,
+                            systemKind: view.album.systemKind,
+                            albumId: view.album.id,
+                          )),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(

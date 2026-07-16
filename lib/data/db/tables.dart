@@ -34,6 +34,9 @@ class Albums extends Table {
   DateTimeColumn get createdAt => dateTime()();
   TextColumn get systemKind => text().nullable()();
 
+  /// When set, album is pinned to the top of the Invisible mosaic.
+  DateTimeColumn get pinnedAt => dateTime().nullable()();
+
   @override
   Set<Column<Object>> get primaryKey => {id};
 }
