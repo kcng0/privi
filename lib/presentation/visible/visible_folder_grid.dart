@@ -539,7 +539,7 @@ class _PermDenied extends StatelessWidget {
             Text(
               context.l10n.allowGalleryAccessBody,
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.white70),
+              style: const TextStyle(color: Colors.white70),
             ),
             const SizedBox(height: 20),
             FilledButton(
