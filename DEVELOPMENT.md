@@ -146,8 +146,10 @@ scripts/         # bootstrap + toolchain installer
 - **CI** (`.github/workflows/ci.yaml`) on push/PR to `main`: format check,
   codegen, analyze, test, debug APK artifact.
 - **Release** (`.github/workflows/release.yml`) on tag `v*` (or
-  `workflow_dispatch`): builds a release APK, renames it to
-  `privi-<version>.apk`, and attaches it to a GitHub Release.
+  `workflow_dispatch`): builds a release APK, publishes
+  `privi-<version>.apk` plus SHA-256/SHA-512 checksum files, and creates a
+  GitHub Release. GitHub also auto-attaches **Source code (zip/tar.gz)** for
+  the tag.
 
 Cut a release:
 
