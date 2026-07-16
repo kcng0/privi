@@ -28,7 +28,9 @@ class AlbumRepository {
       Future<void> emitNow() async {
         if (closed) return;
         try {
-          controller.add(await _buildViews());
+          final views = await _buildViews();
+          if (closed) return;
+          controller.add(views);
         } catch (e, st) {
           if (!closed) controller.addError(e, st);
         }
