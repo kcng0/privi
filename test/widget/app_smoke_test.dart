@@ -97,8 +97,7 @@ void main() {
     expect(app.themeMode, ThemeMode.dark);
   });
 
-  testWidgets('Visible|Invisible shell + mosaic tiles',
-      (tester) async {
+  testWidgets('Visible|Invisible shell + mosaic tiles', (tester) async {
     tester.view.physicalSize = const Size(420, 900);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
