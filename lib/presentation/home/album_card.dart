@@ -24,7 +24,7 @@ class AlbumCard extends StatelessWidget {
     final album = view.album;
     final kind = album.systemKind;
     final coverPath = view.cover?.displayPath;
-    final hasCover = coverPath != null && File(coverPath).existsSync();
+    final hasCover = coverPath != null && coverPath.isNotEmpty;
 
     return Material(
       color: Theme.of(context).colorScheme.surfaceContainer,
@@ -39,6 +39,7 @@ class AlbumCard extends StatelessWidget {
               Image.file(
                 File(coverPath),
                 fit: BoxFit.cover,
+                cacheWidth: 512,
                 errorBuilder: (_, __, ___) => _SystemPlaceholder(kind: kind),
               )
             else

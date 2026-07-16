@@ -531,7 +531,6 @@ class _MosaicTile extends StatelessWidget {
     final coverPath = view?.cover?.displayPath;
     final useCover = coverPath != null &&
         coverPath.isNotEmpty &&
-        File(coverPath).existsSync() &&
         (cell.preferCover || cell.icon == null);
 
     return Material(

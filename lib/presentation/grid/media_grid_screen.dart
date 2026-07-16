@@ -176,18 +176,12 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
     if (ids.isEmpty) return;
     final next = await showQuickRatingSheet(context, currentRating: 1);
     if (next == null) return;
-    final rating = ref.read(ratingControllerProvider.notifier);
-    for (final id in ids) {
-      await rating.setRating(id, next);
-    }
+    await ref.read(ratingControllerProvider.notifier).setRatings(ids, next);
   }
 
   Future<void> _restoreSelected() async {
     final ids = ref.read(selectionControllerProvider).toList();
-    final media = ref.read(mediaRepositoryProvider);
-    for (final id in ids) {
-      await media.restore(id);
-    }
+    await ref.read(mediaRepositoryProvider).restoreMany(ids);
     ref.read(selectionControllerProvider.notifier).clear();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -197,10 +191,7 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
 
   Future<void> _softDeleteSelected() async {
     final ids = ref.read(selectionControllerProvider).toList();
-    final media = ref.read(mediaRepositoryProvider);
-    for (final id in ids) {
-      await media.softDelete(id);
-    }
+    await ref.read(mediaRepositoryProvider).softDeleteMany(ids);
     ref.read(selectionControllerProvider.notifier).clear();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -210,10 +201,7 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
 
   Future<void> _purgeSelected() async {
     final ids = ref.read(selectionControllerProvider).toList();
-    final media = ref.read(mediaRepositoryProvider);
-    for (final id in ids) {
-      await media.purge(id);
-    }
+    await ref.read(mediaRepositoryProvider).purgeMany(ids);
     ref.read(selectionControllerProvider.notifier).clear();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -355,6 +343,13 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
       try {
         if (await import.reveal(item)) n++;
       } catch (_) {}
+    }
+    if (n > 0) {
+      final gallery = ref.read(galleryServiceProvider);
+      gallery.invalidateVaultPathCache();
+      gallery.refreshAfterMutation();
+      ref.read(galleryUiEpochProvider.notifier).bump();
+      ref.invalidate(galleryFoldersProvider);
     }
     ref.read(selectionControllerProvider.notifier).clear();
     if (!mounted) return;

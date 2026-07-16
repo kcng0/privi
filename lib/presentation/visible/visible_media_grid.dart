@@ -116,11 +116,11 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
     try {
       final gallery = ref.read(galleryServiceProvider);
       final filter = ref.read(mediaKindFilterProvider);
-      // Keep vault path hydration for hidden filtering.
+      // Hydrate vault paths once (cached until hide/unhide invalidation).
       try {
-        final paths =
-            await ref.read(mediaRepositoryProvider).listActivePrivatePaths();
-        gallery.hydrateFromVaultPaths(paths);
+        await gallery.ensureVaultHydrated(
+          () => ref.read(mediaRepositoryProvider).listActivePrivatePaths(),
+        );
       } catch (_) {}
 
       final page = reset ? 0 : _page;
@@ -312,6 +312,7 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
           hiddenCount: imported,
           assetIds: ids,
         );
+        gallery.invalidateVaultPathCache();
         FolderCoverCache.clear(pathId: widget.pathId);
         gallery.refreshAfterMutation();
         ref.read(galleryUiEpochProvider.notifier).bump();
