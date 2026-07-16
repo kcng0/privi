@@ -62,6 +62,26 @@ GitHub topics: `flutter` `android` `photo-vault` `video-vault` `private-gallery`
 
 ---
 
+## Screenshots
+
+Captured on device with **Privi v0.1.0**. Dark UI only — vault stays fully offline.
+
+| Invisible vault | Lock | Playlist |
+|:---------------:|:----:|:--------:|
+| <img src="assets/screenshots/01_invisible.png" width="200" alt="Invisible vault home with album mosaic"> | <img src="assets/screenshots/02_lock.png" width="200" alt="Pattern lock and biometric unlock"> | <img src="assets/screenshots/03_playlist.png" width="200" alt="Media grid and playlist playback"> |
+
+| Options menu | Settings |
+|:------------:|:--------:|
+| <img src="assets/screenshots/04_option_menu.png" width="200" alt="Overflow menu with Select, Style, Search, and Sort"> | <img src="assets/screenshots/05_settings.png" width="200" alt="Settings for lock, auto-lock, and player"> |
+
+1. **Invisible vault** — private albums after hide; photo/video mode and Style columns  
+2. **Lock** — pattern / PIN + optional biometric before the vault opens  
+3. **Playlist** — hearts, multi-select, and play (built-in or open in VLC)  
+4. **Options menu** — Select, Style, Search, and Sort in one ⋮ sheet  
+5. **Settings** — auto-lock, `FLAG_SECURE`, player preference, About  
+
+---
+
 ## Develop
 
 ### Prerequisites
@@ -113,7 +133,7 @@ Full environment notes, troubleshooting, and CI details:
 ├── lib/           # Dart source (feature-first)
 ├── test/          # unit + widget tests
 ├── android/       # Android host project
-├── assets/        # branding / icons
+├── assets/        # branding / icons / screenshots
 ├── scripts/       # bootstrap + toolchain installer
 ├── .github/       # CI + release workflows
 ├── pubspec.yaml
