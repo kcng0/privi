@@ -17,22 +17,28 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.memory() : super(NativeDatabase.memory());
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
         onCreate: (m) async {
           await m.createAll();
           await seedSystemAlbums();
+          await _createPerfIndexes();
         },
         onUpgrade: (m, from, to) async {
           if (from < 2) {
             await _ensureOriginalPathColumn();
           }
+          if (from < 3) {
+            await _createPerfIndexes();
+          }
         },
         beforeOpen: (details) async {
           // Repair installs where schemaVersion advanced without the column.
           await _ensureOriginalPathColumn();
+          // Idempotent: covers installs that skipped onUpgrade edge cases.
+          await _createPerfIndexes();
         },
       );
 
@@ -55,6 +61,26 @@ class AppDatabase extends _$AppDatabase {
         );
       } catch (_) {}
     }
+  }
+
+  /// Secondary indexes for active/favorites/membership/path lookups (v3).
+  Future<void> _createPerfIndexes() async {
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_media_items_deleted_date '
+      'ON media_items (deleted_at, date_added)',
+    );
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_media_items_rating_active '
+      'ON media_items (rating) WHERE deleted_at IS NULL',
+    );
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_media_items_private_path '
+      'ON media_items (private_path)',
+    );
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_album_media_album_id '
+      'ON album_media (album_id)',
+    );
   }
 
   Future<void> seedSystemAlbums() async {
@@ -102,8 +128,23 @@ class AppDatabase extends _$AppDatabase {
     );
   }
 
+  Future<void> updateMediaRatings(List<String> ids, int rating) async {
+    if (ids.isEmpty) return;
+    final r = rating.clamp(0, 3);
+    await (update(mediaItems)..where((t) => t.id.isIn(ids))).write(
+      MediaItemsCompanion(rating: Value(r)),
+    );
+  }
+
   Future<void> softDeleteMedia(String id, DateTime at) {
     return (update(mediaItems)..where((t) => t.id.equals(id))).write(
+      MediaItemsCompanion(deletedAt: Value(at)),
+    );
+  }
+
+  Future<void> softDeleteMediaMany(List<String> ids, DateTime at) async {
+    if (ids.isEmpty) return;
+    await (update(mediaItems)..where((t) => t.id.isIn(ids))).write(
       MediaItemsCompanion(deletedAt: Value(at)),
     );
   }
@@ -114,9 +155,29 @@ class AppDatabase extends _$AppDatabase {
     );
   }
 
+  Future<void> restoreMediaMany(List<String> ids) async {
+    if (ids.isEmpty) return;
+    await (update(mediaItems)..where((t) => t.id.isIn(ids))).write(
+      const MediaItemsCompanion(deletedAt: Value(null)),
+    );
+  }
+
   Future<void> hardDeleteMedia(String id) async {
     await (delete(albumMedia)..where((t) => t.mediaId.equals(id))).go();
     await (delete(mediaItems)..where((t) => t.id.equals(id))).go();
+  }
+
+  Future<void> hardDeleteMediaMany(List<String> ids) async {
+    if (ids.isEmpty) return;
+    await transaction(() async {
+      await (delete(albumMedia)..where((t) => t.mediaId.isIn(ids))).go();
+      await (delete(mediaItems)..where((t) => t.id.isIn(ids))).go();
+    });
+  }
+
+  Future<List<MediaItemRow>> getMediaByIds(List<String> ids) async {
+    if (ids.isEmpty) return const [];
+    return (select(mediaItems)..where((t) => t.id.isIn(ids))).get();
   }
 
   Stream<List<MediaItemRow>> watchActiveMedia() {
@@ -170,19 +231,21 @@ class AppDatabase extends _$AppDatabase {
 
   /// All non-deleted private paths (for Visible count hydration / orphan scan).
   Future<List<String>> listActivePrivatePaths() async {
-    final rows =
-        await (select(mediaItems)..where((t) => t.deletedAt.isNull())).get();
-    return rows.map((r) => r.privatePath).toList(growable: false);
+    final q = selectOnly(mediaItems)
+      ..addColumns([mediaItems.privatePath])
+      ..where(mediaItems.deletedAt.isNull());
+    final rows = await q.get();
+    return [
+      for (final r in rows) r.read(mediaItems.privatePath)!,
+    ];
   }
 
   /// Sum of sizeBytes for active + recycle (vault storage estimate).
   Future<int> sumMediaBytes() async {
-    final rows = await select(mediaItems).get();
-    var total = 0;
-    for (final r in rows) {
-      total += r.sizeBytes;
-    }
-    return total;
+    final total = mediaItems.sizeBytes.sum();
+    final q = selectOnly(mediaItems)..addColumns([total]);
+    final row = await q.getSingle();
+    return row.read(total) ?? 0;
   }
 
   Future<bool> existsByPrivatePath(String path) async {
@@ -270,17 +333,19 @@ class AppDatabase extends _$AppDatabase {
   }
 
   Future<int> countMembership(String albumId) async {
-    final rows = await (select(albumMedia).join([
+    final c = countAll();
+    final q = selectOnly(albumMedia).join([
       innerJoin(
         mediaItems,
         mediaItems.id.equalsExp(albumMedia.mediaId),
       ),
     ])
-          ..where(
-            albumMedia.albumId.equals(albumId) & mediaItems.deletedAt.isNull(),
-          ))
-        .get();
-    return rows.length;
+      ..addColumns([c])
+      ..where(
+        albumMedia.albumId.equals(albumId) & mediaItems.deletedAt.isNull(),
+      );
+    final row = await q.getSingle();
+    return row.read(c) ?? 0;
   }
 
   Future<MediaItemRow?> latestInUserAlbum(String albumId) async {

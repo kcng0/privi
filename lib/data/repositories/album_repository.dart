@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:drift/drift.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../domain/enums.dart';
@@ -14,45 +17,64 @@ class AlbumRepository {
   final Uuid _uuid;
 
   /// Re-emit when albums OR media (counts/covers) change.
+  ///
+  /// Uses lightweight table-update notifications (not full media row streams)
+  /// and debounces rapid multi-select writes.
   Stream<List<AlbumView>> watchAlbumViewsReactive() {
     return Stream.multi((controller) {
       var closed = false;
-      Future<void> emit() async {
+      Timer? debounce;
+
+      Future<void> emitNow() async {
         if (closed) return;
         try {
           controller.add(await _buildViews());
         } catch (e, st) {
-          controller.addError(e, st);
+          if (!closed) controller.addError(e, st);
         }
       }
 
-      final sub1 = _db.watchActiveMedia().listen((_) => emit());
-      final sub2 = _db.watchFavorites().listen((_) => emit());
-      final sub3 = _db.watchRecycleBin().listen((_) => emit());
-      final sub4 = _db.watchAlbums().listen((_) => emit());
+      void schedule() {
+        debounce?.cancel();
+        debounce = Timer(const Duration(milliseconds: 75), emitNow);
+      }
+
+      final sub = _db
+          .tableUpdates(
+            TableUpdateQuery.onAllTables([
+              _db.mediaItems,
+              _db.albumMedia,
+              _db.albums,
+            ]),
+          )
+          .listen((_) => schedule());
 
       controller.onCancel = () async {
         closed = true;
-        await sub1.cancel();
-        await sub2.cancel();
-        await sub3.cancel();
-        await sub4.cancel();
+        debounce?.cancel();
+        await sub.cancel();
       };
 
-      emit();
+      emitNow();
     });
   }
 
   Future<List<AlbumView>> _buildViews() async {
     final albums = await _db.getAllAlbums();
-    final views = <AlbumView>[];
-
-    for (final row in albums) {
-      final album = _mapAlbum(row);
-      final count = await _countFor(album);
-      final cover = await _coverFor(album, row.coverMediaId);
-      views.add(AlbumView(album: album, count: count, cover: cover));
-    }
+    final views = await Future.wait(
+      albums.map((row) async {
+        final album = _mapAlbum(row);
+        final results = await Future.wait<Object?>([
+          _countFor(album),
+          _coverFor(album, row.coverMediaId),
+        ]);
+        return AlbumView(
+          album: album,
+          count: results[0] as int,
+          cover: results[1] as MediaItem?,
+        );
+      }),
+    );
 
     int rank(Album a) {
       if (a.systemKind == SystemAlbumKind.all) return 0;

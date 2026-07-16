@@ -123,6 +123,23 @@ class GalleryService {
     invalidateCache();
   }
 
+  bool get isVaultHydrated => _vaultHydrated;
+
+  /// Drop path cache so the next [ensureVaultHydrated] reloads from DB.
+  void invalidateVaultPathCache() {
+    _vaultHydrated = false;
+    _vaultHiddenPaths.clear();
+    _vaultHiddenBasenames.clear();
+  }
+
+  /// Hydrate once per process until [invalidateVaultPathCache] / force hydrate.
+  Future<void> ensureVaultHydrated(
+    Future<List<String>> Function() loadPaths,
+  ) async {
+    if (_vaultHydrated) return;
+    hydrateFromVaultPaths(await loadPaths());
+  }
+
   /// Seed deductions from vault DB paths so Visible counts stay correct after
   /// cold start (session deductions alone only cover hides in this process).
   void hydrateFromVaultPaths(Iterable<String> privatePaths) {
