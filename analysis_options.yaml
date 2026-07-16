@@ -1,4 +1,4 @@
-# Static analysis for PrivateHeart Vault.
+# Static analysis for Privi.
 # See https://dart.dev/lints and the flutter_lints package.
 
 include: package:flutter_lints/flutter.yaml

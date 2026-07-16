@@ -1,0 +1,74 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
+
+/// MediaStore index maintenance for hide / unhide.
+///
+/// Hide must **remove** MediaStore rows (not re-scan the hidden path), otherwise
+/// Gallery / 媒体浏览器 keep showing the item under the new name.
+class MediaStoreService {
+  static const _channel = MethodChannel('com.privateheart.vault/mediastore');
+
+  /// Attempt to delete a content URI from MediaStore.
+  Future<bool> removeOriginal(String? contentUri) async {
+    if (contentUri == null || contentUri.isEmpty) return false;
+    try {
+      final result = await _channel.invokeMethod<bool>(
+        'removeOriginal',
+        {'uri': contentUri},
+      );
+      return result ?? false;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
+  /// Soft-hide / drop MediaStore index for a path.
+  /// After a vault move the original path no longer exists → index rows deleted.
+  Future<bool> purgePath(String path) async {
+    if (path.isEmpty) return false;
+    try {
+      final result = await _channel.invokeMethod<bool>(
+        'purgeMediaStorePath',
+        {'path': path},
+      );
+      return result ?? false;
+    } catch (e) {
+      debugPrint('purgePath: $e');
+      return false;
+    }
+  }
+
+  /// Absolute path for a MediaStore / photo_manager asset id.
+  Future<String?> resolveMediaPath({
+    required String id,
+    required bool isVideo,
+  }) async {
+    try {
+      final result = await _channel.invokeMethod<String>(
+        'resolveMediaPath',
+        {'id': id, 'isVideo': isVideo},
+      );
+      return result;
+    } catch (e) {
+      debugPrint('resolveMediaPath: $e');
+      return null;
+    }
+  }
+
+  /// Re-index a path into MediaStore (unhide).
+  Future<bool> scanPath(String path, {String? mimeType}) async {
+    if (path.isEmpty) return false;
+    try {
+      final result = await _channel.invokeMethod<bool>(
+        'scanMediaPath',
+        {'path': path, 'mimeType': mimeType},
+      );
+      return result ?? false;
+    } catch (e) {
+      debugPrint('scanPath: $e');
+      return false;
+    }
+  }
+}
