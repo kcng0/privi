@@ -24,15 +24,16 @@ FLUTTER_CHANNEL="${FLUTTER_CHANNEL:-stable}"
 FLUTTER_HOME="${FLUTTER_HOME:-$HOME/flutter}"
 ANDROID_HOME="${ANDROID_HOME:-$HOME/Android/Sdk}"
 CMDLINE_TOOLS_VERSION="${CMDLINE_TOOLS_VERSION:-11076708}" # see guide to update
-ANDROID_PLATFORM="${ANDROID_PLATFORM:-android-35}"
-BUILD_TOOLS="${BUILD_TOOLS:-35.0.0}"
+ANDROID_PLATFORM="${ANDROID_PLATFORM:-android-36}" # match Flutter's required platform
+BUILD_TOOLS="${BUILD_TOOLS:-36.0.0}"
 
 APT_PKGS=(curl git unzip xz-utils zip libglu1-mesa)
 
 # ----------------------------------------------------------------------------
 # Helpers
 # ----------------------------------------------------------------------------
-c_blue="\033[1;34m"; c_green="\033[1;32m"; c_yellow="\033[1;33m"; c_reset="\033[0m"
+# ANSI-C quoting so the escapes render in plain `cat`/heredoc too, not just echo -e.
+c_blue=$'\033[1;34m'; c_green=$'\033[1;32m'; c_yellow=$'\033[1;33m'; c_reset=$'\033[0m'
 step() { echo -e "\n${c_blue}==>${c_reset} $*"; }
 ok()   { echo -e "${c_green}  ✓${c_reset} $*"; }
 warn() { echo -e "${c_yellow}  !${c_reset} $*"; }

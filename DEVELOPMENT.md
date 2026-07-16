@@ -11,7 +11,7 @@ environment.
 | Flutter SDK | latest **stable** (≥ 3.24) | Pinned via [`.fvmrc`](./.fvmrc) → use FVM. |
 | Dart | bundled with Flutter | — |
 | Java (JDK) | 17+ | This machine has JDK 21 — fine. Needed for Android Gradle. |
-| Android SDK | platform 34/35 + build-tools + cmdline-tools | Licenses must be accepted. |
+| Android SDK | platform **36** + build-tools 36 + cmdline-tools | Match your Flutter version; licenses accepted. |
 | A device | Android 8.0 (API 26)+ | Real device recommended; **install VLC** to test external playback. |
 
 > This repository currently ships the **Dart/config sources only**. The native
@@ -55,7 +55,7 @@ and skip FVM; the `Makefile`/scripts fall back to `flutter` automatically.
 Easiest via Android Studio (SDK Manager) or `sdkmanager` cmdline-tools:
 
 ```bash
-sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 yes | sdkmanager --licenses
 flutter config --android-sdk "$ANDROID_HOME"
 flutter doctor            # resolve anything still red
