@@ -225,7 +225,8 @@ class ImportService {
     // Never hard-fail on unknown mime — default by extension / name.
     mime ??= () {
       final ext = p.extension(name).toLowerCase();
-      if ({'.mp4', '.mov', '.mkv', '.webm', '.3gp', '.avi', '.m4v'}.contains(ext)) {
+      if ({'.mp4', '.mov', '.mkv', '.webm', '.3gp', '.avi', '.m4v'}
+          .contains(ext)) {
         return 'video/mp4';
       }
       return 'image/jpeg';
@@ -372,8 +373,8 @@ class ImportService {
       thumbnailPath: thumbPath,
     );
 
-    final albumId = targetUserAlbumId ??
-        await _resolveMirrorAlbumId(folderName);
+    final albumId =
+        targetUserAlbumId ?? await _resolveMirrorAlbumId(folderName);
 
     try {
       await _media.insert(item, userAlbumId: albumId);
@@ -480,8 +481,7 @@ class ImportService {
       debugPrint('unhide scan: $e');
     }
     try {
-      await PhotoManager.clearFileCache()
-          .timeout(const Duration(seconds: 2));
+      await PhotoManager.clearFileCache().timeout(const Duration(seconds: 2));
     } catch (_) {}
     final thumb = item.thumbnailPath;
     if (thumb != null && thumb.isNotEmpty) {
@@ -561,8 +561,7 @@ class ImportService {
       final bytes = await hiddenFile.readAsBytes();
       final codec = await ui.instantiateImageCodec(bytes, targetWidth: 256);
       final frame = await codec.getNextFrame();
-      final data =
-          await frame.image.toByteData(format: ui.ImageByteFormat.png);
+      final data = await frame.image.toByteData(format: ui.ImageByteFormat.png);
       frame.image.dispose();
       if (data == null) return null;
       final out = await _storage.thumbFileFor(id);

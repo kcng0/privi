@@ -251,7 +251,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     }
   }
 
-
   void _maybeAdvanceOnVideoEnd(VideoPlayerController c, String itemId) {
     if (!mounted) return;
     if (_completedForId == itemId) return;
@@ -260,8 +259,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     final pos = c.value.position;
     if (dur <= Duration.zero) return;
     // isCompleted is flaky on some devices; also treat near-end as finished.
-    final ended = c.value.isCompleted ||
-        pos >= dur - const Duration(milliseconds: 350);
+    final ended =
+        c.value.isCompleted || pos >= dur - const Duration(milliseconds: 350);
     if (!ended) return;
     _completedForId = itemId;
     // ignore: discarded_futures
@@ -358,7 +357,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     }
     final c = _video;
     if (c == null || !c.value.isInitialized) {
-      return const Center(child: CircularProgressIndicator(color: Colors.white54));
+      return const Center(
+        child: CircularProgressIndicator(color: Colors.white54),
+      );
     }
     return Center(
       child: AspectRatio(
@@ -440,7 +441,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                       iconSize: 32,
                       color: Colors.white,
                       onPressed: pl?.hasPrev == true
-                          ? () => ref.read(playerControllerProvider.notifier).prev()
+                          ? () =>
+                              ref.read(playerControllerProvider.notifier).prev()
                           : null,
                       icon: const Icon(Icons.skip_previous),
                     ),
@@ -458,7 +460,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                       iconSize: 32,
                       color: Colors.white,
                       onPressed: pl?.hasNext == true
-                          ? () => ref.read(playerControllerProvider.notifier).next()
+                          ? () =>
+                              ref.read(playerControllerProvider.notifier).next()
                           : null,
                       icon: const Icon(Icons.skip_next),
                     ),

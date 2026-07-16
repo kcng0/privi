@@ -363,10 +363,10 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
     );
   }
 
-
   Future<void> _pickHeartLevels() async {
     final box = _heartsChipKey.currentContext?.findRenderObject() as RenderBox?;
-    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox?;
+    final overlay =
+        Overlay.of(context).context.findRenderObject() as RenderBox?;
     Offset topLeft = const Offset(16, 120);
     Size chipSize = Size.zero;
     if (box != null && overlay != null) {
@@ -488,7 +488,8 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
 
   Future<void> _pickSort() async {
     final box = _sortButtonKey.currentContext?.findRenderObject() as RenderBox?;
-    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox?;
+    final overlay =
+        Overlay.of(context).context.findRenderObject() as RenderBox?;
     Offset topLeft = const Offset(16, 80);
     Size btnSize = Size.zero;
     if (box != null && overlay != null) {
@@ -614,7 +615,6 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
       },
     );
   }
-
 
   @override
   Widget build(BuildContext context) {

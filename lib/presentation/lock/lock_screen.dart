@@ -90,8 +90,9 @@ class _LockScreenState extends ConsumerState<LockScreen> {
     }
 
     setState(() => _busy = true);
-    final ok =
-        await ref.read(lockControllerProvider.notifier).unlockWithPattern(pattern);
+    final ok = await ref
+        .read(lockControllerProvider.notifier)
+        .unlockWithPattern(pattern);
     if (!mounted) return;
     setState(() {
       _busy = false;
@@ -149,7 +150,9 @@ class _LockScreenState extends ConsumerState<LockScreen> {
           if (!ok && mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
-                content: Text('Biometric not enabled — you can try again in Settings'),
+                content: Text(
+                  'Biometric not enabled — you can try again in Settings',
+                ),
               ),
             );
           }
@@ -245,11 +248,12 @@ class _LockScreenState extends ConsumerState<LockScreen> {
     });
     if (ok) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Draw a new pattern to protect the vault')),
+        const SnackBar(
+          content: Text('Draw a new pattern to protect the vault'),
+        ),
       );
     }
   }
-
 
   @override
   Widget build(BuildContext context) {
@@ -294,8 +298,8 @@ class _LockScreenState extends ConsumerState<LockScreen> {
     }
 
     // Size pattern relative to screen so it stays centered on all densities.
-    final patternSize = (MediaQuery.sizeOf(context).shortestSide * 0.72)
-        .clamp(240.0, 320.0);
+    final patternSize =
+        (MediaQuery.sizeOf(context).shortestSide * 0.72).clamp(240.0, 320.0);
 
     return Scaffold(
       body: SafeArea(
@@ -306,7 +310,8 @@ class _LockScreenState extends ConsumerState<LockScreen> {
             Expanded(
               child: Center(
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.center,

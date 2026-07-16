@@ -128,7 +128,9 @@ class AppDatabase extends _$AppDatabase {
 
   Stream<List<MediaItemRow>> watchFavorites() {
     return (select(mediaItems)
-          ..where((t) => t.deletedAt.isNull() & t.rating.isBiggerOrEqualValue(1))
+          ..where(
+            (t) => t.deletedAt.isNull() & t.rating.isBiggerOrEqualValue(1),
+          )
           ..orderBy([(t) => OrderingTerm.desc(t.dateAdded)]))
         .watch();
   }
@@ -168,9 +170,8 @@ class AppDatabase extends _$AppDatabase {
 
   /// All non-deleted private paths (for Visible count hydration / orphan scan).
   Future<List<String>> listActivePrivatePaths() async {
-    final rows = await (select(mediaItems)
-          ..where((t) => t.deletedAt.isNull()))
-        .get();
+    final rows =
+        await (select(mediaItems)..where((t) => t.deletedAt.isNull())).get();
     return rows.map((r) => r.privatePath).toList(growable: false);
   }
 

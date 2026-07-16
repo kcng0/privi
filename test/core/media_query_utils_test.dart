@@ -28,9 +28,24 @@ MediaItem item({
 
 void main() {
   group('MediaQueryUtils', () {
-    final a = item(id: 'a', name: 'alpha.jpg', rating: 1, dateAdded: DateTime.utc(2026, 1, 3));
-    final b = item(id: 'b', name: 'beta.jpg', rating: 3, dateAdded: DateTime.utc(2026, 1, 1));
-    final c = item(id: 'c', name: 'gamma.png', rating: 0, dateAdded: DateTime.utc(2026, 1, 2));
+    final a = item(
+      id: 'a',
+      name: 'alpha.jpg',
+      rating: 1,
+      dateAdded: DateTime.utc(2026, 1, 3),
+    );
+    final b = item(
+      id: 'b',
+      name: 'beta.jpg',
+      rating: 3,
+      dateAdded: DateTime.utc(2026, 1, 1),
+    );
+    final c = item(
+      id: 'c',
+      name: 'gamma.png',
+      rating: 0,
+      dateAdded: DateTime.utc(2026, 1, 2),
+    );
     final all = [a, b, c];
 
     test('search filters by original name', () {

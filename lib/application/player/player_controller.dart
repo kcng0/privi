@@ -79,7 +79,9 @@ class PlayerController extends Notifier<PlayerUiState> {
     pl.toggleShuffle();
     // Persist preference.
     unawaited(
-      ref.read(settingsControllerProvider.notifier).setShuffleDefault(pl.shuffle),
+      ref
+          .read(settingsControllerProvider.notifier)
+          .setShuffleDefault(pl.shuffle),
     );
     state = state.copyWith(playlist: pl);
   }
@@ -91,7 +93,8 @@ class PlayerController extends Notifier<PlayerUiState> {
       return;
     }
     pl.next();
-    state = state.copyWith(playlist: pl, playing: true, externalHandedOff: false);
+    state =
+        state.copyWith(playlist: pl, playing: true, externalHandedOff: false);
     await _onItemEntered();
   }
 
@@ -99,7 +102,8 @@ class PlayerController extends Notifier<PlayerUiState> {
     final pl = state.playlist;
     if (pl == null || !pl.hasPrev) return;
     pl.prev();
-    state = state.copyWith(playlist: pl, playing: true, externalHandedOff: false);
+    state =
+        state.copyWith(playlist: pl, playing: true, externalHandedOff: false);
     await _onItemEntered();
   }
 

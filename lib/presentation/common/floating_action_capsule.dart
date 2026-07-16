@@ -141,16 +141,12 @@ Future<void> showMoreActionsSheet(
             ListTile(
               leading: Icon(
                 a.icon,
-                color: a.destructive
-                    ? const Color(0xFFFF8A80)
-                    : Colors.white70,
+                color: a.destructive ? const Color(0xFFFF8A80) : Colors.white70,
               ),
               title: Text(
                 a.label,
                 style: TextStyle(
-                  color: a.destructive
-                      ? const Color(0xFFFF8A80)
-                      : Colors.white,
+                  color: a.destructive ? const Color(0xFFFF8A80) : Colors.white,
                 ),
               ),
               onTap: () {

@@ -5,6 +5,7 @@ import 'package:drift/drift.dart';
 class MediaItems extends Table {
   TextColumn get id => text()();
   TextColumn get privatePath => text()();
+
   /// Absolute path before hide (for unhide restore). Null for legacy rows.
   TextColumn get originalPath => text().nullable()();
   TextColumn get originalName => text()();

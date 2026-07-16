@@ -211,8 +211,10 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                         child: Row(
                           children: [
                             IconButton(
-                              icon: const Icon(Icons.arrow_back,
-                                  color: Colors.white),
+                              icon: const Icon(
+                                Icons.arrow_back,
+                                color: Colors.white,
+                              ),
                               onPressed: () => unawaited(_close()),
                             ),
                             Expanded(
@@ -233,13 +235,17 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                             if (item.isVideo)
                               IconButton(
                                 tooltip: 'Open external',
-                                icon: const Icon(Icons.open_in_new,
-                                    color: Colors.white70),
+                                icon: const Icon(
+                                  Icons.open_in_new,
+                                  color: Colors.white70,
+                                ),
                                 onPressed: _openExternal,
                               ),
                             PopupMenuButton<String>(
-                              icon: const Icon(Icons.more_vert,
-                                  color: Colors.white70),
+                              icon: const Icon(
+                                Icons.more_vert,
+                                color: Colors.white70,
+                              ),
                               onSelected: (v) {
                                 if (v == 'unhide') unawaited(_unhide());
                                 if (v == 'external') unawaited(_openExternal());

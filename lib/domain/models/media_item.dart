@@ -21,6 +21,7 @@ class MediaItem {
 
   final String id;
   final String privatePath;
+
   /// Pre-hide absolute path for unhide; null on legacy rows.
   final String? originalPath;
   final String originalName;
@@ -40,10 +41,9 @@ class MediaItem {
   bool get isFavorite => rating >= 1;
 
   /// Prefer thumbnail; fall back to full file for images.
-  String get displayPath =>
-      (thumbnailPath != null && thumbnailPath!.isNotEmpty)
-          ? thumbnailPath!
-          : privatePath;
+  String get displayPath => (thumbnailPath != null && thumbnailPath!.isNotEmpty)
+      ? thumbnailPath!
+      : privatePath;
 
   MediaItem copyWith({
     String? id,

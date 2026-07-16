@@ -98,8 +98,7 @@ class LockController extends Notifier<VaultLockState> {
     final security = ref.read(securityServiceProvider);
     final bio = ref.read(biometricServiceProvider);
     final has = await security.hasCredential();
-    final kind =
-        has ? await security.lockKind() : SecurityService.kindPattern;
+    final kind = has ? await security.lockKind() : SecurityService.kindPattern;
     final bioEnabled = await security.isBiometricEnabled();
     final bioHw = await bio.isHardwareAvailable();
     if (!ref.mounted) return;
@@ -291,7 +290,8 @@ class LockController extends Notifier<VaultLockState> {
     if (!ok) throw StateError('Current PIN is incorrect');
     await security.setPattern(newPattern);
     if (!ref.mounted) return;
-    state = state.copyWith(lockKind: SecurityService.kindPattern, clearError: true);
+    state =
+        state.copyWith(lockKind: SecurityService.kindPattern, clearError: true);
   }
 
   Future<void> changePin({
