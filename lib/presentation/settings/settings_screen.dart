@@ -3,6 +3,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../application/lock/biometric_ui.dart';
 import '../../application/lock/lock_controller.dart';
 import '../../application/providers.dart';
 import '../../application/settings/settings_controller.dart';
@@ -53,16 +54,7 @@ class SettingsScreen extends ConsumerWidget {
                 ? null
                 : (v) async {
                     try {
-                      final l10n = context.l10n;
-                      final ok = await ref
-                          .read(lockControllerProvider.notifier)
-                          .setBiometricEnabled(
-                            v,
-                            reason: l10n.confirmBiometricEnable,
-                            signInTitle: l10n.appName,
-                            biometricHint: l10n.verifyIdentity,
-                            cancelButton: l10n.cancel,
-                          );
+                      final ok = await ref.setBiometricEnabledUi(context, v);
                       if (!ok && context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(

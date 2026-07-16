@@ -532,7 +532,7 @@ class _PermDenied extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             Text(
-              'Allow gallery access',
+              context.l10n.allowGalleryAccess,
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 8),
