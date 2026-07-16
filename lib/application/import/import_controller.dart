@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 
 import '../../data/services/import_service.dart';
+import '../gallery/gallery_controller.dart';
 import '../providers.dart';
 
 class ImportUiState {
@@ -89,6 +90,16 @@ class ImportController extends Notifier<ImportUiState> {
         }
       },
     );
+    // Any successful hide must drop vault-path hydration so Visible counts
+    // re-read DB (covers file-picker, share-to-app, and Visible hide).
+    if (summary.imported > 0 && ref.mounted) {
+      final gallery = ref.read(galleryServiceProvider);
+      gallery.invalidateVaultPathCache();
+      gallery.refreshAfterMutation();
+      ref.read(galleryUiEpochProvider.notifier).bump();
+      ref.invalidate(galleryFoldersProvider);
+      ref.invalidate(albumsProvider);
+    }
     if (ref.mounted) {
       state = ImportUiState(
         running: false,
