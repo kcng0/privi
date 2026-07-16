@@ -5,15 +5,14 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/gallery/gallery_controller.dart';
-import '../../application/import/import_controller.dart';
 import '../../application/providers.dart';
 import '../../application/settings/settings_controller.dart';
 import '../../core/constants.dart';
 import '../../core/theme/vault_colors.dart';
 import '../../domain/enums.dart';
 import '../../domain/models/album_view.dart';
+import '../common/grid_app_menu.dart';
 import '../grid/media_grid_screen.dart';
-import '../import/import_progress_sheet.dart';
 import '../settings/settings_screen.dart';
 import '../visible/visible_folder_grid.dart';
 
@@ -47,20 +46,6 @@ class _HomeShellState extends ConsumerState<HomeShell>
     super.dispose();
   }
 
-  Future<void> _import({String? albumId}) async {
-    final messenger = ScaffoldMessenger.of(context);
-    // ignore: unawaited_futures
-    showImportProgressSheet(context);
-    final summary = await ref
-        .read(importControllerProvider.notifier)
-        .pickAndImport(targetUserAlbumId: albumId);
-    if (mounted) Navigator.of(context).pop();
-    if (summary == null) return;
-    messenger.showSnackBar(
-      SnackBar(content: Text('Hidden ${summary.imported} items')),
-    );
-    ref.read(importControllerProvider.notifier).clearSummary();
-  }
 
   Future<void> _newAlbum() async {
     final controller = TextEditingController();
@@ -107,54 +92,74 @@ class _HomeShellState extends ConsumerState<HomeShell>
     );
   }
 
-  void _menu() {
-    final onVisible = _tabs.index == 0;
-    showModalBottomSheet<void>(
+  /// Shared top-right ⋮ for Visible + Invisible home (same items on both tabs).
+  Future<void> _menu() async {
+    final cols = ref.read(settingsControllerProvider).albumColumns;
+    final choice = await showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF1B3A36),
       builder: (ctx) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (!onVisible)
-              ListTile(
-                leading: const Icon(Icons.file_upload_outlined),
-                title: const Text('Import files'),
-                subtitle: const Text('File picker · fallback to Visible hide'),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _import();
-                },
+            ListTile(
+              leading: const Icon(Icons.grid_view, color: Colors.white70),
+              title: const Text('Style', style: TextStyle(color: Colors.white)),
+              subtitle: Text(
+                '$cols columns',
+                style: const TextStyle(color: Colors.white54, fontSize: 12),
               ),
-            ListTile(
-              leading: const Icon(Icons.create_new_folder_outlined),
-              title: const Text('New vault album'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _newAlbum();
-              },
+              onTap: () => Navigator.pop(ctx, 'style'),
             ),
             ListTile(
-              leading: const Icon(Icons.grid_view),
-              title: const Text('Album columns'),
-              subtitle: const Text('3 or 4 columns on Invisible'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _cycleAlbumColumns();
-              },
+              leading: const Icon(
+                Icons.create_new_folder_outlined,
+                color: Colors.white70,
+              ),
+              title: const Text(
+                'New vault album',
+                style: TextStyle(color: Colors.white),
+              ),
+              onTap: () => Navigator.pop(ctx, 'new_album'),
             ),
             ListTile(
-              leading: const Icon(Icons.settings_outlined),
-              title: const Text('Settings'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _openSettings();
-              },
+              leading: const Icon(Icons.settings_outlined, color: Colors.white70),
+              title: const Text(
+                'Settings',
+                style: TextStyle(color: Colors.white),
+              ),
+              onTap: () => Navigator.pop(ctx, 'settings'),
             ),
+            const SizedBox(height: 8),
           ],
         ),
       ),
     );
+    if (!mounted || choice == null) return;
+    switch (choice) {
+      case 'style':
+        await _pickHomeStyle();
+      case 'new_album':
+        await _newAlbum();
+      case 'settings':
+        _openSettings();
+    }
+  }
+
+  Future<void> _pickHomeStyle() async {
+    final current = ref.read(settingsControllerProvider).albumColumns;
+    final next = await GridAppMenu.showStylePicker(
+      context,
+      current: current,
+      options: GridAppMenu.albumColumnOptions,
+      title: 'Layout style',
+    );
+    if (next == null || !mounted) return;
+    await ref.read(settingsControllerProvider.notifier).setAlbumColumns(next);
+    // ignore: unawaited_futures
+    HapticFeedback.selectionClick();
   }
 
   void _toggleMediaFilter() {
@@ -173,15 +178,6 @@ class _HomeShellState extends ConsumerState<HomeShell>
     ref.read(galleryServiceProvider).invalidateCache();
     ref.read(galleryUiEpochProvider.notifier).bump();
     ref.invalidate(galleryFoldersProvider);
-  }
-
-  Future<void> _cycleAlbumColumns() async {
-    final s = ref.read(settingsControllerProvider);
-    final next = s.albumColumns >= 4 ? 3 : 4;
-    await ref.read(settingsControllerProvider.notifier).setAlbumColumns(next);
-    if (!mounted) return;
-    // ignore: unawaited_futures
-    HapticFeedback.selectionClick();
   }
 
   IconData _filterIcon(MediaKindFilter f) {
@@ -307,6 +303,7 @@ class _InvisibleTab extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final albumsAsync = ref.watch(albumsProvider);
     final cols = ref.watch(settingsControllerProvider).albumColumns;
+    final kind = ref.watch(mediaKindFilterProvider);
 
     return albumsAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
@@ -384,7 +381,7 @@ class _InvisibleTab extends ConsumerWidget {
               final tileKey = v == null
                   ? ValueKey('action-${c.label}')
                   : ValueKey(
-                      '${v.album.id}-${v.count}-${v.cover?.displayPath ?? ''}-${v.cover?.id ?? ''}',
+                      '${v.album.id}-${kind.name}-${v.count}-${v.cover?.displayPath ?? ''}-${v.cover?.id ?? ''}',
                     );
               return _MosaicTile(
                 key: tileKey,

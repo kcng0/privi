@@ -98,4 +98,24 @@ class MediaRenameService {
       return MediaRenameResult(ok: false, error: '$e');
     }
   }
+
+  /// Extract a JPEG still from a local video path into [destPath].
+  /// Returns true when a non-empty file was written.
+  Future<bool> videoThumbnail({
+    required String path,
+    required String destPath,
+    int maxSize = 256,
+  }) async {
+    try {
+      final ok = await _channel.invokeMethod<bool>('videoThumbnail', {
+        'path': path,
+        'destPath': destPath,
+        'maxSize': maxSize,
+      });
+      return ok == true;
+    } catch (e) {
+      debugPrint('videoThumbnail: $e');
+      return false;
+    }
+  }
 }

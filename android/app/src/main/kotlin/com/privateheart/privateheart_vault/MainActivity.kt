@@ -5,6 +5,8 @@ import android.content.pm.ResolveInfo
 import android.content.pm.PackageManager
 import android.content.ContentValues
 import android.content.Intent
+import android.graphics.Bitmap
+import android.media.MediaMetadataRetriever
 import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
@@ -18,6 +20,7 @@ import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
+import java.io.FileOutputStream
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 
@@ -107,6 +110,16 @@ class MainActivity : FlutterFragmentActivity() {
                                 isVideo = isVideo,
                             ),
                         )
+                    }
+                    "videoThumbnail" -> {
+                        val path = call.argument<String>("path")
+                        val destPath = call.argument<String>("destPath")
+                        val maxSize = call.argument<Int>("maxSize") ?: 256
+                        if (path.isNullOrEmpty() || destPath.isNullOrEmpty()) {
+                            result.success(false)
+                            return@setMethodCallHandler
+                        }
+                        result.success(extractVideoThumbnail(path, destPath, maxSize))
                     }
                     else -> result.notImplemented()
                 }
@@ -945,6 +958,100 @@ class MainActivity : FlutterFragmentActivity() {
             false
         } catch (_: Exception) {
             false
+        }
+    }
+
+    /**
+     * Extract a JPEG still from a local video file for vault grid thumbnails.
+     * Uses MediaMetadataRetriever — works on vault paths (.nomedia) that MediaStore
+     * no longer indexes after hide.
+     */
+    private fun extractVideoThumbnail(path: String, destPath: String, maxSize: Int): Boolean {
+        val src = File(path)
+        if (!src.exists() || src.length() <= 0L) return false
+        val dest = File(destPath)
+        dest.parentFile?.mkdirs()
+        if (dest.exists()) {
+            try {
+                dest.delete()
+            } catch (_: Exception) {
+            }
+        }
+
+        var retriever: MediaMetadataRetriever? = null
+        return try {
+            retriever = MediaMetadataRetriever()
+            retriever.setDataSource(path)
+            // Prefer a near-start frame; fall back to first embedded frame.
+            var frame: Bitmap? = try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                    retriever.getScaledFrameAtTime(
+                        1_000_000L, // 1s
+                        MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                        maxSize,
+                        maxSize,
+                    )
+                } else {
+                    null
+                }
+            } catch (_: Exception) {
+                null
+            }
+            if (frame == null) {
+                frame = retriever.getFrameAtTime(
+                    1_000_000L,
+                    MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                ) ?: retriever.frameAtTime
+            }
+            if (frame == null) return false
+
+            val scaled = scaleDown(frame, maxSize)
+            if (scaled !== frame) {
+                try {
+                    frame.recycle()
+                } catch (_: Exception) {
+                }
+            }
+
+            FileOutputStream(dest).use { out ->
+                scaled.compress(Bitmap.CompressFormat.JPEG, 78, out)
+                out.flush()
+            }
+            try {
+                scaled.recycle()
+            } catch (_: Exception) {
+            }
+            dest.exists() && dest.length() > 0L
+        } catch (e: Exception) {
+            android.util.Log.w("PrivateHeart", "videoThumbnail: $e")
+            if (dest.exists() && dest.length() == 0L) {
+                try {
+                    dest.delete()
+                } catch (_: Exception) {
+                }
+            }
+            false
+        } finally {
+            try {
+                retriever?.release()
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    private fun scaleDown(src: Bitmap, maxSize: Int): Bitmap {
+        val w = src.width
+        val h = src.height
+        if (w <= 0 || h <= 0) return src
+        val longest = maxOf(w, h)
+        if (longest <= maxSize) return src
+        val scale = maxSize.toFloat() / longest.toFloat()
+        val nw = (w * scale).toInt().coerceAtLeast(1)
+        val nh = (h * scale).toInt().coerceAtLeast(1)
+        return try {
+            Bitmap.createScaledBitmap(src, nw, nh, true)
+        } catch (_: Exception) {
+            src
         }
     }
 }

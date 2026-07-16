@@ -40,10 +40,15 @@ class MediaItem {
   bool get isDeleted => deletedAt != null;
   bool get isFavorite => rating >= 1;
 
-  /// Prefer thumbnail; fall back to full file for images.
+  /// Prefer thumbnail. Videos without a still fall back to [privatePath]
+  /// (grid should treat that as missing and show a placeholder).
   String get displayPath => (thumbnailPath != null && thumbnailPath!.isNotEmpty)
       ? thumbnailPath!
       : privatePath;
+
+  /// True when we have a dedicated still to show in grids.
+  bool get hasThumbnail =>
+      thumbnailPath != null && thumbnailPath!.trim().isNotEmpty;
 
   MediaItem copyWith({
     String? id,
