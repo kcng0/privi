@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../application/lock/biometric_ui.dart';
 import '../../application/lock/lock_controller.dart';
 import '../../core/constants.dart';
 import '../../core/l10n.dart';
@@ -71,13 +72,7 @@ class _LockScreenState extends ConsumerState<LockScreen> {
     }
     try {
       setState(() => _busy = true);
-      final l10n = context.l10n;
-      await ref.read(lockControllerProvider.notifier).unlockWithBiometric(
-            reason: l10n.unlockPrivi,
-            signInTitle: l10n.appName,
-            biometricHint: l10n.verifyIdentity,
-            cancelButton: l10n.cancel,
-          );
+      await ref.unlockWithBiometricUi(context);
     } finally {
       if (mounted) {
         setState(() {
@@ -166,7 +161,7 @@ class _LockScreenState extends ConsumerState<LockScreen> {
         if (enable == true && mounted) {
           setState(() => _busy = true);
           try {
-            final ok = await lockNotifier.setBiometricEnabled(true);
+            final ok = await ref.setBiometricEnabledUi(context, true);
             if (!ok && mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
@@ -234,7 +229,7 @@ class _LockScreenState extends ConsumerState<LockScreen> {
   Future<void> _onBiometric() async {
     if (_busy) return;
     setState(() => _busy = true);
-    await ref.read(lockControllerProvider.notifier).unlockWithBiometric();
+    await ref.unlockWithBiometricUi(context);
     if (mounted) setState(() => _busy = false);
   }
 
@@ -263,13 +258,7 @@ class _LockScreenState extends ConsumerState<LockScreen> {
       _busy = true;
       _bioPrompted = true; // don't auto-fire unlock bio during recovery
     });
-    final ok =
-        await ref.read(lockControllerProvider.notifier).recoverWithSystemAuth(
-              reason: context.l10n.confirmResetPattern,
-              signInTitle: context.l10n.appName,
-              biometricHint: context.l10n.verifyIdentity,
-              cancelButton: context.l10n.cancel,
-            );
+    final ok = await ref.recoverWithSystemAuthUi(context);
     if (!mounted) return;
     setState(() {
       _busy = false;
