@@ -1,8 +1,9 @@
 name: privateheart_vault
 description: >-
-  PrivateHeart Vault — a personal, offline Android media vault. Hides photos and
+  Privi — a personal, offline Android media vault by kcng0. Hides photos and
   videos from the system gallery, supports 1–3 heart ratings, favorites,
-  playlist playback (built-in or VLC), and PIN + biometric lock. Dark theme only.
+  playlist playback (built-in or VLC), and pattern/PIN + biometric lock.
+  Dark theme only. Non-commercial license.
 publish_to: "none" # personal app — never published to pub.dev
 version: 0.1.0+1
 
@@ -33,10 +34,10 @@ dependencies:
   uuid: ^4.5.0
 
   # Import: file picker + share intent — see docs/02-design/screens/06-import.md
-  file_picker: ^8.1.2
+  file_picker: ^10.0.0
   receive_sharing_intent: ^1.8.0
-  photo_manager: ^3.2.3
-  video_thumbnail: ^0.5.3
+  # System gallery albums for Visible tab
+  photo_manager: ^3.6.0
   permission_handler: ^11.3.1
 
   # Playback: built-in player (video_player per D4) + external (VLC) hand-off
@@ -47,11 +48,16 @@ dependencies:
 
   # Security: PIN hash + biometric — see docs/03-architecture/security.md
   local_auth: ^2.3.0
+  local_auth_android: any
+  local_auth_darwin: any
   flutter_secure_storage: ^9.2.2
   crypto: ^3.0.5
 
   # Formatting
   intl: ^0.19.0
+
+  # Share selected gallery items (Visible → More)
+  share_plus: ^10.0.0
 
 dev_dependencies:
   flutter_test:
@@ -71,5 +77,6 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-  # assets:
-  #   - assets/
+  assets:
+    - assets/branding/app_icon.png
+    - assets/branding/app_icon_192.png

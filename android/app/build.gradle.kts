@@ -6,7 +6,8 @@ plugins {
 
 android {
     namespace = "com.privateheart.privateheart_vault"
-    compileSdk = flutter.compileSdkVersion
+    // receive_sharing_intent requires 37+; higher compileSdk is backward compatible.
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -15,12 +16,9 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.privateheart.privateheart_vault"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
+        targetSdk = 36
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
