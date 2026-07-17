@@ -106,12 +106,14 @@ Without `make`, prefix with `fvm ` (or nothing), e.g. `fvm flutter test`.
 ## Media consistency contract
 
 Visible and Invisible grids share `MediaThumbnailSpec`: 768 px, quality 90,
-and the one-second frame for videos. Hide captures that poster before the
-MediaStore source moves, then persists the exact bytes after the media row is
-durable. Keep capture bounded to the current native transfer chunk; do not
-prefetch a whole folder into memory. Versioned thumbnail paths let launch
-maintenance upgrade old low-resolution video posters once and retry explicit
-failures on a later launch.
+and the one-second frame for videos. Both flows use one injected, bounded poster
+cache. Hide may synchronously reuse bytes already rendered by Visible, but it
+must not start or await extraction before a native transfer. Cache misses move
+first and generate from the vault file afterward. Invisible poster decoding
+sets the 768 px width only and lets `BoxFit.cover` crop the preserved source
+ratio. Versioned thumbnail paths let launch maintenance upgrade old
+low-resolution video posters once and retry explicit failures on a later
+launch.
 
 Date sorting also crosses the Hide boundary unchanged. Visible MediaStore
 pagination must query `createDate`, while vault queries use

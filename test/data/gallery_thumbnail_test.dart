@@ -7,6 +7,7 @@ import 'package:privi/data/services/gallery_service.dart';
 import 'package:privi/data/services/import/asset_gateway.dart';
 import 'package:privi/data/services/import/file_system_gateway.dart';
 import 'package:privi/data/services/media_store_service.dart';
+import 'package:privi/data/services/media_thumbnail_service.dart';
 
 class _RecordingAssets implements AssetGateway {
   final poster = Uint8List.fromList([1, 3, 3, 7]);
@@ -92,8 +93,10 @@ class _ResolvedMediaStore extends MediaStoreService {
 void main() {
   test('Visible thumbnails share one high-definition poster cache', () async {
     final assets = _RecordingAssets();
+    final thumbnails = MediaThumbnailService(assetGateway: assets);
     final gallery = GalleryService(
       assetGateway: assets,
+      thumbnailCache: thumbnails,
       fileSystem: _ExistingFiles(),
       mediaStore: _ResolvedMediaStore(),
     );
@@ -108,6 +111,7 @@ void main() {
 
     expect(sources, hasLength(1));
     expect(identical(cachedPoster, visiblePoster), isTrue);
+    expect(identical(thumbnails.peek('video-id'), visiblePoster), isTrue);
     expect(visiblePoster, assets.poster);
     expect(assets.thumbnailCalls, 1);
     expect(assets.requestedSize, MediaThumbnailSpec.dimension);

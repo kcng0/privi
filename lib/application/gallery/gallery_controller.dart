@@ -16,7 +16,10 @@ export '../../data/services/gallery_service.dart'
         VisibleRevealed;
 
 final galleryServiceProvider = Provider<GalleryService>((ref) {
-  final service = GalleryService();
+  final service = GalleryService(
+    assetGateway: ref.watch(assetGatewayProvider),
+    thumbnailCache: ref.watch(mediaThumbnailCacheProvider),
+  );
   ref.onDispose(service.dispose);
   return service;
 });
