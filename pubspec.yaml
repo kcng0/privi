@@ -32,6 +32,7 @@ dependencies:
   path_provider: ^2.1.4
   path: ^1.9.0
   shared_preferences: ^2.3.2
+  package_info_plus: ^9.0.1
   uuid: ^4.5.0
 
   # Import: file picker + share intent — see docs/02-design/screens/06-import.md

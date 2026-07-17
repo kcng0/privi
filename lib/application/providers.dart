@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/app_build_info.dart';
 import '../data/db/database.dart';
 import '../data/repositories/album_repository.dart';
 import '../data/repositories/media_repository.dart';
@@ -21,6 +22,10 @@ import 'gallery/gallery_controller.dart';
 
 final sharedPreferencesProvider = Provider<SharedPreferences>((ref) {
   throw UnimplementedError('sharedPreferencesProvider must be overridden');
+});
+
+final appBuildInfoProvider = Provider<AppBuildInfo>((ref) {
+  throw UnimplementedError('appBuildInfoProvider must be overridden');
 });
 
 final databaseProvider = Provider<AppDatabase>((ref) {
