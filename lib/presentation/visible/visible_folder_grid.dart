@@ -18,11 +18,44 @@ import 'visible_media_grid.dart';
 export 'folder_cover_cache.dart';
 
 /// Visible tab: system Gallery folders (photo mode XOR video mode).
-class VisibleFolderGrid extends ConsumerWidget {
+class VisibleFolderGrid extends ConsumerStatefulWidget {
   const VisibleFolderGrid({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<VisibleFolderGrid> createState() => _VisibleFolderGridState();
+}
+
+class _VisibleFolderGridState extends ConsumerState<VisibleFolderGrid>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // Returning from the system permission dialog / Settings: re-check and
+      // auto-show folders without requiring another Grant tap.
+      _refreshPermissionAndFolders();
+    }
+  }
+
+  void _refreshPermissionAndFolders() {
+    ref.invalidate(galleryPermissionProvider);
+    ref.invalidate(galleryFoldersProvider);
+    ref.read(galleryUiEpochProvider.notifier).bump();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final perm = ref.watch(galleryPermissionProvider);
     final folders = ref.watch(galleryFoldersProvider);
     final filter = ref.watch(mediaKindFilterProvider);
@@ -33,23 +66,25 @@ class VisibleFolderGrid extends ConsumerWidget {
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (e, _) => _PermError(
         message: '$e',
-        onRetry: () {
-          ref.invalidate(galleryPermissionProvider);
-          ref.invalidate(galleryFoldersProvider);
-        },
+        onRetry: _refreshPermissionAndFolders,
       ),
       data: (state) {
         if (!(state.isAuth || state.hasAccess)) {
           return _PermDenied(
             onRequest: () async {
               await PhotoManager.openSetting();
-              ref.invalidate(galleryPermissionProvider);
-              ref.invalidate(galleryFoldersProvider);
+              // When user returns, didChangeAppLifecycleState(resumed) refreshes.
+              // Also invalidate now so a fast grant without full pause still works.
+              _refreshPermissionAndFolders();
             },
             onRetry: () async {
-              await ref.read(galleryServiceProvider).requestPermission();
-              ref.invalidate(galleryPermissionProvider);
-              ref.invalidate(galleryFoldersProvider);
+              final next =
+                  await ref.read(galleryServiceProvider).requestPermission();
+              _refreshPermissionAndFolders();
+              // If still denied after system sheet, open Settings once.
+              if (!(next.isAuth || next.hasAccess)) {
+                await PhotoManager.openSetting();
+              }
             },
           );
         }

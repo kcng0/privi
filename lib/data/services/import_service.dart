@@ -706,26 +706,17 @@ class ImportService {
     return parent;
   }
 
-  /// Unhide [item] back to a public path and drop the vault DB row.
-  ///
-  /// When [clearGalleryCache] is false (batch restore), the caller should clear
-  /// PhotoManager cache once after the batch.
-  Future<bool> reveal(
-    MediaItem item, {
-    bool clearGalleryCache = true,
-  }) async {
+  /// Resolve public restore path for [item] without moving files.
+  Future<String?> _resolveRevealTarget(MediaItem item) async {
     final hidden = File(item.privatePath);
-    if (!await hidden.exists()) return false;
+    if (!await hidden.exists()) return null;
 
-    // Pure path preference: originalPath → legacy reverse → vault mirror → Download.
     var visiblePath = HideNaming.resolveUnhidePath(
       privatePath: item.privatePath,
       originalPath: item.originalPath,
       originalName: item.originalName,
     );
 
-    // If we invented a public restore dir (no originalPath) and that folder
-    // is missing on disk, fall back to Download / Downloads.
     final hadOriginal =
         item.originalPath != null && item.originalPath!.trim().isNotEmpty;
     if (!hadOriginal && !HideNaming.isLegacyMarkerPath(item.privatePath)) {
@@ -754,40 +745,67 @@ class ImportService {
     if (visiblePath != item.privatePath) {
       final target = File(visiblePath);
       if (await target.exists()) {
-        // Avoid clobber: suffix.
         final dir = p.dirname(visiblePath);
         final base = p.basenameWithoutExtension(visiblePath);
         final ext = p.extension(visiblePath);
         visiblePath = p.join(dir, '${base}_restored$ext');
       }
-      try {
-        await Directory(p.dirname(visiblePath)).create(recursive: true);
-      } catch (_) {}
-      try {
-        await hidden.rename(visiblePath).timeout(const Duration(seconds: 15));
-      } catch (e) {
-        await hidden.copy(visiblePath);
-        try {
-          await hidden.delete();
-        } catch (_) {}
-      }
     }
+    return visiblePath;
+  }
 
-    // Re-index with original capture epoch only when we truly know it.
-    // Do not push hide-time dateAdded into MediaStore DATE_TAKEN.
+  /// Unhide [item] back to a public path and drop the vault DB row.
+  ///
+  /// Prefers native atomic move + MediaStore scan in one IPC.
+  Future<bool> reveal(
+    MediaItem item, {
+    bool clearGalleryCache = true,
+  }) async {
+    final visiblePath = await _resolveRevealTarget(item);
+    if (visiblePath == null) return false;
+
     final taken = item.dateTaken;
     final takenSec =
         taken == null ? null : taken.toUtc().millisecondsSinceEpoch ~/ 1000;
-    try {
-      await _mediaStore.scanPath(
-        visiblePath,
-        mimeType: item.mimeType,
-        dateTakenSec: takenSec,
-        dateAddedSec: takenSec,
-      );
-    } catch (e) {
-      debugPrint('unhide scan: $e');
+
+    final native = await _renamer.unhideFromVault(
+      path: item.privatePath,
+      newPath: visiblePath,
+      mimeType: item.mimeType,
+      dateTakenSec: takenSec,
+      dateAddedSec: takenSec,
+    );
+
+    if (!native.ok) {
+      // Dart fallback (rare).
+      try {
+        final hidden = File(item.privatePath);
+        if (!await hidden.exists()) return false;
+        if (visiblePath != item.privatePath) {
+          await Directory(p.dirname(visiblePath)).create(recursive: true);
+          try {
+            await hidden
+                .rename(visiblePath)
+                .timeout(const Duration(seconds: 15));
+          } catch (_) {
+            await hidden.copy(visiblePath);
+            try {
+              await hidden.delete();
+            } catch (_) {}
+          }
+        }
+        await _mediaStore.scanPath(
+          visiblePath,
+          mimeType: item.mimeType,
+          dateTakenSec: takenSec,
+          dateAddedSec: takenSec,
+        );
+      } catch (e) {
+        debugPrint('reveal dart fallback: $e');
+        return false;
+      }
     }
+
     if (clearGalleryCache) {
       try {
         await PhotoManager.clearFileCache().timeout(const Duration(seconds: 2));
@@ -802,15 +820,14 @@ class ImportService {
     return true;
   }
 
-  /// Batch unhide with cooperative cancel + progress (same shape as hide).
+  /// Batch unhide: chunked native renames + one DB transaction per chunk.
   ///
-  /// Always clears PhotoManager cache once at the end when any item succeeded.
+  /// Mirrors hide's architecture so large restores stay responsive.
   Future<ImportProgress> revealAll(
     List<MediaItem> items, {
     void Function(ImportProgress progress)? onProgress,
     bool Function()? isCancelRequested,
   }) async {
-    // Do not clear cancel here — session may have cancelled during confirm UI.
     var imported = 0;
     var failed = 0;
     var completed = 0;
@@ -865,34 +882,170 @@ class ImportService {
 
     emit(statusMessage: 'Unhiding…');
 
+    // Pre-resolve unique public targets (cancelable).
+    final prepared = <({MediaItem item, String dest, int? takenSec})>[];
     for (final item in items) {
       if (cancelledNow()) {
         emit(statusMessage: 'Cancelled', cancelled: true);
-        break;
+        return cancelledProgress();
       }
       currentName = item.originalName;
       emit(statusMessage: 'Unhiding…');
       try {
-        final ok = await _withTimeout(
-          reveal(item, clearGalleryCache: false),
-          timeout: const Duration(seconds: 30),
-          label: 'unhide timed out: ${item.originalName}',
+        final dest = await _resolveRevealTarget(item);
+        if (dest == null) {
+          failed++;
+          completed++;
+          emit(statusMessage: 'Unhiding…');
+          continue;
+        }
+        final taken = item.dateTaken;
+        final takenSec =
+            taken == null ? null : taken.toUtc().millisecondsSinceEpoch ~/ 1000;
+        prepared.add((item: item, dest: dest, takenSec: takenSec));
+      } catch (e) {
+        failed++;
+        lastError = e.toString();
+        completed++;
+        emit(statusMessage: 'Unhiding…');
+      }
+    }
+
+    if (cancelledNow()) {
+      emit(statusMessage: 'Cancelled', cancelled: true);
+      return cancelledProgress();
+    }
+
+    final successIds = <String>[];
+    final thumbsToDelete = <String>[];
+
+    for (var offset = 0; offset < prepared.length; offset += nativeBatchChunk) {
+      if (cancelledNow()) {
+        if (successIds.isNotEmpty) {
+          await _media.hardDeleteRowsOnly(successIds);
+          successIds.clear();
+        }
+        emit(statusMessage: 'Cancelled', cancelled: true);
+        return cancelledProgress();
+      }
+
+      final end = offset + nativeBatchChunk > prepared.length
+          ? prepared.length
+          : offset + nativeBatchChunk;
+      final chunk = prepared.sublist(offset, end);
+      currentName = chunk.isEmpty ? null : chunk.last.item.originalName;
+      emit(statusMessage: 'Unhiding…');
+
+      final requests = [
+        for (final job in chunk)
+          MediaUnhideRequest(
+            clientId: job.item.id,
+            path: job.item.privatePath,
+            newPath: job.dest,
+            mimeType: job.item.mimeType,
+            dateTakenSec: job.takenSec,
+            dateAddedSec: job.takenSec,
+          ),
+      ];
+
+      List<MediaRenameResult> results;
+      try {
+        results = await _withTimeout(
+          _renamer.unhideFromVaultBatch(requests),
+          timeout: Duration(seconds: 15 + chunk.length * 4),
+          label: 'unhide batch timed out (${chunk.length} items)',
         );
-        if (ok) {
+      } catch (e, st) {
+        debugPrint('unhide batch failed: $e\n$st');
+        results = [];
+      }
+
+      final byId = <String, MediaRenameResult>{};
+      for (final r in results) {
+        final id = r.clientId;
+        if (id != null) byId[id] = r;
+      }
+      for (var i = 0; i < chunk.length && i < results.length; i++) {
+        byId.putIfAbsent(chunk[i].item.id, () => results[i]);
+      }
+
+      final chunkOkIds = <String>[];
+      for (final job in chunk) {
+        if (cancelledNow()) break;
+        MediaRenameResult native = byId[job.item.id] ??
+            const MediaRenameResult(ok: false, error: 'missing_result');
+        if (!native.ok) {
+          // Per-item native fallback.
+          try {
+            native = await _withTimeout(
+              _renamer.unhideFromVault(
+                path: job.item.privatePath,
+                newPath: job.dest,
+                mimeType: job.item.mimeType,
+                dateTakenSec: job.takenSec,
+                dateAddedSec: job.takenSec,
+              ),
+              timeout: const Duration(seconds: 30),
+              label: 'unhide timed out: ${job.item.originalName}',
+            );
+          } catch (e) {
+            native = MediaRenameResult(
+              ok: false,
+              error: '$e',
+              clientId: job.item.id,
+            );
+          }
+        }
+
+        if (native.ok) {
+          chunkOkIds.add(job.item.id);
+          final thumb = job.item.thumbnailPath;
+          if (thumb != null && thumb.isNotEmpty) thumbsToDelete.add(thumb);
           imported++;
         } else {
           failed++;
+          lastError = native.error ?? 'transfer_failed';
+          if (native.needManageStorage) {
+            lastError = 'Permission needed to unhide media. Allow access in '
+                'Settings and try again.';
+          }
         }
-      } catch (e) {
-        debugPrint('revealAll ${item.id}: $e');
-        failed++;
-        lastError = e.toString();
-      } finally {
         completed++;
-        emit(
-          statusMessage: cancelledNow() ? 'Cancelled' : 'Unhiding…',
-        );
+        emit(statusMessage: cancelledNow() ? 'Cancelled' : 'Unhiding…');
       }
+
+      if (chunkOkIds.isNotEmpty) {
+        try {
+          await _media.hardDeleteRowsOnly(chunkOkIds);
+        } catch (e) {
+          debugPrint('batch hardDelete after unhide: $e');
+          for (final id in chunkOkIds) {
+            try {
+              await _media.hardDeleteRowOnly(id);
+            } catch (_) {}
+          }
+        }
+      }
+
+      if (cancelledNow()) {
+        emit(statusMessage: 'Cancelled', cancelled: true);
+        // Best-effort thumb cleanup for already-unhidden.
+        for (final t in thumbsToDelete) {
+          try {
+            final f = File(t);
+            if (await f.exists()) await f.delete();
+          } catch (_) {}
+        }
+        return cancelledProgress();
+      }
+    }
+
+    // Drop vault thumbs after successful unhides.
+    for (final t in thumbsToDelete) {
+      try {
+        final f = File(t);
+        if (await f.exists()) await f.delete();
+      } catch (_) {}
     }
 
     if (imported > 0) {

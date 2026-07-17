@@ -149,6 +149,10 @@ class MediaRepository {
   /// Drop DB membership/row only (media file already renamed/revealed elsewhere).
   Future<void> hardDeleteRowOnly(String id) => _db.hardDeleteMedia(id);
 
+  /// Batch drop rows after a successful native unhide batch.
+  Future<void> hardDeleteRowsOnly(List<String> ids) =>
+      _db.hardDeleteMediaMany(ids);
+
   Stream<List<MediaItem>> watchForAlbum(String albumId) {
     if (albumId == SystemAlbumIds.all) {
       return _db.watchActiveMedia().map(_mapList);

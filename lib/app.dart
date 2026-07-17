@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'application/gallery/gallery_controller.dart';
 import 'application/import/import_controller.dart';
 import 'application/lock/lock_controller.dart';
 import 'application/providers.dart';
@@ -61,6 +62,13 @@ class _PrivateHeartAppState extends ConsumerState<PrivateHeartApp>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     ref.read(lockControllerProvider.notifier).onAppLifecycle(state);
+    if (state == AppLifecycleState.resumed) {
+      // Gallery permission may have been granted in system Settings while we
+      // were backgrounded — refresh Visible without another Grant tap.
+      ref.invalidate(galleryPermissionProvider);
+      ref.invalidate(galleryFoldersProvider);
+      ref.read(galleryUiEpochProvider.notifier).bump();
+    }
   }
 
   Future<void> _onShared(List<ImportSource> sources) async {
