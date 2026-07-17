@@ -460,6 +460,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get confirmPattern => '确认图案';
 
   @override
+  String get redrawPattern => '重新绘制图案';
+
+  @override
   String get drawYourPattern => '绘制你的图案';
 
   @override
@@ -1284,6 +1287,9 @@ class AppLocalizationsZhCn extends AppLocalizationsZh {
   String get confirmPattern => '确认图案';
 
   @override
+  String get redrawPattern => '重新绘制图案';
+
+  @override
   String get drawYourPattern => '绘制你的图案';
 
   @override
@@ -2106,6 +2112,9 @@ class AppLocalizationsZhHk extends AppLocalizationsZh {
 
   @override
   String get confirmPattern => '確認圖案';
+
+  @override
+  String get redrawPattern => '重新繪製圖案';
 
   @override
   String get drawYourPattern => '繪製你的圖案';

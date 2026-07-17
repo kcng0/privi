@@ -311,6 +311,7 @@
   },
   "drawPattern": "Draw a pattern",
   "confirmPattern": "Confirm pattern",
+  "redrawPattern": "Redraw pattern",
   "drawYourPattern": "Draw your pattern",
   "enterYourPin": "Enter your PIN",
   "connectAtLeast4Dots": "Connect at least 4 dots",

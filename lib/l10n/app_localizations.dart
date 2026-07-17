@@ -910,6 +910,12 @@ abstract class AppLocalizations {
   /// **'Confirm pattern'**
   String get confirmPattern;
 
+  /// No description provided for @redrawPattern.
+  ///
+  /// In en, this message translates to:
+  /// **'Redraw pattern'**
+  String get redrawPattern;
+
   /// No description provided for @drawYourPattern.
   ///
   /// In en, this message translates to:

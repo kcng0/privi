@@ -135,6 +135,7 @@
   "progressOkSkipFail": "成功 {imported} · 跳过 {skipped} · 失败 {failed}",
   "drawPattern": "绘制图案",
   "confirmPattern": "确认图案",
+  "redrawPattern": "重新绘制图案",
   "drawYourPattern": "绘制你的图案",
   "enterYourPin": "输入 PIN",
   "connectAtLeast4Dots": "至少连接 4 个点",
