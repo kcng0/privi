@@ -6,6 +6,7 @@ import '../../core/constants.dart';
 import '../../core/theme/vault_colors.dart';
 import '../../domain/models/media_item.dart';
 import '../common/heart_rating_bar.dart';
+import '../common/video_duration_badge.dart';
 
 /// Dense media cell + 0–3 heart bar.
 class ThumbnailTile extends StatelessWidget {
@@ -60,7 +61,7 @@ class ThumbnailTile extends StatelessWidget {
               Positioned(
                 top: 4,
                 left: 4,
-                child: _DurationBadge(durationMs: item.durationMs),
+                child: VideoDurationBadge(durationMs: item.durationMs),
               ),
             // Selection overlay
             if (selecting)
@@ -101,46 +102,6 @@ class ThumbnailTile extends StatelessWidget {
         ),
       ),
     );
-  }
-}
-
-class _DurationBadge extends StatelessWidget {
-  const _DurationBadge({this.durationMs});
-  final int? durationMs;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.6),
-        borderRadius: BorderRadius.circular(3),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.play_arrow, size: 12, color: Colors.white),
-          if (durationMs != null) ...[
-            const SizedBox(width: 2),
-            Text(
-              _fmt(durationMs!),
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 10,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  String _fmt(int ms) {
-    final total = (ms / 1000).round();
-    final m = total ~/ 60;
-    final s = total % 60;
-    return '$m:${s.toString().padLeft(2, '0')}';
   }
 }
 
