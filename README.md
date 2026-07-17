@@ -35,8 +35,10 @@ Each release includes:
 **Requirements:** Android 8.0+ (API 26). Optional: [VLC](https://www.videolan.org/)
 for external video playback. All media stays on-device.
 
-> Release APKs are currently **debug-signed** (convenient for sideload builds).
-> Treat them as personal-use builds, not store-ready signed packages.
+> Official GitHub Release APKs are **release-signed** with a permanent keystore
+> (same signature across versions). First-time installs of a new signature may
+> still get a Play Protect “unknown app” prompt until Google has seen the
+> binary — use **Install anyway** and leave harmful-app detection enabled.
 
 ---
 

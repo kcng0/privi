@@ -8,6 +8,13 @@ name: Release APK
 # Triggers:
 #   - push of a version tag: v0.1.0, v1.2.3, …
 #   - manual run from the Actions tab (workflow_dispatch)
+#
+# Required repository secrets (release signing — never use debug.keystore):
+#   ANDROID_KEYSTORE_BASE64   base64 of android/app/upload-keystore.jks
+#   ANDROID_KEYSTORE_PASSWORD
+#   ANDROID_KEY_ALIAS
+#   ANDROID_KEY_PASSWORD
+# Generate locally with: ./scripts/setup-release-keystore.sh
 on:
   push:
     tags:
@@ -81,8 +88,67 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "Resolved release: tag=${TAG} pubspec=${FULL} apk=privi-${FILE_VER}.apk"
 
+      - name: Decode release keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for v in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [ -z "${!v:-}" ]; then
+              echo "error: missing repository secret: $v" >&2
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "Configure secrets via: ./scripts/setup-release-keystore.sh" >&2
+            echo "Repo → Settings → Secrets and variables → Actions" >&2
+            exit 1
+          fi
+
+          mkdir -p android/app
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > android/app/upload-keystore.jks
+          test -s android/app/upload-keystore.jks
+
+          # Paths in key.properties are relative to android/app/ (see build.gradle.kts).
+          {
+            echo "storePassword=${ANDROID_KEYSTORE_PASSWORD}"
+            echo "keyPassword=${ANDROID_KEY_PASSWORD}"
+            echo "keyAlias=${ANDROID_KEY_ALIAS}"
+            echo "storeFile=upload-keystore.jks"
+          } > android/key.properties
+          chmod 600 android/app/upload-keystore.jks android/key.properties
+
       - name: Build release APK
         run: flutter build apk --release
+
+      - name: Verify APK is release-signed (not debug)
+        run: |
+          set -euo pipefail
+          APK="build/app/outputs/flutter-apk/app-release.apk"
+          test -f "$APK"
+          CERT_OUT=$(mktemp)
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/Android/Sdk}}"
+          APKSIGNER=$(find "$SDK_ROOT" -path '*/build-tools/*/apksigner' 2>/dev/null | sort -V | tail -1 || true)
+          if [ -n "${APKSIGNER:-}" ] && [ -x "$APKSIGNER" ]; then
+            "$APKSIGNER" verify --print-certs "$APK" | tee "$CERT_OUT"
+          else
+            # Fallback: print v1 JAR signing cert from META-INF (Flutter still embeds it).
+            unzip -p "$APK" 'META-INF/*.RSA' 'META-INF/*.DSA' 'META-INF/*.EC' 2>/dev/null \
+              | keytool -printcert | tee "$CERT_OUT"
+          fi
+          if ! grep -q 'Owner:' "$CERT_OUT" && ! grep -q 'Signer #' "$CERT_OUT"; then
+            echo "error: could not read APK signing certificate" >&2
+            exit 1
+          fi
+          if grep -qiE 'CN=Android Debug|Android Debug' "$CERT_OUT"; then
+            echo "error: APK is still debug-signed — check key.properties / secrets" >&2
+            exit 1
+          fi
+          echo "OK: APK is not debug-signed"
 
       - name: Stage APK and checksums
         id: artifacts
@@ -187,12 +253,14 @@ jobs:
                sha256sum -c SHA256SUMS
                ```
             3. On your phone, open the APK and allow install from that source if asked.
-            4. Launch **Privi**.
+            4. If Play Protect warns on first install of a new signature, choose **More details → Install anyway** and leave **Improve harmful app detection** enabled so Google can learn this build is safe.
+            5. Launch **Privi**.
 
             | | |
             |---|---|
             | **pubspec version** | `${{ steps.version.outputs.full }}` |
-            | **Signing** | debug keystore (personal sideload build) |
+            | **Signing** | permanent release keystore (CI secrets) |
             | **Min Android** | 8.0 (API 26) |
+            | **targetSdk** | 36 |
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

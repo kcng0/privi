@@ -162,8 +162,44 @@ git push origin main --tags
 
 Or **Actions → Release APK → Run workflow** and enter a tag name.
 
-Release APKs use the **debug signing config** until a real upload keystore is
-configured (`android/key.properties` is git-ignored — never commit keystores).
+### Release signing (Play Protect)
+
+Release APKs must use a **permanent keystore**, not `debug.keystore`. Play
+Protect flags unknown / debug signatures on sideloaded CI builds.
+
+One-time local setup:
+
+```bash
+./scripts/setup-release-keystore.sh
+# Creates android/app/upload-keystore.jks + android/key.properties (git-ignored)
+# Prints the four GitHub Actions secrets to paste into the repo
+```
+
+Required repository secrets:
+
+| Secret | Value |
+|--------|--------|
+| `ANDROID_KEYSTORE_BASE64` | `base64` of `upload-keystore.jks` |
+| `ANDROID_KEYSTORE_PASSWORD` | keystore password |
+| `ANDROID_KEY_ALIAS` | key alias (default `privi`) |
+| `ANDROID_KEY_PASSWORD` | key password |
+
+Local `make apk` picks up `android/key.properties` automatically. CI decodes the
+keystore from secrets before `flutter build apk --release` and fails if the
+resulting APK is still debug-signed.
+
+Also enabled on release builds: R8 minify + resource shrink
+(`android/app/proguard-rules.pro`).
+
+After the first signed release:
+
+1. Scan the APK on [VirusTotal](https://www.virustotal.com) (aim for clean).
+2. If installs still warn, file a [Play Protect appeal](https://support.google.com/googleplay/android-developer/contact/protectappeals).
+3. Keep “Improve harmful app detection” on when installing so Google can
+   whitelist the signature over time.
+
+**Back up** `upload-keystore.jks` and passwords offline. Losing the key means
+users cannot update without uninstalling. Never commit keystores.
 
 ## Troubleshooting
 
@@ -176,3 +212,6 @@ configured (`android/key.properties` is git-ignored — never commit keystores).
 | bootstrap overwrote a file | It restores owned files from git — commit first. |
 | Device not listed under WSL2 | Share adb from Windows or use wireless `adb connect`. |
 | Release workflow failed on permissions | Repo needs `contents: write` for the `GITHUB_TOKEN` (set in the workflow). |
+| Release workflow: missing ANDROID_* secrets | Run `./scripts/setup-release-keystore.sh` and add the four secrets under repo Settings → Secrets. |
+| Play Protect “Unsafe” on sideload | Ensure CI uses the permanent release keystore (not debug). Submit VirusTotal + Play Protect appeal for new signatures. |
+| `make apk` still debug-signed | Create `android/key.properties` via `./scripts/setup-release-keystore.sh`. |
