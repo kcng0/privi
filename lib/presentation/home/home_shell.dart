@@ -3,9 +3,9 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:photo_manager/photo_manager.dart';
 
 import '../../application/gallery/gallery_controller.dart';
+import '../../application/import/import_controller.dart';
 import '../../application/providers.dart';
 import '../../application/settings/settings_controller.dart';
 import '../../core/constants.dart';
@@ -17,6 +17,7 @@ import '../../domain/models/album_view.dart';
 import '../../domain/models/media_item.dart';
 import '../common/grid_app_menu.dart';
 import '../grid/media_grid_screen.dart';
+import '../import/import_progress_sheet.dart';
 import '../player/player_screen.dart';
 import '../settings/settings_screen.dart';
 import '../visible/visible_folder_grid.dart';
@@ -698,34 +699,46 @@ class _InvisibleTab extends ConsumerWidget {
     );
     if (confirm != true || !context.mounted) return;
 
-    final import = ref.read(importServiceProvider);
+    final messenger = ScaffoldMessenger.of(context);
+    final nav = Navigator.of(context);
+    final import = ref.read(importControllerProvider.notifier);
+    import.beginSession(statusMessage: 'Unhiding…');
+    // ignore: unawaited_futures
+    showImportProgressSheet(context, title: context.l10n.unhide);
+
     var n = 0;
-    for (final item in items) {
+    try {
+      final summary = await import.runReveal(
+        items,
+        sessionAlreadyStarted: true,
+      );
+      n = summary.imported;
+      if (!context.mounted) return;
+      final msg = StringBuffer();
+      if (summary.cancelled && n == 0) {
+        msg.write(context.l10n.cancelled);
+      } else {
+        msg.write(context.l10n.restoredItems(n));
+        if (summary.cancelled && n > 0) {
+          msg.write(' · ${context.l10n.cancelled}');
+        }
+        if (summary.failed > 0) {
+          msg.write(' · ${summary.failed} failed');
+        }
+      }
+      messenger.showSnackBar(SnackBar(content: Text(msg.toString())));
+    } catch (_) {
+      if (context.mounted) {
+        messenger.showSnackBar(
+          SnackBar(content: Text(context.l10n.couldNotUnhideFile)),
+        );
+      }
+    } finally {
       try {
-        // Batch: clear gallery cache once after all items.
-        if (await import.reveal(item, clearGalleryCache: false)) n++;
+        if (nav.canPop()) nav.pop();
       } catch (_) {}
+      import.clearSummary();
     }
-    final gallery = ref.read(galleryServiceProvider);
-    // Reverse session hide deductions so Visible folders reappear immediately.
-    gallery.refreshAfterReveal();
-    try {
-      await PhotoManager.clearFileCache().timeout(const Duration(seconds: 2));
-    } catch (_) {}
-    // Give MediaStore a beat to index scanned paths before re-list.
-    await Future<void>.delayed(const Duration(milliseconds: 350));
-    gallery.invalidateCache();
-    ref.read(galleryUiEpochProvider.notifier).bump();
-    ref.invalidate(galleryFoldersProvider);
-    ref.invalidate(albumsProvider);
-    // Force provider rebuild while still on Invisible so Visible is fresh on tab switch.
-    try {
-      await ref.read(galleryFoldersProvider.future);
-    } catch (_) {}
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(context.l10n.restoredItems(n))),
-    );
   }
 
   Future<void> _renameAlbum(

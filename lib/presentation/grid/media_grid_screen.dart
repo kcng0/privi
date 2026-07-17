@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:photo_manager/photo_manager.dart';
 import '../../application/gallery/gallery_controller.dart';
+import '../../application/import/import_controller.dart';
 import '../../application/lock/lock_controller.dart';
 import '../../application/media/rating_controller.dart';
 import '../../application/media/selection_controller.dart';
@@ -20,6 +20,7 @@ import '../common/floating_action_capsule.dart';
 import '../common/grid_app_menu.dart';
 import '../common/media_details_sheet.dart';
 import '../common/quick_rating_sheet.dart';
+import '../import/import_progress_sheet.dart';
 import '../player/player_screen.dart';
 import '../viewer/viewer_screen.dart';
 import 'thumbnail_tile.dart';
@@ -316,36 +317,56 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
   Future<void> _unhideSelected() async {
     final ids = ref.read(selectionControllerProvider).toList();
     if (ids.isEmpty) return;
-    final import = ref.read(importServiceProvider);
-    final items = ref.read(albumMediaProvider(widget.albumId)).asData?.value;
+    final all = ref.read(albumMediaProvider(widget.albumId)).asData?.value;
+    final selected = <MediaItem>[
+      for (final id in ids)
+        if (all != null)
+          for (final item in all)
+            if (item.id == id) item,
+    ];
+    if (selected.isEmpty) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    final nav = Navigator.of(context);
+    final import = ref.read(importControllerProvider.notifier);
+    import.beginSession(statusMessage: 'Unhiding…');
+    // ignore: unawaited_futures
+    showImportProgressSheet(context, title: context.l10n.unhide);
+
     var n = 0;
-    for (final id in ids) {
-      final item = items?.where((e) => e.id == id).firstOrNull;
-      if (item == null) continue;
+    try {
+      final summary = await import.runReveal(
+        selected,
+        sessionAlreadyStarted: true,
+      );
+      n = summary.imported;
+      if (!mounted) return;
+      final msg = StringBuffer();
+      if (summary.cancelled && n == 0) {
+        msg.write(context.l10n.cancelled);
+      } else {
+        msg.write(context.l10n.unhiddenItems(n));
+        if (summary.cancelled && n > 0) {
+          msg.write(' · ${context.l10n.cancelled}');
+        }
+        if (summary.failed > 0) {
+          msg.write(' · ${summary.failed} failed');
+        }
+      }
+      messenger.showSnackBar(SnackBar(content: Text(msg.toString())));
+    } catch (_) {
+      if (mounted) {
+        messenger.showSnackBar(
+          SnackBar(content: Text(context.l10n.couldNotUnhideFile)),
+        );
+      }
+    } finally {
       try {
-        if (await import.reveal(item, clearGalleryCache: false)) n++;
+        if (nav.canPop()) nav.pop();
       } catch (_) {}
+      import.clearSummary();
+      ref.read(selectionControllerProvider.notifier).clear();
     }
-    if (n > 0) {
-      final gallery = ref.read(galleryServiceProvider);
-      gallery.refreshAfterReveal();
-      try {
-        await PhotoManager.clearFileCache().timeout(const Duration(seconds: 2));
-      } catch (_) {}
-      await Future<void>.delayed(const Duration(milliseconds: 350));
-      gallery.invalidateCache();
-      ref.read(galleryUiEpochProvider.notifier).bump();
-      ref.invalidate(galleryFoldersProvider);
-      ref.invalidate(albumsProvider);
-      try {
-        await ref.read(galleryFoldersProvider.future);
-      } catch (_) {}
-    }
-    ref.read(selectionControllerProvider.notifier).clear();
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(context.l10n.unhiddenItems(n))),
-    );
   }
 
   Future<void> _pickHeartLevels() async {

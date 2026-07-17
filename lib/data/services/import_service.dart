@@ -22,6 +22,7 @@ class ImportSource {
     this.contentUri,
     this.assetId,
     this.sourceFolderName,
+    this.dateTaken,
   });
 
   final String path;
@@ -30,6 +31,10 @@ class ImportSource {
   final String? contentUri;
   final String? assetId;
   final String? sourceFolderName;
+
+  /// Original capture/create time from MediaStore (or file mtime).
+  /// Preserved across hide so Invisible "Newest first" matches Visible.
+  final DateTime? dateTaken;
 }
 
 class ImportProgress {
@@ -72,6 +77,7 @@ class _PreparedHide {
     required this.destPath,
     required this.folderName,
     required this.albumId,
+    this.dateTaken,
   });
 
   final String id;
@@ -83,6 +89,9 @@ class _PreparedHide {
   final String destPath;
   final String folderName;
   final String? albumId;
+
+  /// Original capture/create time (not hide time).
+  final DateTime? dateTaken;
 }
 
 /// Hide via native atomic rename (prefer) / batch IPC.
@@ -440,8 +449,10 @@ class ImportService {
               height: null,
               durationMs: null,
               rating: 0,
-              dateAdded: DateTime.now().toUtc(),
-              dateTaken: null,
+              // dateAdded drives Invisible "Newest first". Use original capture
+              // time when known so hide does not reshuffle order vs Visible.
+              dateAdded: job.dateTaken?.toUtc() ?? DateTime.now().toUtc(),
+              dateTaken: job.dateTaken?.toUtc(),
               sizeBytes: size,
               thumbnailPath: null,
             ),
@@ -602,6 +613,35 @@ class ImportService {
     final albumId =
         targetUserAlbumId ?? await _resolveMirrorAlbumId(folderName);
 
+    // Prefer MediaStore capture time from the source; fall back to file mtime.
+    // Never use "now" for dateTaken — hide must not rewrite creation order.
+    DateTime? dateTaken = src.dateTaken;
+    if (dateTaken == null && src.assetId != null) {
+      try {
+        final entity = await AssetEntity.fromId(src.assetId!);
+        final sec = entity?.createDateSecond;
+        if (sec != null && sec > 0) {
+          dateTaken = DateTime.fromMillisecondsSinceEpoch(
+            sec * 1000,
+            isUtc: true,
+          );
+        } else {
+          final mod = entity?.modifiedDateSecond;
+          if (mod != null && mod > 0) {
+            dateTaken = DateTime.fromMillisecondsSinceEpoch(
+              mod * 1000,
+              isUtc: true,
+            );
+          }
+        }
+      } catch (_) {}
+    }
+    if (dateTaken == null) {
+      try {
+        dateTaken = await file.lastModified();
+      } catch (_) {}
+    }
+
     return _PreparedHide(
       id: id,
       src: src,
@@ -612,6 +652,7 @@ class ImportService {
       destPath: destPath,
       folderName: folderName,
       albumId: albumId,
+      dateTaken: dateTaken,
     );
   }
 
@@ -728,6 +769,13 @@ class ImportService {
       }
     }
 
+    // Best-effort: restore original capture timestamps on the revealed file so
+    // Gallery "Newest first" still matches pre-hide order.
+    final taken = item.dateTaken ?? item.dateAdded;
+    try {
+      await File(visiblePath).setLastModified(taken.toLocal());
+    } catch (_) {}
+
     try {
       await _mediaStore.scanPath(visiblePath, mimeType: item.mimeType);
     } catch (e) {
@@ -745,6 +793,123 @@ class ImportService {
     }
     await _media.hardDeleteRowOnly(item.id);
     return true;
+  }
+
+  /// Batch unhide with cooperative cancel + progress (same shape as hide).
+  ///
+  /// Always clears PhotoManager cache once at the end when any item succeeded.
+  Future<ImportProgress> revealAll(
+    List<MediaItem> items, {
+    void Function(ImportProgress progress)? onProgress,
+    bool Function()? isCancelRequested,
+  }) async {
+    // Do not clear cancel here — session may have cancelled during confirm UI.
+    var imported = 0;
+    var failed = 0;
+    var completed = 0;
+    String? lastError;
+    String? currentName;
+    final total = items.length;
+
+    bool cancelledNow() =>
+        _cancelRequested || (isCancelRequested?.call() ?? false);
+
+    void emit({
+      String? statusMessage,
+      bool cancelled = false,
+    }) {
+      onProgress?.call(
+        ImportProgress(
+          done: completed,
+          total: total,
+          currentName: currentName,
+          imported: imported,
+          failed: failed,
+          cancelled: cancelled || cancelledNow(),
+          statusMessage: statusMessage,
+        ),
+      );
+    }
+
+    ImportProgress cancelledProgress() => ImportProgress(
+          done: completed,
+          total: total,
+          cancelled: true,
+          imported: imported,
+          failed: failed,
+          lastError: lastError,
+          statusMessage: 'Cancelled',
+        );
+
+    if (total == 0) {
+      const empty = ImportProgress(
+        done: 0,
+        total: 0,
+        statusMessage: 'Done',
+      );
+      onProgress?.call(empty);
+      return empty;
+    }
+
+    if (cancelledNow()) {
+      emit(statusMessage: 'Cancelled', cancelled: true);
+      return cancelledProgress();
+    }
+
+    emit(statusMessage: 'Unhiding…');
+
+    for (final item in items) {
+      if (cancelledNow()) {
+        emit(statusMessage: 'Cancelled', cancelled: true);
+        break;
+      }
+      currentName = item.originalName;
+      emit(statusMessage: 'Unhiding…');
+      try {
+        final ok = await _withTimeout(
+          reveal(item, clearGalleryCache: false),
+          timeout: const Duration(seconds: 30),
+          label: 'unhide timed out: ${item.originalName}',
+        );
+        if (ok) {
+          imported++;
+        } else {
+          failed++;
+        }
+      } catch (e) {
+        debugPrint('revealAll ${item.id}: $e');
+        failed++;
+        lastError = e.toString();
+      } finally {
+        completed++;
+        emit(
+          statusMessage: cancelledNow() ? 'Cancelled' : 'Unhiding…',
+        );
+      }
+    }
+
+    if (imported > 0) {
+      try {
+        await PhotoManager.clearFileCache().timeout(const Duration(seconds: 2));
+      } catch (_) {}
+    }
+
+    if (cancelledNow()) {
+      final c = cancelledProgress();
+      onProgress?.call(c);
+      return c;
+    }
+
+    final done = ImportProgress(
+      done: total,
+      total: total,
+      imported: imported,
+      failed: failed,
+      statusMessage: 'Done',
+      lastError: lastError,
+    );
+    onProgress?.call(done);
+    return done;
   }
 
   String? _sniffMime(String? provided, String name, String path) {
