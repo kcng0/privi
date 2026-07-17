@@ -22,6 +22,7 @@ import '../common/floating_action_capsule.dart';
 import '../common/grid_app_menu.dart';
 import '../common/media_grid_scaffold.dart';
 import '../common/vault_sheet.dart';
+import '../common/video_duration_badge.dart';
 import '../import/import_progress_sheet.dart';
 import 'folder_cover_cache.dart';
 import 'gallery_preview_screen.dart';
@@ -877,14 +878,10 @@ class _LazyThumbTileState extends State<_LazyThumbTile> {
                     ),
             ),
           if (a.isVideo)
-            const Positioned(
+            Positioned(
               top: 4,
               left: 4,
-              child: Icon(
-                Icons.play_circle_fill,
-                size: 18,
-                color: Colors.white70,
-              ),
+              child: VideoDurationBadge(durationMs: a.durationMs),
             ),
           if (widget.selectMode)
             Positioned(
