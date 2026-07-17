@@ -661,7 +661,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get updateAvailableTitle => '有可用更新';
 
   @override
-  String get updateDownloadPrompt => '立即下载？重启后生效。';
+  String get updateDownloadPrompt => '立即下载并重启？';
 
   @override
   String get later => '稍后';
@@ -673,7 +673,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get upToDate => '已是最新版本';
 
   @override
-  String get updateReadyRestart => '更新已就绪，请重启 Privi';
+  String get updateRestartFailed => '重启失败，请重新打开';
 
   @override
   String get updatesUnavailable => '此版本不支持更新';
@@ -1569,7 +1569,7 @@ class AppLocalizationsZhCn extends AppLocalizationsZh {
   String get updateAvailableTitle => '有可用更新';
 
   @override
-  String get updateDownloadPrompt => '立即下载？重启后生效。';
+  String get updateDownloadPrompt => '立即下载并重启？';
 
   @override
   String get later => '稍后';
@@ -1581,7 +1581,7 @@ class AppLocalizationsZhCn extends AppLocalizationsZh {
   String get upToDate => '已是最新版本';
 
   @override
-  String get updateReadyRestart => '更新已就绪，请重启 Privi';
+  String get updateRestartFailed => '重启失败，请重新打开';
 
   @override
   String get updatesUnavailable => '此版本不支持更新';
@@ -2477,7 +2477,7 @@ class AppLocalizationsZhHk extends AppLocalizationsZh {
   String get updateAvailableTitle => '有可用更新';
 
   @override
-  String get updateDownloadPrompt => '立即下載？重新啟動後生效。';
+  String get updateDownloadPrompt => '立即下載並重新啟動？';
 
   @override
   String get later => '稍後';
@@ -2489,7 +2489,7 @@ class AppLocalizationsZhHk extends AppLocalizationsZh {
   String get upToDate => '已是最新版本';
 
   @override
-  String get updateReadyRestart => '更新已就緒，請重新啟動 Privi';
+  String get updateRestartFailed => '重新啟動失敗，請重新開啟';
 
   @override
   String get updatesUnavailable => '此版本不支援更新';

@@ -671,7 +671,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get updateAvailableTitle => 'Update available';
 
   @override
-  String get updateDownloadPrompt => 'Download now? Applies after restart.';
+  String get updateDownloadPrompt => 'Download and restart now?';
 
   @override
   String get later => 'Later';
@@ -683,7 +683,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get upToDate => 'Up to date';
 
   @override
-  String get updateReadyRestart => 'Update ready. Restart Privi.';
+  String get updateRestartFailed => 'Restart failed. Reopen Privi.';
 
   @override
   String get updatesUnavailable => 'Updates unavailable';

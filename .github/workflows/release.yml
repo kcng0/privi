@@ -289,7 +289,7 @@ jobs:
                ```
             3. On your phone, open the APK and allow install from that source if asked.
             4. If Play Protect warns on first install of a new signature, choose **More details → Install anyway** and leave **Improve harmful app detection** enabled so Google can learn this build is safe.
-            5. Launch **Privi**. For future compatible Dart updates, open **Settings → Check updates**, approve the download, and restart the app.
+            5. Launch **Privi**. For future compatible Dart updates, open **Settings → Check updates** and approve the download; Privi restarts automatically after it succeeds.
 
             | | |
             |---|---|

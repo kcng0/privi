@@ -10,6 +10,7 @@ import 'app.dart';
 import 'application/providers.dart';
 import 'application/settings/settings_controller.dart';
 import 'core/app_build_info.dart';
+import 'data/services/platform_app_restart_service.dart';
 import 'data/services/shorebird_app_update_service.dart';
 
 Future<void> main() async {
@@ -19,6 +20,7 @@ Future<void> main() async {
   final appUpdateService = ShorebirdAppUpdateService(
     updater: ShorebirdUpdater(),
   );
+  const appRestartService = PlatformAppRestartService();
   final appBuildInfo = AppBuildInfo(
     version: packageInfo.version,
     buildNumber: packageInfo.buildNumber,
@@ -29,6 +31,7 @@ Future<void> main() async {
     overrides: [
       sharedPreferencesProvider.overrideWithValue(prefs),
       appBuildInfoProvider.overrideWithValue(appBuildInfo),
+      appRestartServiceProvider.overrideWithValue(appRestartService),
       appUpdateServiceProvider.overrideWithValue(appUpdateService),
     ],
   );

@@ -45,7 +45,7 @@ class _AppUpdateTileState extends ConsumerState<AppUpdateTile> {
         case AppUpdateStatus.updateAvailable:
           await _confirmAndDownload(service);
         case AppUpdateStatus.restartRequired:
-          _showMessage(context.l10n.updateReadyRestart);
+          await _restartApp();
         case AppUpdateStatus.unavailable:
           _showMessage(context.l10n.updatesUnavailable);
       }
@@ -79,10 +79,21 @@ class _AppUpdateTileState extends ConsumerState<AppUpdateTile> {
 
     try {
       await service.downloadUpdate();
-      if (mounted) _showMessage(context.l10n.updateReadyRestart);
     } catch (error, stackTrace) {
       debugPrint('update download failed: $error\n$stackTrace');
       if (mounted) _showMessage(context.l10n.updateDownloadFailed);
+      return;
+    }
+
+    await _restartApp();
+  }
+
+  Future<void> _restartApp() async {
+    try {
+      await ref.read(appRestartServiceProvider).restart();
+    } catch (error, stackTrace) {
+      debugPrint('app restart failed: $error\n$stackTrace');
+      if (mounted) _showMessage(context.l10n.updateRestartFailed);
     }
   }
 

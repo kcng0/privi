@@ -1285,7 +1285,7 @@ abstract class AppLocalizations {
   /// No description provided for @updateDownloadPrompt.
   ///
   /// In en, this message translates to:
-  /// **'Download now? Applies after restart.'**
+  /// **'Download and restart now?'**
   String get updateDownloadPrompt;
 
   /// No description provided for @later.
@@ -1306,11 +1306,11 @@ abstract class AppLocalizations {
   /// **'Up to date'**
   String get upToDate;
 
-  /// No description provided for @updateReadyRestart.
+  /// No description provided for @updateRestartFailed.
   ///
   /// In en, this message translates to:
-  /// **'Update ready. Restart Privi.'**
-  String get updateReadyRestart;
+  /// **'Restart failed. Reopen Privi.'**
+  String get updateRestartFailed;
 
   /// No description provided for @updatesUnavailable.
   ///
