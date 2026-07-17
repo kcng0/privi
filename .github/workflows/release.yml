@@ -140,15 +140,19 @@ jobs:
             unzip -p "$APK" 'META-INF/*.RSA' 'META-INF/*.DSA' 'META-INF/*.EC' 2>/dev/null \
               | keytool -printcert | tee "$CERT_OUT"
           fi
-          if ! grep -q 'Owner:' "$CERT_OUT" && ! grep -q 'Signer #' "$CERT_OUT"; then
+          # apksigner formats vary: "Signer #1", "V2 Signer:", "Owner:", "certificate DN:"
+          if ! grep -qiE 'Owner:|Signer #|Signer:|certificate DN:|DN:' "$CERT_OUT"; then
             echo "error: could not read APK signing certificate" >&2
+            cat "$CERT_OUT" >&2 || true
             exit 1
           fi
           if grep -qiE 'CN=Android Debug|Android Debug' "$CERT_OUT"; then
             echo "error: APK is still debug-signed — check key.properties / secrets" >&2
             exit 1
           fi
-          echo "OK: APK is not debug-signed"
+          echo "OK: APK is release-signed (not Android Debug)"
+          # Show DN line(s) for the release notes / audit trail
+          grep -iE 'DN:|Owner:|Signer' "$CERT_OUT" || true
 
       - name: Stage APK and checksums
         id: artifacts
