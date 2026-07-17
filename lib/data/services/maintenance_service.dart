@@ -149,7 +149,14 @@ class MaintenanceService {
           privatePath = c.path;
         }
 
-        final taken = await file.lastModified();
+        // Reinstall recovery: no MediaStore create date available for vault
+        // orphans. Prefer null dateTaken over inventing "now"; use a stable
+        // non-now fallback only for sort (file mtime is last resort here).
+        DateTime? taken;
+        try {
+          taken = await file.lastModified();
+        } catch (_) {}
+        final sortKey = taken?.toUtc() ?? DateTime.utc(1970);
         final item = MediaItem(
           id: id,
           privatePath: privatePath,
@@ -161,9 +168,10 @@ class MaintenanceService {
           height: null,
           durationMs: null,
           rating: 0,
-          // Preserve file mtime as both sort key and capture time — not "now".
-          dateAdded: taken.toUtc(),
-          dateTaken: taken.toUtc(),
+          dateAdded: sortKey,
+          // Keep dateTaken null unless we have a real capture time — recovery
+          // path has no MediaStore DATE_TAKEN.
+          dateTaken: null,
           sizeBytes: len,
           thumbnailPath: null,
         );

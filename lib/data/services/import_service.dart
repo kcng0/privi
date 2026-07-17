@@ -613,8 +613,8 @@ class ImportService {
     final albumId =
         targetUserAlbumId ?? await _resolveMirrorAlbumId(folderName);
 
-    // Prefer MediaStore capture time from the source; fall back to file mtime.
-    // Never use "now" for dateTaken — hide must not rewrite creation order.
+    // Capture/create time only (MediaStore DATE_TAKEN / createDateSecond).
+    // Never use modified time or "now" — hide must not rewrite creation order.
     DateTime? dateTaken = src.dateTaken;
     if (dateTaken == null && src.assetId != null) {
       try {
@@ -625,20 +625,7 @@ class ImportService {
             sec * 1000,
             isUtc: true,
           );
-        } else {
-          final mod = entity?.modifiedDateSecond;
-          if (mod != null && mod > 0) {
-            dateTaken = DateTime.fromMillisecondsSinceEpoch(
-              mod * 1000,
-              isUtc: true,
-            );
-          }
         }
-      } catch (_) {}
-    }
-    if (dateTaken == null) {
-      try {
-        dateTaken = await file.lastModified();
       } catch (_) {}
     }
 
@@ -769,15 +756,17 @@ class ImportService {
       }
     }
 
-    // Best-effort: restore original capture timestamps on the revealed file so
-    // Gallery "Newest first" still matches pre-hide order.
+    // Re-index with original capture/create epoch (seconds). Do not touch
+    // file mtime as the Gallery sort key — MediaStore DATE_TAKEN/DATE_ADDED.
     final taken = item.dateTaken ?? item.dateAdded;
+    final takenSec = taken.toUtc().millisecondsSinceEpoch ~/ 1000;
     try {
-      await File(visiblePath).setLastModified(taken.toLocal());
-    } catch (_) {}
-
-    try {
-      await _mediaStore.scanPath(visiblePath, mimeType: item.mimeType);
+      await _mediaStore.scanPath(
+        visiblePath,
+        mimeType: item.mimeType,
+        dateTakenSec: takenSec,
+        dateAddedSec: takenSec,
+      );
     } catch (e) {
       debugPrint('unhide scan: $e');
     }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../domain/enums.dart';
 import '../../domain/models/media_item.dart';
+import '../../l10n/app_localizations.dart';
 
 /// Client-side search / multi-criteria sort / rating filter for album grids.
 abstract final class MediaQueryUtils {
@@ -108,6 +109,24 @@ abstract final class MediaQueryUtils {
         MediaSort.ratingAsc => 'Lowest rating',
       };
 
+  /// Localized sort label (UI). Prefer this over [sortLabel] in widgets.
+  static String sortLabelL10n(AppLocalizations l10n, MediaSort s) {
+    switch (s) {
+      case MediaSort.dateAddedDesc:
+        return l10n.sortNewestFirst;
+      case MediaSort.dateAddedAsc:
+        return l10n.sortOldestFirst;
+      case MediaSort.nameAsc:
+        return l10n.sortNameAsc;
+      case MediaSort.nameDesc:
+        return l10n.sortNameDesc;
+      case MediaSort.ratingDesc:
+        return l10n.sortHighestRating;
+      case MediaSort.ratingAsc:
+        return l10n.sortLowestRating;
+    }
+  }
+
   static IconData sortIcon(MediaSort s) => switch (s) {
         MediaSort.dateAddedDesc => Icons.arrow_downward,
         MediaSort.dateAddedAsc => Icons.arrow_upward,
@@ -121,6 +140,17 @@ abstract final class MediaQueryUtils {
     if (sorts.isEmpty) return sortLabel(MediaSort.dateAddedDesc);
     if (sorts.length == 1) return sortLabel(sorts.first);
     return '${sorts.length} sorts';
+  }
+
+  /// Localized summary for overflow menu subtitles.
+  static String sortsSummaryL10n(AppLocalizations l10n, List<MediaSort> sorts) {
+    if (sorts.isEmpty) {
+      return sortLabelL10n(l10n, MediaSort.dateAddedDesc);
+    }
+    if (sorts.length == 1) {
+      return sortLabelL10n(l10n, sorts.first);
+    }
+    return l10n.sortsCount(sorts.length);
   }
 
   static int sortFamilyRank(MediaSort s) => switch (s) {

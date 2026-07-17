@@ -346,7 +346,7 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
                   style: const TextStyle(color: Colors.white),
                 ),
                 subtitle: Text(
-                  MediaQueryUtils.sortsSummary(_sorts),
+                  MediaQueryUtils.sortsSummaryL10n(context.l10n, _sorts),
                   style: const TextStyle(color: Colors.white54, fontSize: 12),
                 ),
                 onTap: () => Navigator.pop(ctx, 'sort'),

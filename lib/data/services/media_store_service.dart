@@ -58,12 +58,26 @@ class MediaStoreService {
   }
 
   /// Re-index a path into MediaStore (unhide).
-  Future<bool> scanPath(String path, {String? mimeType}) async {
+  ///
+  /// When [dateTakenSec] / [dateAddedSec] are set (Unix seconds), they are
+  /// written onto the MediaStore row so Gallery sorts by original capture time
+  /// instead of scan/unhide time.
+  Future<bool> scanPath(
+    String path, {
+    String? mimeType,
+    int? dateTakenSec,
+    int? dateAddedSec,
+  }) async {
     if (path.isEmpty) return false;
     try {
       final result = await _channel.invokeMethod<bool>(
         'scanMediaPath',
-        {'path': path, 'mimeType': mimeType},
+        {
+          'path': path,
+          'mimeType': mimeType,
+          if (dateTakenSec != null) 'dateTakenSec': dateTakenSec,
+          if (dateAddedSec != null) 'dateAddedSec': dateAddedSec,
+        },
       );
       return result ?? false;
     } catch (e) {
