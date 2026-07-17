@@ -78,7 +78,7 @@ to re-run**:
 
 What it does:
 
-1. `flutter create --platforms=android --org com.privateheart .` to produce /
+1. `flutter create --platforms=android --org com.privi .` to produce /
    refresh the `android/` project.
 2. **Restores** hand-authored files (`pubspec.yaml`, `lib/`, `test/`, …) from
    git so `flutter create` cannot clobber them.
@@ -132,7 +132,7 @@ lib/
   app.dart
   main.dart
 test/            # unit + widget tests (mirror lib/ where useful)
-android/         # Android host (package com.privateheart.privateheart_vault)
+android/         # Android host (package com.privi.app)
 assets/branding/ # launcher / about icons
 scripts/         # bootstrap + toolchain installer
 .github/workflows/

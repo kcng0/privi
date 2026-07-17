@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:privateheart_vault/data/services/security_service.dart';
+import 'package:privi/data/services/security_service.dart';
 
 void main() {
   group('SecurityService pattern helpers', () {

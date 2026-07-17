@@ -12,7 +12,7 @@ import 'package:open_filex/open_filex.dart';
 /// [Intent.createChooser]) so the system can show **Just once** / **Always**
 /// when no preferred app is set.
 class IntentService {
-  static const _channel = MethodChannel('com.privateheart.vault/files');
+  static const _channel = MethodChannel('com.privi.app/files');
 
   /// Open a local media file via the Android app chooser (or fallbacks).
   Future<bool> openExternal({

@@ -11,7 +11,7 @@ part 'database.g.dart';
 @DriftDatabase(tables: [MediaItems, Albums, AlbumMedia])
 class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? executor])
-      : super(executor ?? driftDatabase(name: 'privateheart'));
+      : super(executor ?? driftDatabase(name: 'privi'));
 
   /// In-memory DB for tests.
   AppDatabase.memory() : super(NativeDatabase.memory());

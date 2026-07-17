@@ -2,14 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:privateheart_vault/app.dart';
-import 'package:privateheart_vault/application/lock/lock_controller.dart';
-import 'package:privateheart_vault/application/providers.dart';
-import 'package:privateheart_vault/data/services/biometric_service.dart';
-import 'package:privateheart_vault/data/services/security_service.dart';
-import 'package:privateheart_vault/domain/enums.dart';
-import 'package:privateheart_vault/domain/models/album.dart';
-import 'package:privateheart_vault/domain/models/album_view.dart';
+import 'package:privi/app.dart';
+import 'package:privi/application/lock/lock_controller.dart';
+import 'package:privi/application/providers.dart';
+import 'package:privi/data/services/biometric_service.dart';
+import 'package:privi/data/services/security_service.dart';
+import 'package:privi/domain/enums.dart';
+import 'package:privi/domain/models/album.dart';
+import 'package:privi/domain/models/album_view.dart';
 
 class _FakeSecurity extends SecurityService {
   _FakeSecurity() : super();

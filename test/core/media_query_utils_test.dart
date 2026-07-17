@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:privateheart_vault/core/utils/media_query_utils.dart';
-import 'package:privateheart_vault/domain/enums.dart';
-import 'package:privateheart_vault/domain/models/media_item.dart';
+import 'package:privi/core/utils/media_query_utils.dart';
+import 'package:privi/domain/enums.dart';
+import 'package:privi/domain/models/media_item.dart';
 
 MediaItem item({
   required String id,

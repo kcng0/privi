@@ -32,7 +32,7 @@ class VaultBackupService {
   final VaultStorageService _storage;
   final Uuid _uuid;
 
-  static const manifestName = 'privateheart_manifest.json';
+  static const manifestName = 'privi_manifest.json';
 
   /// Write media + JSON manifest into [destDir].
   Future<int> exportToDirectory(String destDir) async {

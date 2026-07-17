@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:privateheart_vault/presentation/common/floating_action_capsule.dart';
+import 'package:privi/presentation/common/floating_action_capsule.dart';
 
 void main() {
   testWidgets('Invisible selection capsule order is Unhide | Rate | More',

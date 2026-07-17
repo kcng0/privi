@@ -65,7 +65,7 @@ class MediaUnhideRequest {
 
 /// Android MediaStore / filesystem hide helpers.
 class MediaRenameService {
-  static const _channel = MethodChannel('com.privateheart.vault/mediastore');
+  static const _channel = MethodChannel('com.privi.app/mediastore');
 
   Future<bool> isExternalStorageManager() async {
     try {

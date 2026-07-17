@@ -17,7 +17,7 @@ if (hasReleaseKeystore) {
 }
 
 android {
-    namespace = "com.privateheart.privateheart_vault"
+    namespace = "com.privi.app"
     // receive_sharing_intent requires 37+; higher compileSdk is backward compatible.
     compileSdk = 37
     ndkVersion = flutter.ndkVersion
@@ -28,7 +28,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.privateheart.privateheart_vault"
+        applicationId = "com.privi.app"
         minSdk = flutter.minSdkVersion
         // Keep current Play / Play Protect baseline (API 34+ required; 36 is fine).
         targetSdk = 36

@@ -6,7 +6,7 @@ import 'package:flutter/services.dart';
 /// Hide must **remove** MediaStore rows (not re-scan the hidden path), otherwise
 /// Gallery / 媒体浏览器 keep showing the item under the new name.
 class MediaStoreService {
-  static const _channel = MethodChannel('com.privateheart.vault/mediastore');
+  static const _channel = MethodChannel('com.privi.app/mediastore');
 
   /// Attempt to delete a content URI from MediaStore.
   Future<bool> removeOriginal(String? contentUri) async {

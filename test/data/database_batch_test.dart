@@ -3,7 +3,7 @@ import 'dart:io';
 
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter_test/flutter_test.dart';
-import 'package:privateheart_vault/data/db/database.dart';
+import 'package:privi/data/db/database.dart';
 import 'package:sqlite3/open.dart';
 
 MediaItemsCompanion _row({

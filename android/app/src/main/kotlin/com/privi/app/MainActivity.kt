@@ -1,4 +1,4 @@
-package com.privateheart.privateheart_vault
+package com.privi.app
 
 import android.content.ContentUris
 import android.content.pm.ResolveInfo
@@ -34,9 +34,9 @@ import java.util.concurrent.Executors
 /// Host activity: FileProvider, FLAG_SECURE, MediaStore rename for directory hide.
 /// Extends [FlutterFragmentActivity] so [local_auth] can show BiometricPrompt.
 class MainActivity : FlutterFragmentActivity() {
-    private val mediaStoreChannel = "com.privateheart.vault/mediastore"
-    private val filesChannel = "com.privateheart.vault/files"
-    private val windowChannel = "com.privateheart.vault/window"
+    private val mediaStoreChannel = "com.privi.app/mediastore"
+    private val filesChannel = "com.privi.app/files"
+    private val windowChannel = "com.privi.app/window"
 
     // IO for hide/thumbnail so concurrent Dart workers can overlap.
     private val ioExecutor = Executors.newFixedThreadPool(3)

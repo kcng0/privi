@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Bootstrap the PrivateHeart Vault dev environment.
+# Bootstrap the Privi dev environment.
 #
 # Safe to re-run. It:
 #   1. Verifies Flutter is available (prefers FVM).
@@ -28,8 +28,8 @@ if ! command -v flutter >/dev/null 2>&1 && [ "$FLUTTER" = "flutter" ]; then
   exit 1
 fi
 
-ORG="com.privateheart"
-NAME="privateheart_vault"
+ORG="com.privi"
+NAME="privi"
 
 # Files we own and must NOT let `flutter create` overwrite.
 OWNED=(

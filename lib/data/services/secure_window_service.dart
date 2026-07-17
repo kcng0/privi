@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 
 /// FLAG_SECURE — block screenshots / recents preview (optional hardening).
 class SecureWindowService {
-  static const _channel = MethodChannel('com.privateheart.vault/window');
+  static const _channel = MethodChannel('com.privi.app/window');
 
   Future<void> setFlagSecure(bool enabled) async {
     try {
