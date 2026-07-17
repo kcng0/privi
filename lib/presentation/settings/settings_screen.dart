@@ -20,6 +20,7 @@ class SettingsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final s = ref.watch(settingsControllerProvider);
     final lock = ref.watch(lockControllerProvider);
+    final appBuildInfo = ref.watch(appBuildInfoProvider);
     final notifier = ref.read(settingsControllerProvider.notifier);
 
     return Scaffold(
@@ -277,10 +278,10 @@ class SettingsScreen extends ConsumerWidget {
           ListTile(
             leading: const Icon(Icons.info_outline),
             title: const Text(AppInfo.name),
-            subtitle: const Text(
-              'v${AppInfo.version} · ${AppInfo.licenseShort}',
+            subtitle: Text(
+              'v${appBuildInfo.versionAndBuild} · ${AppInfo.licenseShort}',
             ),
-            onTap: () => _showAbout(context),
+            onTap: () => _showAbout(context, appBuildInfo.versionAndBuild),
           ),
           ListTile(
             leading: const Icon(Icons.person_outline),
@@ -317,7 +318,7 @@ class SettingsScreen extends ConsumerWidget {
     }
   }
 
-  void _showAbout(BuildContext context) {
+  void _showAbout(BuildContext context, String versionAndBuild) {
     showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -349,7 +350,7 @@ class SettingsScreen extends ConsumerWidget {
               const Text(AppInfo.about),
               const SizedBox(height: 16),
               Text(
-                context.l10n.versionLabel(AppInfo.version),
+                context.l10n.versionLabel(versionAndBuild),
                 style: Theme.of(ctx).textTheme.bodySmall,
               ),
               const SizedBox(height: 4),

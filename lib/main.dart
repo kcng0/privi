@@ -2,18 +2,28 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app.dart';
 import 'application/providers.dart';
 import 'application/settings/settings_controller.dart';
+import 'core/app_build_info.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  final packageInfo = await PackageInfo.fromPlatform();
+  final appBuildInfo = AppBuildInfo(
+    version: packageInfo.version,
+    buildNumber: packageInfo.buildNumber,
+  );
   final prefs = await SharedPreferences.getInstance();
   final container = ProviderContainer(
-    overrides: [sharedPreferencesProvider.overrideWithValue(prefs)],
+    overrides: [
+      sharedPreferencesProvider.overrideWithValue(prefs),
+      appBuildInfoProvider.overrideWithValue(appBuildInfo),
+    ],
   );
   container.read(databaseProvider);
   await container.read(vaultStorageProvider).ensureVault();
