@@ -9,10 +9,19 @@ import '../providers.dart';
 import '../settings/settings_controller.dart';
 
 /// App vault lock UI state (not Flutter's shortcuts [LockState]).
+enum VaultLockErrorCode {
+  wrongPattern,
+  wrongPin,
+  noSystemLock,
+  systemAuthCancelled,
+  lockout,
+}
+
 class VaultLockState {
   const VaultLockState({
     required this.status,
-    this.errorMessage,
+    this.errorCode,
+    this.lockoutSeconds,
     this.lockKind = SecurityService.kindPattern,
     this.pinLength = 4,
     this.biometricEnabled = false,
@@ -20,7 +29,8 @@ class VaultLockState {
   });
 
   final LockStatus status;
-  final String? errorMessage;
+  final VaultLockErrorCode? errorCode;
+  final int? lockoutSeconds;
 
   /// [SecurityService.kindPattern] (default) or [SecurityService.kindPin].
   final String lockKind;
@@ -32,7 +42,8 @@ class VaultLockState {
 
   VaultLockState copyWith({
     LockStatus? status,
-    String? errorMessage,
+    VaultLockErrorCode? errorCode,
+    int? lockoutSeconds,
     String? lockKind,
     int? pinLength,
     bool? biometricEnabled,
@@ -41,7 +52,9 @@ class VaultLockState {
   }) {
     return VaultLockState(
       status: status ?? this.status,
-      errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
+      errorCode: clearError ? null : (errorCode ?? this.errorCode),
+      lockoutSeconds:
+          clearError ? null : (lockoutSeconds ?? this.lockoutSeconds),
       lockKind: lockKind ?? this.lockKind,
       pinLength: pinLength ?? this.pinLength,
       biometricEnabled: biometricEnabled ?? this.biometricEnabled,
@@ -52,6 +65,7 @@ class VaultLockState {
 
 class LockController extends Notifier<VaultLockState> {
   Timer? _autoLockTimer;
+  Timer? _lockoutTimer;
 
   /// Wall-clock moment we left the foreground. Dart [Timer]s are unreliable
   /// while Android suspends the isolate — resume must re-check this stamp.
@@ -67,6 +81,7 @@ class LockController extends Notifier<VaultLockState> {
   VaultLockState build() {
     ref.onDispose(() {
       _autoLockTimer?.cancel();
+      _lockoutTimer?.cancel();
       _backgroundedAt = null;
       _suppressAutoLockDepth = 0;
       _releaseSuppressOnResume = false;
@@ -79,6 +94,52 @@ class LockController extends Notifier<VaultLockState> {
     _autoLockTimer?.cancel();
     _autoLockTimer = null;
     _backgroundedAt = null;
+  }
+
+  void _cancelLockoutTimer() {
+    _lockoutTimer?.cancel();
+    _lockoutTimer = null;
+  }
+
+  Future<void> _showCredentialFailure(VaultLockErrorCode fallbackCode) async {
+    final security = ref.read(securityServiceProvider);
+    final remaining = await security.lockoutRemaining();
+    if (!ref.mounted) return;
+    if (remaining == null) {
+      _cancelLockoutTimer();
+      state = state.copyWith(errorCode: fallbackCode);
+      return;
+    }
+    _cancelLockoutTimer();
+    _setLockoutMessage(remaining);
+    _lockoutTimer = Timer(
+      const Duration(seconds: 1),
+      () => unawaited(_refreshLockoutMessage()),
+    );
+  }
+
+  Future<void> _refreshLockoutMessage() async {
+    final remaining =
+        await ref.read(securityServiceProvider).lockoutRemaining();
+    if (!ref.mounted) return;
+    if (remaining == null) {
+      _cancelLockoutTimer();
+      state = state.copyWith(clearError: true);
+      return;
+    }
+    _setLockoutMessage(remaining);
+    _lockoutTimer = Timer(
+      const Duration(seconds: 1),
+      () => unawaited(_refreshLockoutMessage()),
+    );
+  }
+
+  void _setLockoutMessage(Duration remaining) {
+    final seconds = (remaining.inMilliseconds + 999) ~/ 1000;
+    state = state.copyWith(
+      errorCode: VaultLockErrorCode.lockout,
+      lockoutSeconds: seconds,
+    );
   }
 
   /// Keep session unlocked (in-app viewer/player). Pair with [releaseAutoLockSuppress].
@@ -183,6 +244,7 @@ class LockController extends Notifier<VaultLockState> {
     final ok = await security.verifyPattern(pattern);
     if (!ref.mounted) return false;
     if (ok) {
+      _cancelLockoutTimer();
       _cancelAutoLockTimer();
       state = state.copyWith(
         status: LockStatus.unlocked,
@@ -191,7 +253,7 @@ class LockController extends Notifier<VaultLockState> {
       );
       return true;
     }
-    state = state.copyWith(errorMessage: 'Wrong pattern');
+    await _showCredentialFailure(VaultLockErrorCode.wrongPattern);
     return false;
   }
 
@@ -200,6 +262,7 @@ class LockController extends Notifier<VaultLockState> {
     final ok = await security.verifyPin(pin);
     if (!ref.mounted) return false;
     if (ok) {
+      _cancelLockoutTimer();
       _cancelAutoLockTimer();
       state = state.copyWith(
         status: LockStatus.unlocked,
@@ -209,7 +272,7 @@ class LockController extends Notifier<VaultLockState> {
       );
       return true;
     }
-    state = state.copyWith(errorMessage: 'Wrong PIN');
+    await _showCredentialFailure(VaultLockErrorCode.wrongPin);
     return false;
   }
 
@@ -301,8 +364,7 @@ class LockController extends Notifier<VaultLockState> {
     if (!supported) {
       if (!ref.mounted) return false;
       state = state.copyWith(
-        errorMessage:
-            'System lock screen not set up — set a PIN/pattern/fingerprint in Android Settings first',
+        errorCode: VaultLockErrorCode.noSystemLock,
       );
       return false;
     }
@@ -315,7 +377,9 @@ class LockController extends Notifier<VaultLockState> {
     );
     if (!ok) {
       if (!ref.mounted) return false;
-      state = state.copyWith(errorMessage: 'System authentication cancelled');
+      state = state.copyWith(
+        errorCode: VaultLockErrorCode.systemAuthCancelled,
+      );
       return false;
     }
     await security.clearCredential();
@@ -378,6 +442,7 @@ class LockController extends Notifier<VaultLockState> {
 
   void lock() {
     _cancelAutoLockTimer();
+    _cancelLockoutTimer();
     state = state.copyWith(status: LockStatus.locked, clearError: true);
   }
 

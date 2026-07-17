@@ -7,10 +7,18 @@ import '../providers.dart';
 import '../settings/settings_controller.dart';
 
 export '../../data/services/gallery_service.dart'
-    show GalleryAsset, GalleryFolder;
+    show
+        GalleryAsset,
+        GalleryFolder,
+        VisibleFilterChanged,
+        VisibleHidden,
+        VisiblePermissionChanged,
+        VisibleRevealed;
 
 final galleryServiceProvider = Provider<GalleryService>((ref) {
-  return GalleryService();
+  final service = GalleryService();
+  ref.onDispose(service.dispose);
+  return service;
 });
 
 /// Photo **or** Video mode only (no combined).
@@ -36,6 +44,7 @@ class MediaKindFilterController extends Notifier<MediaKindFilter> {
   void set(MediaKindFilter f) {
     if (state == f) return;
     state = f;
+    ref.read(galleryServiceProvider).apply(const VisibleFilterChanged());
     // ignore: discarded_futures
     ref.read(settingsControllerProvider.notifier).setMediaKindFilter(f);
   }
@@ -50,25 +59,17 @@ class MediaKindFilterController extends Notifier<MediaKindFilter> {
   }
 }
 
-/// Bumped after hide so folder tiles rebuild even if Riverpod keeps prior data.
-final galleryUiEpochProvider =
-    NotifierProvider<GalleryUiEpoch, int>(GalleryUiEpoch.new);
-
-class GalleryUiEpoch extends Notifier<int> {
-  @override
-  int build() => 0;
-
-  void bump() => state++;
-}
+/// A single mutation stream replaces caller-managed epoch bumping.
+final galleryChangeProvider = StreamProvider.autoDispose<int>((ref) {
+  return ref.watch(galleryServiceProvider).changes;
+});
 
 /// Visible-tab folder list for current photo/video mode.
 ///
-/// Uses **fast** MediaStore counts + session hide deductions + vault-path
-/// hydration (cold start). Pull-to-refresh still works via
-/// [GalleryService.refreshAfterMutation].
+/// Uses MediaStore counts and the [VisibleLibraryState] mutation stream.
 final galleryFoldersProvider =
     FutureProvider.autoDispose<List<GalleryFolder>>((ref) async {
-  ref.watch(galleryUiEpochProvider);
+  ref.watch(galleryChangeProvider);
   final filter = ref.watch(mediaKindFilterProvider);
   final gallery = ref.watch(galleryServiceProvider);
   final ok = await gallery.hasPermission();
@@ -79,34 +80,26 @@ final galleryFoldersProvider =
     }
   }
   // Cold-start: subtract vault private paths so counts match after restart.
-  // Cached until invalidateVaultPathCache (hide/unhide).
-  try {
-    await gallery.ensureVaultHydrated(
-      () => ref.read(mediaRepositoryProvider).listActivePrivatePaths(),
-    );
-  } catch (_) {
-    // DB may not be ready in pure widget tests — ignore.
-  }
+  // Cached until the Visible state receives a hide/reveal mutation.
+  await gallery.ensureVaultHydrated(
+    () => ref.read(mediaRepositoryProvider).listActiveOriginalPaths(),
+  );
   return gallery.listFolders(filter);
 });
 
 /// Assets inside a gallery folder (metadata only; thumbs lazy).
 final galleryAssetsProvider = FutureProvider.autoDispose
     .family<List<GalleryAsset>, String>((ref, pathId) async {
-  ref.watch(galleryUiEpochProvider);
+  ref.watch(galleryChangeProvider);
   final filter = ref.watch(mediaKindFilterProvider);
   final gallery = ref.watch(galleryServiceProvider);
-  try {
-    await gallery.ensureVaultHydrated(
-      () => ref.read(mediaRepositoryProvider).listActivePrivatePaths(),
-    );
-  } catch (_) {}
+  await gallery.ensureVaultHydrated(
+    () => ref.read(mediaRepositoryProvider).listActiveOriginalPaths(),
+  );
   return gallery.listAssets(pathId: pathId, filter: filter);
 });
 
 final galleryPermissionProvider =
     FutureProvider.autoDispose<PermissionState>((ref) {
-  return PhotoManager.getPermissionState(
-    requestOption: const PermissionRequestOption(),
-  );
+  return ref.watch(galleryServiceProvider).permissionState();
 });

@@ -159,6 +159,34 @@ class AlbumRepository {
     return Album(id: id, name: name.trim(), isSystem: false, createdAt: now);
   }
 
+  Future<Album> insertWithId({
+    required String id,
+    required String name,
+    required DateTime createdAt,
+    DateTime? pinnedAt,
+    String? coverMediaId,
+  }) async {
+    final trimmed = name.trim();
+    await _db.insertAlbum(
+      AlbumsCompanion.insert(
+        id: id,
+        name: trimmed,
+        isSystem: false,
+        createdAt: createdAt,
+        pinnedAt: Value(pinnedAt),
+        coverMediaId: Value(coverMediaId),
+      ),
+    );
+    return Album(
+      id: id,
+      name: trimmed,
+      isSystem: false,
+      createdAt: createdAt,
+      pinnedAt: pinnedAt,
+      coverMediaId: coverMediaId,
+    );
+  }
+
   /// Mirror Visible folder structure: reuse album named [name] or create it.
   /// Case-insensitive match on existing user albums.
   Future<Album> getOrCreateUserAlbumByName(String name) async {
@@ -187,6 +215,13 @@ class AlbumRepository {
 
   Future<void> addMediaToUserAlbum(String albumId, String mediaId) =>
       _db.addMembership(albumId, mediaId, DateTime.now().toUtc());
+
+  Future<void> restoreMembership(
+    String albumId,
+    String mediaId,
+    DateTime addedAt,
+  ) =>
+      _db.addMembership(albumId, mediaId, addedAt);
 
   Future<List<Album>> listUserAlbums() async {
     final rows = await _db.getUserAlbums();

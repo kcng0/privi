@@ -1,6 +1,7 @@
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:drift_flutter/drift_flutter.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../domain/enums.dart';
 import '../../domain/models/album.dart';
@@ -17,7 +18,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.memory() : super(NativeDatabase.memory());
 
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 5;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -36,53 +37,50 @@ class AppDatabase extends _$AppDatabase {
           if (from < 4) {
             await _ensureAlbumPinnedAtColumn();
           }
+          if (from < 5) {
+            // v5 turns the legacy open-time repairs into an explicit migration.
+            await _ensureOriginalPathColumn();
+            await _ensureAlbumPinnedAtColumn();
+          }
         },
         beforeOpen: (details) async {
-          // Repair installs where schemaVersion advanced without the column.
-          await _ensureOriginalPathColumn();
-          await _ensureAlbumPinnedAtColumn();
-          // Idempotent: covers installs that skipped onUpgrade edge cases.
+          await customStatement('PRAGMA foreign_keys = ON');
+
+          // One-release safety net for installs whose schema version was
+          // advanced by an older build without applying the ALTER TABLE.
+          final repairedOriginalPath = await _ensureOriginalPathColumn();
+          final repairedPinnedAt = await _ensureAlbumPinnedAtColumn();
+          if (repairedOriginalPath || repairedPinnedAt) {
+            debugPrint(
+              'Database v5 safety repair applied: '
+              'original_path=$repairedOriginalPath, pinned_at=$repairedPinnedAt',
+            );
+          }
           await _createPerfIndexes();
         },
       );
 
-  Future<void> _ensureOriginalPathColumn() async {
-    try {
-      final rows = await customSelect(
-        "PRAGMA table_info('media_items')",
-      ).get();
-      final names = rows.map((r) => r.data['name'] as String?).toSet();
-      if (!names.contains('original_path')) {
-        await customStatement(
-          'ALTER TABLE media_items ADD COLUMN original_path TEXT NULL',
-        );
-      }
-    } catch (e) {
-      // Best-effort; insert may still fail and surface in UI.
-      try {
-        await customStatement(
-          'ALTER TABLE media_items ADD COLUMN original_path TEXT NULL',
-        );
-      } catch (_) {}
-    }
+  Future<bool> _ensureOriginalPathColumn() async {
+    final names = await _columnNames('media_items');
+    if (names.contains('original_path')) return false;
+    await customStatement(
+      'ALTER TABLE media_items ADD COLUMN original_path TEXT NULL',
+    );
+    return true;
   }
 
-  Future<void> _ensureAlbumPinnedAtColumn() async {
-    try {
-      final rows = await customSelect("PRAGMA table_info('albums')").get();
-      final names = rows.map((r) => r.data['name'] as String?).toSet();
-      if (!names.contains('pinned_at')) {
-        await customStatement(
-          'ALTER TABLE albums ADD COLUMN pinned_at INTEGER NULL',
-        );
-      }
-    } catch (_) {
-      try {
-        await customStatement(
-          'ALTER TABLE albums ADD COLUMN pinned_at INTEGER NULL',
-        );
-      } catch (_) {}
-    }
+  Future<bool> _ensureAlbumPinnedAtColumn() async {
+    final names = await _columnNames('albums');
+    if (names.contains('pinned_at')) return false;
+    await customStatement(
+      'ALTER TABLE albums ADD COLUMN pinned_at INTEGER NULL',
+    );
+    return true;
+  }
+
+  Future<Set<String>> _columnNames(String table) async {
+    final rows = await customSelect("PRAGMA table_info('$table')").get();
+    return rows.map((row) => row.data['name']).whereType<String>().toSet();
   }
 
   /// Secondary indexes for active/favorites/membership/path lookups (v3).
@@ -317,6 +315,19 @@ class AppDatabase extends _$AppDatabase {
     ];
   }
 
+  Future<List<String>> listActiveOriginalPaths() async {
+    final query = selectOnly(mediaItems)
+      ..addColumns([mediaItems.originalPath])
+      ..where(
+        mediaItems.deletedAt.isNull() & mediaItems.originalPath.isNotNull(),
+      );
+    final rows = await query.get();
+    return [
+      for (final row in rows)
+        if (row.read(mediaItems.originalPath) case final path?) path,
+    ];
+  }
+
   /// Sum of sizeBytes for active + recycle (vault storage estimate).
   Future<int> sumMediaBytes() async {
     final total = mediaItems.sizeBytes.sum();
@@ -424,6 +435,8 @@ class AppDatabase extends _$AppDatabase {
       mode: InsertMode.insertOrIgnore,
     );
   }
+
+  Future<List<AlbumMediaRow>> getAllMemberships() => select(albumMedia).get();
 
   Future<int> countMembership(String albumId, {bool? isVideo}) async {
     final c = countAll();

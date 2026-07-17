@@ -13,12 +13,7 @@ class MediaRepository {
   final VaultStorageService _storage;
 
   Future<void> insert(MediaItem item, {String? userAlbumId}) async {
-    try {
-      await _db.insertMedia(_toCompanion(item));
-    } catch (e) {
-      // insert fallback if original_path column missing on old DBs mid-upgrade
-      await _db.insertMedia(_toCompanion(item, includeOriginalPath: false));
-    }
+    await _db.insertMedia(_toCompanion(item));
     if (_isUserAlbum(userAlbumId)) {
       await _db.addMembership(
         userAlbumId!,
@@ -42,24 +37,7 @@ class MediaRepository {
         membership[e.item.id] = albumId!;
       }
     }
-    try {
-      await _db.insertMediaBatch(rows, membershipByMediaId: membership);
-    } catch (e) {
-      // Fallback: insert one-by-one so a single bad row doesn't drop the batch.
-      for (final e in entries) {
-        try {
-          await insert(e.item, userAlbumId: e.userAlbumId);
-        } catch (e2) {
-          // Caller already moved files; keep going.
-          // ignore: avoid_print
-          assert(() {
-            // ignore: avoid_print
-            print('insertMany fallback failed ${e.item.id}: $e2');
-            return true;
-          }());
-        }
-      }
-    }
+    await _db.insertMediaBatch(rows, membershipByMediaId: membership);
   }
 
   static bool _isUserAlbum(String? userAlbumId) =>
@@ -68,15 +46,11 @@ class MediaRepository {
       userAlbumId != SystemAlbumIds.favorites &&
       userAlbumId != SystemAlbumIds.recycle;
 
-  MediaItemsCompanion _toCompanion(
-    MediaItem item, {
-    bool includeOriginalPath = true,
-  }) {
+  MediaItemsCompanion _toCompanion(MediaItem item) {
     return MediaItemsCompanion.insert(
       id: item.id,
       privatePath: item.privatePath,
-      originalPath:
-          includeOriginalPath ? Value(item.originalPath) : const Value.absent(),
+      originalPath: Value(item.originalPath),
       originalName: item.originalName,
       mimeType: item.mimeType,
       isVideo: item.isVideo,
@@ -167,6 +141,9 @@ class MediaRepository {
   }
 
   Future<List<String>> listActivePrivatePaths() => _db.listActivePrivatePaths();
+
+  Future<List<String>> listActiveOriginalPaths() =>
+      _db.listActiveOriginalPaths();
 
   Future<int> totalBytes() => _db.sumMediaBytes();
 

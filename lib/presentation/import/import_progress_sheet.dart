@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../application/import/import_controller.dart';
 import '../../core/constants.dart';
 import '../../core/l10n.dart';
+import '../../data/services/import_service.dart';
 
 /// Progress UI for hide/import. Title says “Hiding…” (not stuck-looking silence).
 class ImportProgressSheet extends ConsumerWidget {
@@ -57,15 +58,13 @@ class ImportProgressSheet extends ConsumerWidget {
                           : context.l10n.hiding)
                       : '${p.done} / ${p.total}',
                 ),
-                if (p.statusMessage != null) ...[
-                  const SizedBox(height: AppSpacing.xs),
-                  Text(
-                    _statusMessage(context, p.statusMessage!),
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
+                const SizedBox(height: AppSpacing.xs),
+                Text(
+                  _phaseMessage(context, p.phase),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
                   ),
-                ],
+                ),
                 if (p.currentName != null && !cancelling) ...[
                   const SizedBox(height: AppSpacing.xs),
                   Text(
@@ -117,12 +116,13 @@ Future<void> showImportProgressSheet(
   );
 }
 
-String _statusMessage(BuildContext context, String raw) {
+String _phaseMessage(BuildContext context, ImportPhase phase) {
   final l10n = context.l10n;
-  if (raw == 'Hiding…' || raw == 'Hiding...') return l10n.hiding;
-  if (raw == 'Unhiding…' || raw == 'Unhiding...') return l10n.unhide;
-  if (raw == 'Cancelled') return l10n.cancelled;
-  if (raw == 'Done') return l10n.done;
-  if (raw.startsWith('Hiding (')) return l10n.hiding; // parallel banner
-  return raw;
+  return switch (phase) {
+    ImportPhase.resolving => l10n.resolvingMedia,
+    ImportPhase.hiding => l10n.hiding,
+    ImportPhase.unhiding => l10n.unhiding,
+    ImportPhase.cancelled => l10n.cancelled,
+    ImportPhase.done => l10n.done,
+  };
 }

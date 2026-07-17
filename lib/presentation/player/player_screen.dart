@@ -425,8 +425,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                         child: VideoProgressIndicator(
                           video,
                           allowScrubbing: true,
-                          colors: const VideoProgressColors(
-                            playedColor: Color(0xFF5ECFBA),
+                          colors: VideoProgressColors(
+                            playedColor: Theme.of(context).colorScheme.primary,
                             bufferedColor: Colors.white24,
                             backgroundColor: Colors.white12,
                           ),
@@ -469,7 +469,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                     IconButton(
                       iconSize: 28,
                       color: pl?.shuffle == true
-                          ? const Color(0xFF5ECFBA)
+                          ? Theme.of(context).colorScheme.primary
                           : Colors.white70,
                       onPressed: () => ref
                           .read(playerControllerProvider.notifier)

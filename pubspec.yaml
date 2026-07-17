@@ -5,7 +5,7 @@ description: >-
   playlist playback (built-in or VLC), and pattern/PIN + biometric lock.
   Dark theme only. MIT license.
 publish_to: "none" # personal app — never published to pub.dev
-version: 1.0.1+2
+version: 1.0.2+3
 
 # NOTE: version constraints below are sensible starting points. Run
 #   flutter pub get   (then optionally `flutter pub upgrade --major-versions`)
@@ -20,9 +20,8 @@ dependencies:
   flutter_localizations:
     sdk: flutter
 
-  # State management (Riverpod 3.x with codegen) — see docs/03-architecture/state-management.md
+  # State management (manual Riverpod 3.x providers) — see docs/03-architecture/state-management.md
   flutter_riverpod: ^3.0.0
-  riverpod_annotation: ^3.0.0
 
   # Local database (metadata) — see docs/03-architecture/data-model.md
   drift: ^2.20.0
@@ -54,6 +53,7 @@ dependencies:
   local_auth_darwin: any
   flutter_secure_storage: ^9.2.2
   crypto: ^3.0.5
+  cryptography: ^2.9.0
 
   # Formatting
   intl: ^0.20.2
@@ -70,10 +70,8 @@ dev_dependencies:
   # Code generation
   build_runner: ^2.4.13
   drift_dev: ^2.20.3
-  riverpod_generator: ^3.0.0
 
-  # Riverpod lint rules (run via custom_lint).
-  # custom_lint must be >=0.8 to satisfy riverpod_generator 3.x → custom_lint_core ^0.8.
+  # Riverpod lint rules for the manual providers (run via custom_lint).
   custom_lint: ^0.8.1
   riverpod_lint: ^3.0.0
 

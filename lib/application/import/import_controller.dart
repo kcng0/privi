@@ -1,9 +1,10 @@
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
-import 'package:photo_manager/photo_manager.dart';
 
 import '../../data/services/import_service.dart';
+import '../../domain/enums.dart';
 import '../../domain/models/media_item.dart';
 import '../gallery/gallery_controller.dart';
 import '../providers.dart';
@@ -40,9 +41,15 @@ class ImportUiState {
   }
 }
 
+class AlbumRestoreResult {
+  const AlbumRestoreResult({required this.summary, required this.wasEmpty});
+
+  final ImportProgress summary;
+  final bool wasEmpty;
+}
+
 class ImportController extends Notifier<ImportUiState> {
-  /// Cooperative cancel for the current hide/unhide session.
-  bool _sessionCancel = false;
+  ImportSession? _session;
 
   @override
   ImportUiState build() => const ImportUiState();
@@ -51,20 +58,19 @@ class ImportController extends Notifier<ImportUiState> {
   ///
   /// Call this when the progress sheet is shown — not only when native work
   /// starts. Resets any previous cancel flag.
-  void beginSession({String statusMessage = 'Hiding…'}) {
-    _sessionCancel = false;
-    ref.read(importServiceProvider).resetCancel();
+  void beginSession({ImportPhase phase = ImportPhase.resolving}) {
+    _session = ImportSession();
     state = ImportUiState(
       running: true,
       progress: ImportProgress(
         done: 0,
         total: 0,
-        statusMessage: statusMessage,
+        phase: phase,
       ),
     );
   }
 
-  bool get isCancelRequested => _sessionCancel;
+  bool get isCancelRequested => _session?.isCancelled ?? false;
 
   Future<ImportProgress?> pickAndImport({String? targetUserAlbumId}) async {
     beginSession();
@@ -87,7 +93,7 @@ class ImportController extends Notifier<ImportUiState> {
       ],
       withData: false,
     );
-    if (_sessionCancel) {
+    if (isCancelRequested) {
       return _finishCancelled();
     }
     if (result == null || result.files.isEmpty) {
@@ -133,14 +139,12 @@ class ImportController extends Notifier<ImportUiState> {
       state = state.copyWith(running: true);
     }
 
-    if (_sessionCancel) {
+    if (isCancelRequested) {
       return _finishCancelled(total: sources.length);
     }
 
     final service = ref.read(importServiceProvider);
-    if (!_sessionCancel) {
-      service.resetCancel();
-    }
+    final session = _session ??= ImportSession();
 
     ImportProgress summary;
     try {
@@ -148,13 +152,13 @@ class ImportController extends Notifier<ImportUiState> {
         sources,
         targetUserAlbumId: targetUserAlbumId,
         defaultSourceFolderName: sourceFolderName,
-        isCancelRequested: () => _sessionCancel,
+        session: session,
         onProgress: (p) {
           if (!ref.mounted) return;
           state = ImportUiState(
             running: true,
             progress: p,
-            cancelling: _sessionCancel || p.cancelled,
+            cancelling: session.isCancelled || p.cancelled,
             lastSummary: state.lastSummary,
           );
         },
@@ -163,17 +167,26 @@ class ImportController extends Notifier<ImportUiState> {
       summary = ImportProgress(
         done: 0,
         total: sources.length,
+        phase: ImportPhase.done,
         failed: sources.length,
-        statusMessage: 'Done',
         lastError: e.toString(),
+        errorCode: ImportErrorCode.transferFailed,
       );
     }
 
     if (summary.imported > 0 && ref.mounted) {
       final gallery = ref.read(galleryServiceProvider);
-      gallery.invalidateVaultPathCache();
-      gallery.refreshAfterMutation();
-      ref.read(galleryUiEpochProvider.notifier).bump();
+      gallery.apply(
+        VisibleHidden(
+          pathId: '',
+          hiddenCount: summary.imported,
+          assetIds: [
+            for (final source in sources)
+              if (source.assetId case final id?) id,
+          ],
+          originalPaths: sources.map((source) => source.path).toList(),
+        ),
+      );
       ref.invalidate(galleryFoldersProvider);
       ref.invalidate(albumsProvider);
     }
@@ -188,31 +201,29 @@ class ImportController extends Notifier<ImportUiState> {
     bool sessionAlreadyStarted = false,
   }) async {
     if (!sessionAlreadyStarted) {
-      beginSession(statusMessage: 'Unhiding…');
+      beginSession(phase: ImportPhase.unhiding);
     } else if (!state.running) {
       state = state.copyWith(running: true);
     }
 
-    if (_sessionCancel) {
+    if (isCancelRequested) {
       return _finishCancelled(total: items.length);
     }
 
     final service = ref.read(importServiceProvider);
-    if (!_sessionCancel) {
-      service.resetCancel();
-    }
+    final session = _session ??= ImportSession();
 
     ImportProgress summary;
     try {
       summary = await service.revealAll(
         items,
-        isCancelRequested: () => _sessionCancel,
+        session: session,
         onProgress: (p) {
           if (!ref.mounted) return;
           state = ImportUiState(
             running: true,
             progress: p,
-            cancelling: _sessionCancel || p.cancelled,
+            cancelling: session.isCancelled || p.cancelled,
             lastSummary: state.lastSummary,
           );
         },
@@ -221,9 +232,10 @@ class ImportController extends Notifier<ImportUiState> {
       summary = ImportProgress(
         done: 0,
         total: items.length,
+        phase: ImportPhase.done,
         failed: items.length,
-        statusMessage: 'Done',
         lastError: e.toString(),
+        errorCode: ImportErrorCode.transferFailed,
       );
     }
 
@@ -235,29 +247,55 @@ class ImportController extends Notifier<ImportUiState> {
     return summary;
   }
 
+  /// Resolve and restore a complete vault album through one controller flow.
+  Future<AlbumRestoreResult> restoreAlbum(String albumId) async {
+    final kind = ref.read(mediaKindFilterProvider);
+    final items =
+        await ref.read(albumRepositoryProvider).listMediaForAlbum(albumId);
+    final filtered = items
+        .where(
+          (item) =>
+              kind == MediaKindFilter.video ? item.isVideo : !item.isVideo,
+        )
+        .toList(growable: false);
+    if (filtered.isEmpty) {
+      const empty = ImportProgress(
+        done: 0,
+        total: 0,
+        phase: ImportPhase.done,
+      );
+      return const AlbumRestoreResult(summary: empty, wasEmpty: true);
+    }
+    final summary = await runReveal(filtered, sessionAlreadyStarted: true);
+    return AlbumRestoreResult(summary: summary, wasEmpty: false);
+  }
+
   /// Force Visible folders to reappear after unhide (no manual pull-to-refresh).
   Future<void> refreshVisibleAfterReveal() async {
     if (!ref.mounted) return;
     final gallery = ref.read(galleryServiceProvider);
-    gallery.refreshAfterReveal();
+    gallery.apply(const VisibleRevealed());
     try {
-      await PhotoManager.clearFileCache().timeout(const Duration(seconds: 2));
-    } catch (_) {}
+      await gallery.clearFileCache().timeout(const Duration(seconds: 2));
+    } catch (error, stackTrace) {
+      debugPrint('visible cache refresh: $error\n$stackTrace');
+    }
     // MediaStore needs a short beat after scan before folder counts update.
     await Future<void>.delayed(const Duration(milliseconds: 400));
-    gallery.invalidateCache();
-    ref.read(galleryUiEpochProvider.notifier).bump();
     ref.invalidate(galleryFoldersProvider);
     ref.invalidate(albumsProvider);
     try {
       await ref.read(galleryFoldersProvider.future);
-    } catch (_) {}
+    } catch (error, stackTrace) {
+      debugPrint('visible folder refresh: $error\n$stackTrace');
+    }
   }
 
   /// Request cancel. Safe to call anytime during a session (resolve or hide).
   void cancel() {
-    _sessionCancel = true;
-    ref.read(importServiceProvider).cancel();
+    final session = _session;
+    if (session == null) return;
+    session.cancel();
     if (ref.mounted && state.running) {
       state = state.copyWith(
         cancelling: true,
@@ -265,18 +303,18 @@ class ImportController extends Notifier<ImportUiState> {
             ? const ImportProgress(
                 done: 0,
                 total: 0,
-                statusMessage: 'Cancelled',
+                phase: ImportPhase.cancelled,
                 cancelled: true,
               )
             : ImportProgress(
                 done: state.progress!.done,
                 total: state.progress!.total,
+                phase: ImportPhase.cancelled,
                 currentName: state.progress!.currentName,
                 imported: state.progress!.imported,
                 skipped: state.progress!.skipped,
                 failed: state.progress!.failed,
                 cancelled: true,
-                statusMessage: 'Cancelled',
                 lastError: state.progress!.lastError,
               ),
       );
@@ -286,16 +324,15 @@ class ImportController extends Notifier<ImportUiState> {
   void clearSummary() {
     if (!ref.mounted) return;
     state = const ImportUiState();
-    _sessionCancel = false;
-    ref.read(importServiceProvider).resetCancel();
+    _session = null;
   }
 
   ImportProgress _finishCancelled({int total = 0}) {
     final summary = ImportProgress(
       done: 0,
       total: total,
+      phase: ImportPhase.cancelled,
       cancelled: true,
-      statusMessage: 'Cancelled',
     );
     _endSession(summary: summary);
     return summary;
@@ -309,7 +346,7 @@ class ImportController extends Notifier<ImportUiState> {
       lastSummary: summary,
       cancelling: false,
     );
-    _sessionCancel = false;
+    _session = null;
   }
 }
 

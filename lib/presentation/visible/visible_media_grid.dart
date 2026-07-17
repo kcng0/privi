@@ -7,16 +7,21 @@ import 'package:share_plus/share_plus.dart';
 import '../../application/gallery/gallery_controller.dart';
 import '../../application/import/import_controller.dart';
 import '../../application/lock/lock_controller.dart';
+import '../../application/media/selectable_grid_controller.dart';
 import '../../application/providers.dart';
 import '../../application/settings/settings_controller.dart';
 import '../../core/constants.dart';
 import '../../core/l10n.dart';
+import '../../core/theme/vault_colors.dart';
 import '../../core/utils/media_query_utils.dart';
+import '../../data/services/import_service.dart';
 import '../../data/services/intent_service.dart';
 import '../../data/services/media_rename_service.dart';
 import '../../domain/enums.dart';
 import '../common/floating_action_capsule.dart';
 import '../common/grid_app_menu.dart';
+import '../common/media_grid_scaffold.dart';
+import '../common/vault_sheet.dart';
 import '../import/import_progress_sheet.dart';
 import 'folder_cover_cache.dart';
 import 'gallery_preview_screen.dart';
@@ -39,8 +44,7 @@ class VisibleMediaGrid extends ConsumerStatefulWidget {
 }
 
 class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
-  final _selected = <String>{};
-  bool _selectMode = false;
+  final _selection = SelectableGridController<String>();
 
   final List<GalleryAsset> _items = [];
   final _scroll = ScrollController();
@@ -57,34 +61,23 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
   /// Visible grids: date + name only (no ratings).
   final List<MediaSort> _sorts = [MediaSort.dateAddedDesc];
 
-  bool get _selecting => _selectMode;
+  bool get _selecting => _selection.isSelecting;
+  Set<String> get _selected => _selection.selected;
 
-  void _exitSelect() => setState(() {
-        _selectMode = false;
-        _selected.clear();
-      });
+  void _exitSelect() => _selection.exit();
 
   void _enterSelect(String id) {
     // ignore: unawaited_futures
     HapticFeedback.mediumImpact();
-    setState(() {
-      _selectMode = true;
-      _selected
-        ..clear()
-        ..add(id);
-    });
+    _selection.enter(id);
   }
 
-  void _toggle(String id) {
-    setState(() {
-      if (!_selected.add(id)) _selected.remove(id);
-      if (_selected.isEmpty) _selectMode = false;
-    });
-  }
+  void _toggle(String id) => _selection.toggle(id);
 
   @override
   void initState() {
     super.initState();
+    _selection.addListener(_onSelectionChanged);
     _scroll.addListener(_onScroll);
     // Initial load after first frame so providers are ready.
     WidgetsBinding.instance.addPostFrameCallback((_) => _reload());
@@ -92,11 +85,18 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
 
   @override
   void dispose() {
+    _selection
+      ..removeListener(_onSelectionChanged)
+      ..dispose();
     _searchCtrl.dispose();
     _scroll
       ..removeListener(_onScroll)
       ..dispose();
     super.dispose();
+  }
+
+  void _onSelectionChanged() {
+    if (mounted) setState(() {});
   }
 
   void _onScroll() {
@@ -129,7 +129,7 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
       // Hydrate vault paths once (cached until hide/unhide invalidation).
       try {
         await gallery.ensureVaultHydrated(
-          () => ref.read(mediaRepositoryProvider).listActivePrivatePaths(),
+          () => ref.read(mediaRepositoryProvider).listActiveOriginalPaths(),
         );
       } catch (_) {}
 
@@ -293,10 +293,9 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
   }
 
   Future<void> _showOverflowMenu() async {
-    final choice = await showModalBottomSheet<String>(
-      context: context,
+    final choice = await showVaultSheet<String>(
+      context,
       showDragHandle: true,
-      backgroundColor: const Color(0xFF1B3A36),
       builder: (ctx) {
         return SafeArea(
           child: Column(
@@ -414,11 +413,13 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
     showImportProgressSheet(context, title: null);
 
     var imported = 0;
+    List<ImportSource> resolvedSources = const [];
     try {
       final sources = await gallery.resolveForHide(
         ids,
         sourceFolderName: folderName,
       );
+      resolvedSources = sources;
       if (import.isCancelRequested) {
         // User cancelled during resolve.
         return;
@@ -453,17 +454,18 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
           msg.write(' · ${context.l10n.cancelled}');
         }
       }
-      if (summary.failed > 0) {
+      if (summary.failed > 0 || summary.skipped > 0) {
         if (msg.isNotEmpty) msg.write(' · ');
-        msg.write('${summary.failed} failed');
-        final err = summary.lastError;
-        if (err != null && _looksLikePermissionError(err)) {
-          msg.write(' · permission needed');
+        msg.write(
+          context.l10n.progressOkSkipFail(
+            summary.imported,
+            summary.skipped,
+            summary.failed,
+          ),
+        );
+        if (summary.errorCode == ImportErrorCode.needManageStorage) {
+          msg.write(' · ${context.l10n.permissionNeeded}');
         }
-      }
-      if (summary.skipped > 0) {
-        if (msg.isNotEmpty) msg.write(' · ');
-        msg.write('${summary.skipped} skipped');
       }
       if (msg.isEmpty) msg.write(context.l10n.nothingHidden);
 
@@ -485,15 +487,14 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
 
       // Refresh UI for any partial success so Visible isn't stuck stale.
       if (imported > 0) {
-        gallery.noteHidden(
+        await gallery.recordHidden(
           pathId: widget.pathId,
           hiddenCount: imported,
+          filter: ref.read(mediaKindFilterProvider),
           assetIds: ids,
+          originalPaths: resolvedSources.map((source) => source.path).toList(),
         );
-        gallery.invalidateVaultPathCache();
         FolderCoverCache.clear(pathId: widget.pathId);
-        gallery.refreshAfterMutation();
-        ref.read(galleryUiEpochProvider.notifier).bump();
         ref.invalidate(galleryFoldersProvider);
         ref.invalidate(albumsProvider);
         try {
@@ -517,22 +518,9 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
   String _friendlyHideError(Object e) {
     final s = e.toString();
     if (_looksLikePermissionError(s)) {
-      return 'Permission needed to hide media. Allow access in Settings '
-          'and try again.';
+      return context.l10n.permissionNeededBody;
     }
-    // Strip common Exception prefixes so snackbars stay short.
-    final cleaned = s
-        .replaceFirst(RegExp(r'^(Bad state:|Exception:|StateError:)\s*'), '')
-        .trim();
-    if (cleaned.isEmpty || cleaned.length > 120) {
-      return 'Could not hide media. Please try again.';
-    }
-    // Prefer our already-friendly messages from ImportService.
-    if (cleaned.startsWith('Permission needed') ||
-        cleaned.startsWith('Could not hide')) {
-      return cleaned;
-    }
-    return 'Could not hide media. Please try again.';
+    return context.l10n.couldNotHideMedia;
   }
 
   Future<void> _shareSelected() async {
@@ -593,14 +581,13 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
     }
 
     final gallery = ref.read(galleryServiceProvider);
-    gallery.noteHidden(
+    await gallery.recordHidden(
       pathId: widget.pathId,
       hiddenCount: deleted,
+      filter: ref.read(mediaKindFilterProvider),
       assetIds: ids,
     );
     FolderCoverCache.clear(pathId: widget.pathId);
-    gallery.refreshAfterMutation();
-    ref.read(galleryUiEpochProvider.notifier).bump();
     ref.invalidate(galleryFoldersProvider);
     ref.invalidate(albumsProvider);
     await _reload();
@@ -633,7 +620,7 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
   Widget build(BuildContext context) {
     final filter = ref.watch(mediaKindFilterProvider);
     // Reload when hide epoch bumps or photo/video mode changes.
-    ref.listen(galleryUiEpochProvider, (prev, next) {
+    ref.listen(galleryChangeProvider, (prev, next) {
       // ignore: discarded_futures
       _reload();
     });
@@ -648,65 +635,56 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
         MediaQuery.paddingOf(context).bottom +
         (_selecting ? GridDefaults.selectionCapsuleClearance : 0);
 
-    return Scaffold(
-      backgroundColor: const Color(0xFF101412),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF1B3A36),
-        centerTitle: true,
-        leading: IconButton(
-          icon: Icon(_selecting ? Icons.close : Icons.arrow_back),
-          onPressed: () {
-            if (_selecting) {
-              _exitSelect();
-            } else if (_searchOpen) {
-              setState(() {
-                _searchOpen = false;
-                _searchCtrl.clear();
-              });
-            } else {
-              Navigator.pop(context);
-            }
-          },
-        ),
-        title: _selecting
-            ? Text(context.l10n.selectedCount(_selected.length))
-            : _searchOpen
-                ? TextField(
-                    controller: _searchCtrl,
-                    autofocus: true,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: InputDecoration(
-                      hintText: context.l10n.searchNameHint,
-                      hintStyle: const TextStyle(color: Colors.white54),
-                      border: InputBorder.none,
-                      isDense: true,
-                    ),
-                    onChanged: (_) => setState(() {}),
-                  )
-                : Text(widget.title),
-        actions: [
-          if (_selecting)
-            IconButton(
-              tooltip: context.l10n.selectAll,
-              icon: const Icon(Icons.select_all),
-              onPressed: () {
-                final items = _visibleItems;
-                if (items.isEmpty) return;
-                setState(() {
-                  _selected
-                    ..clear()
-                    ..addAll(items.map((e) => e.id));
-                });
-              },
-            )
-          else
-            IconButton(
-              tooltip: context.l10n.more,
-              icon: const Icon(Icons.more_vert),
-              onPressed: _showOverflowMenu,
-            ),
-        ],
+    return MediaGridScaffold<GalleryAsset>(
+      leading: IconButton(
+        icon: Icon(_selecting ? Icons.close : Icons.arrow_back),
+        onPressed: () {
+          if (_selecting) {
+            _exitSelect();
+          } else if (_searchOpen) {
+            setState(() {
+              _searchOpen = false;
+              _searchCtrl.clear();
+            });
+          } else {
+            Navigator.pop(context);
+          }
+        },
       ),
+      title: _selecting
+          ? Text(context.l10n.selectedCount(_selected.length))
+          : _searchOpen
+              ? TextField(
+                  controller: _searchCtrl,
+                  autofocus: true,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: InputDecoration(
+                    hintText: context.l10n.searchNameHint,
+                    hintStyle: const TextStyle(color: Colors.white54),
+                    border: InputBorder.none,
+                    isDense: true,
+                  ),
+                  onChanged: (_) => setState(() {}),
+                )
+              : Text(widget.title),
+      actions: [
+        if (_selecting)
+          IconButton(
+            tooltip: context.l10n.selectAll,
+            icon: const Icon(Icons.select_all),
+            onPressed: () {
+              final items = _visibleItems;
+              if (items.isEmpty) return;
+              _selection.selectAll(items.map((item) => item.id));
+            },
+          )
+        else
+          IconButton(
+            tooltip: context.l10n.more,
+            icon: const Icon(Icons.more_vert),
+            onPressed: _showOverflowMenu,
+          ),
+      ],
       body: _loading && _items.isEmpty
           ? const Center(child: CircularProgressIndicator())
           : _error != null && _items.isEmpty
@@ -721,10 +699,10 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
                       ),
                     )
                   : visible.isEmpty
-                      ? const Center(
+                      ? Center(
                           child: Text(
-                            'No matches',
-                            style: TextStyle(color: Colors.white70),
+                            context.l10n.noMatches,
+                            style: const TextStyle(color: Colors.white70),
                           ),
                         )
                       : Stack(
@@ -884,7 +862,7 @@ class _LazyThumbTileState extends State<_LazyThumbTile> {
             Image(image: _provider!, fit: BoxFit.cover, gaplessPlayback: true)
           else
             ColoredBox(
-              color: const Color(0xFF244842),
+              color: context.vaultColors.surfaceAlt,
               child: _loading
                   ? const Center(
                       child: SizedBox(
@@ -915,8 +893,9 @@ class _LazyThumbTileState extends State<_LazyThumbTile> {
               child: Icon(
                 widget.selected ? Icons.check_circle : Icons.circle_outlined,
                 size: 22,
-                color:
-                    widget.selected ? const Color(0xFF5ECFBA) : Colors.white70,
+                color: widget.selected
+                    ? Theme.of(context).colorScheme.primary
+                    : Colors.white70,
               ),
             ),
           if (widget.selected)

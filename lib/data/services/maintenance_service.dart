@@ -11,29 +11,39 @@ import '../repositories/album_repository.dart';
 import '../repositories/media_repository.dart';
 import 'hide_naming.dart';
 import 'import_service.dart';
+import 'media_rename_service.dart';
 import 'media_store_service.dart';
 import 'vault_storage_service.dart';
 
 /// Result of reinstall / orphan vault recovery.
+enum VaultRecoveryStatus { noFiles, reindexed, restoredToGallery }
+
 class VaultRecoveryResult {
   const VaultRecoveryResult({
     required this.reindexed,
     required this.skipped,
     required this.failed,
-    this.message,
+    required this.status,
   });
 
   final int reindexed;
   final int skipped;
   final int failed;
-  final String? message;
+  final VaultRecoveryStatus status;
+}
 
-  String get summary {
-    if (message != null && reindexed == 0 && failed == 0) return message!;
-    return 'Recovered $reindexed'
-        '${skipped > 0 ? ', skipped $skipped' : ''}'
-        '${failed > 0 ? ', failed $failed' : ''}';
-  }
+class CaptureDateRepairResult {
+  const CaptureDateRepairResult({
+    required this.fixed,
+    required this.skipped,
+    required this.failed,
+    required this.hadMedia,
+  });
+
+  final int fixed;
+  final int skipped;
+  final int failed;
+  final bool hadMedia;
 }
 
 /// Launch-time integrity: orphans + recycle retention + reinstall recovery.
@@ -44,6 +54,7 @@ class MaintenanceService {
     required VaultStorageService storage,
     required AlbumRepository albums,
     ImportService? import,
+    MediaRenameService? renamer,
     MediaStoreService? mediaStore,
     Uuid? uuid,
   })  : _db = db,
@@ -51,6 +62,7 @@ class MaintenanceService {
         _storage = storage,
         _albums = albums,
         _import = import,
+        _renamer = renamer ?? MediaRenameService(),
         _mediaStore = mediaStore ?? MediaStoreService(),
         _uuid = uuid ?? const Uuid();
 
@@ -59,15 +71,18 @@ class MaintenanceService {
   final VaultStorageService _storage;
   final AlbumRepository _albums;
   final ImportService? _import;
+  final MediaRenameService _renamer;
   final MediaStoreService _mediaStore;
   final Uuid _uuid;
 
   /// Returns a short summary for logging/snackbar.
   Future<String> runLaunchMaintenance({required int retentionDays}) async {
-    final missing = await _purgeMissingFiles();
-    final expired = await _purgeExpiredRecycle(retentionDays);
+    final accessible = await _vaultAccessible();
+    final missing = accessible ? await _purgeMissingFiles() : 0;
+    final expired = accessible ? await _purgeExpiredRecycle(retentionDays) : 0;
     final thumbs = await _cleanOrphanThumbs();
     final parts = <String>[];
+    if (!accessible) parts.add('skipped (no storage access)');
     if (missing > 0) parts.add('removed $missing missing');
     if (expired > 0) parts.add('purged $expired expired');
     if (thumbs > 0) parts.add('cleared $thumbs orphan thumbs');
@@ -75,14 +90,28 @@ class MaintenanceService {
     return parts.join(', ');
   }
 
+  Future<bool> _vaultAccessible() async {
+    if (!await _renamer.isExternalStorageManager()) return false;
+    try {
+      final root = await _storage.ensureHiddenRoot();
+      await root.list(followLinks: false).first.timeout(
+            const Duration(seconds: 3),
+          );
+      return true;
+    } on StateError {
+      return true;
+    } catch (e) {
+      debugPrint('vault accessibility probe: $e');
+      return false;
+    }
+  }
+
   /// Scan parent directories of known vault paths for legacy markers + vault root
   /// files missing from the library DB; re-index them.
   ///
   /// Safe after reinstall (DB empty, files still under `.privateheart_vault`).
-  Future<String> scanOrphanHiddenFiles() async {
-    final result = await recoverVaultFiles(alsoUnhide: false);
-    return result.summary;
-  }
+  Future<VaultRecoveryResult> scanOrphanHiddenFiles() =>
+      recoverVaultFiles(alsoUnhide: false);
 
   /// Reinstall recovery: walk the shared hide root + legacy marker files,
   /// insert missing DB rows (files stay in vault). Optionally unhide to Gallery.
@@ -105,7 +134,7 @@ class MaintenanceService {
         reindexed: 0,
         skipped: 0,
         failed: 0,
-        message: 'No orphan vault files found',
+        status: VaultRecoveryStatus.noFiles,
       );
     }
 
@@ -163,7 +192,9 @@ class MaintenanceService {
               isUtc: true,
             );
           }
-        } catch (_) {}
+        } catch (e, stackTrace) {
+          debugPrint('recover capture date ${c.path}: $e\n$stackTrace');
+        }
         final sortKey = dateTaken ?? DateTime.utc(1970);
         final item = MediaItem(
           id: id,
@@ -226,14 +257,14 @@ class MaintenanceService {
           await _mediaStore.scanPath(
             HideNaming.defaultRestoreDir,
           );
-        } catch (_) {}
+        } catch (e, stackTrace) {
+          debugPrint('recover gallery scan: $e\n$stackTrace');
+        }
         return VaultRecoveryResult(
           reindexed: unhid,
           skipped: skipped,
           failed: failed,
-          message: 'Restored $unhid to Gallery'
-              '${skipped > 0 ? ', skipped $skipped' : ''}'
-              '${failed > 0 ? ', failed $failed' : ''}',
+          status: VaultRecoveryStatus.restoredToGallery,
         );
       }
     }
@@ -242,6 +273,7 @@ class MaintenanceService {
       reindexed: reindexed,
       skipped: skipped,
       failed: failed,
+      status: VaultRecoveryStatus.reindexed,
     );
   }
 
@@ -252,10 +284,15 @@ class MaintenanceService {
   /// [dateAdded] only when a real capture time is found.
   ///
   /// Safe after older hides that stored hide-time as dateAdded.
-  Future<String> repairCaptureDates() async {
+  Future<CaptureDateRepairResult> repairCaptureDates() async {
     final rows = await _media.listActive();
     if (rows.isEmpty) {
-      return 'No vault media to repair';
+      return const CaptureDateRepairResult(
+        fixed: 0,
+        skipped: 0,
+        failed: 0,
+        hadMedia: false,
+      );
     }
     var fixed = 0;
     var skipped = 0;
@@ -294,9 +331,12 @@ class MaintenanceService {
         failed++;
       }
     }
-    return 'Fixed $fixed date(s)'
-        '${skipped > 0 ? ', skipped $skipped' : ''}'
-        '${failed > 0 ? ', failed $failed' : ''}';
+    return CaptureDateRepairResult(
+      fixed: fixed,
+      skipped: skipped,
+      failed: failed,
+      hadMedia: true,
+    );
   }
 
   Future<List<_OrphanCandidate>> _discoverOrphanFiles(
@@ -323,7 +363,11 @@ class MaintenanceService {
               in Directory(fallback).list(followLinks: false)) {
             if (ent is Directory) parents.add(ent.path);
           }
-        } catch (_) {}
+        } catch (fallbackError, stackTrace) {
+          debugPrint(
+            'fallback vault scan: $fallbackError\n$stackTrace',
+          );
+        }
       }
     }
 
@@ -433,7 +477,8 @@ class MaintenanceService {
     final deleted = await _db.watchRecycleBin().first;
     var n = 0;
     for (final r in [...active, ...deleted]) {
-      if (!File(r.privatePath).existsSync()) {
+      final file = File(r.privatePath);
+      if (!file.existsSync() && await _directoryAccessible(file.parent)) {
         try {
           await _media.hardDeleteRowOnly(r.id);
           final t = r.thumbnailPath;
@@ -448,6 +493,21 @@ class MaintenanceService {
       }
     }
     return n;
+  }
+
+  Future<bool> _directoryAccessible(Directory directory) async {
+    if (!await directory.exists()) return false;
+    try {
+      await directory.list(followLinks: false).first.timeout(
+            const Duration(seconds: 3),
+          );
+      return true;
+    } on StateError {
+      return true;
+    } catch (e) {
+      debugPrint('directory accessibility probe (${directory.path}): $e');
+      return false;
+    }
   }
 
   Future<int> _purgeExpiredRecycle(int retentionDays) async {

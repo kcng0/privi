@@ -12,6 +12,7 @@
     <!-- Required for rename-based hide on Android 11+ (sideload OK) -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"/>
 
+    <!-- Retained for supported Android 10-and-earlier devices (minSdk < 30). -->
     <application
         android:label="Privi"
         android:name="${applicationName}"

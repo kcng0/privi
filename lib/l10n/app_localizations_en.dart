@@ -178,6 +178,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get hiding => 'Hiding…';
 
   @override
+  String get resolvingMedia => 'Preparing media…';
+
+  @override
+  String get unhiding => 'Unhiding…';
+
+  @override
   String hidingParallel(int workers) {
     return 'Hiding (×$workers)…';
   }
@@ -456,6 +462,11 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String progressOkSkipFail(int imported, int skipped, int failed) {
     return 'ok $imported · skip $skipped · fail $failed';
+  }
+
+  @override
+  String failedItems(int count) {
+    return '$count failed';
   }
 
   @override
@@ -840,5 +851,41 @@ class AppLocalizationsEn extends AppLocalizations {
   String get wrongPin => 'Wrong PIN';
 
   @override
+  String get noSystemLock => 'Set up a screen lock in Android Settings first';
+
+  @override
   String get systemAuthCancelled => 'System authentication cancelled';
+
+  @override
+  String get scanFailedShort => 'Scan failed';
+
+  @override
+  String get screenshotSettingFailed =>
+      'Could not update screenshot protection';
+
+  @override
+  String get noOrphanVaultFiles => 'No vault files found';
+
+  @override
+  String recoveryResult(int recovered, int skipped, int failed) {
+    return 'Recovered $recovered · skipped $skipped · failed $failed';
+  }
+
+  @override
+  String galleryRecoveryResult(int restored, int skipped, int failed) {
+    return 'Restored $restored · skipped $skipped · failed $failed';
+  }
+
+  @override
+  String get noVaultMediaToRepair => 'No vault media to repair';
+
+  @override
+  String captureDateRepairResult(int fixed, int skipped, int failed) {
+    return 'Fixed $fixed · skipped $skipped · failed $failed';
+  }
+
+  @override
+  String unlockLockout(int seconds) {
+    return 'Try again in ${seconds}s';
+  }
 }

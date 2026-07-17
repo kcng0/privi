@@ -418,6 +418,18 @@ abstract class AppLocalizations {
   /// **'Hiding…'**
   String get hiding;
 
+  /// No description provided for @resolvingMedia.
+  ///
+  /// In en, this message translates to:
+  /// **'Preparing media…'**
+  String get resolvingMedia;
+
+  /// No description provided for @unhiding.
+  ///
+  /// In en, this message translates to:
+  /// **'Unhiding…'**
+  String get unhiding;
+
   /// No description provided for @hidingParallel.
   ///
   /// In en, this message translates to:
@@ -897,6 +909,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'ok {imported} · skip {skipped} · fail {failed}'**
   String progressOkSkipFail(int imported, int skipped, int failed);
+
+  /// No description provided for @failedItems.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} failed'**
+  String failedItems(int count);
 
   /// No description provided for @drawPattern.
   ///
@@ -1588,11 +1606,65 @@ abstract class AppLocalizations {
   /// **'Wrong PIN'**
   String get wrongPin;
 
+  /// No description provided for @noSystemLock.
+  ///
+  /// In en, this message translates to:
+  /// **'Set up a screen lock in Android Settings first'**
+  String get noSystemLock;
+
   /// No description provided for @systemAuthCancelled.
   ///
   /// In en, this message translates to:
   /// **'System authentication cancelled'**
   String get systemAuthCancelled;
+
+  /// No description provided for @scanFailedShort.
+  ///
+  /// In en, this message translates to:
+  /// **'Scan failed'**
+  String get scanFailedShort;
+
+  /// No description provided for @screenshotSettingFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not update screenshot protection'**
+  String get screenshotSettingFailed;
+
+  /// No description provided for @noOrphanVaultFiles.
+  ///
+  /// In en, this message translates to:
+  /// **'No vault files found'**
+  String get noOrphanVaultFiles;
+
+  /// No description provided for @recoveryResult.
+  ///
+  /// In en, this message translates to:
+  /// **'Recovered {recovered} · skipped {skipped} · failed {failed}'**
+  String recoveryResult(int recovered, int skipped, int failed);
+
+  /// No description provided for @galleryRecoveryResult.
+  ///
+  /// In en, this message translates to:
+  /// **'Restored {restored} · skipped {skipped} · failed {failed}'**
+  String galleryRecoveryResult(int restored, int skipped, int failed);
+
+  /// No description provided for @noVaultMediaToRepair.
+  ///
+  /// In en, this message translates to:
+  /// **'No vault media to repair'**
+  String get noVaultMediaToRepair;
+
+  /// No description provided for @captureDateRepairResult.
+  ///
+  /// In en, this message translates to:
+  /// **'Fixed {fixed} · skipped {skipped} · failed {failed}'**
+  String captureDateRepairResult(int fixed, int skipped, int failed);
+
+  /// No description provided for @unlockLockout.
+  ///
+  /// In en, this message translates to:
+  /// **'Try again in {seconds}s'**
+  String unlockLockout(int seconds);
 }
 
 class _AppLocalizationsDelegate

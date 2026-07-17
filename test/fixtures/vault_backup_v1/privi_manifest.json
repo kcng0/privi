@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "exportedAt": "2026-01-01T00:00:00.000Z",
+  "media": [
+    {
+      "id": "legacy-media-id",
+      "file": "legacy-media-id.jpg",
+      "thumb": null,
+      "originalName": "legacy.jpg",
+      "mimeType": "image/jpeg",
+      "isVideo": false,
+      "width": 10,
+      "height": 10,
+      "durationMs": null,
+      "rating": 2,
+      "dateAdded": "2026-01-01T00:00:00.000Z",
+      "dateTaken": "2025-12-31T23:59:00.000Z",
+      "sizeBytes": 17,
+      "deletedAt": null
+    }
+  ],
+  "albums": [
+    {
+      "id": "legacy-album-id",
+      "name": "Legacy Album",
+      "isSystem": false,
+      "coverMediaId": null,
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "systemKind": null
+    }
+  ]
+}

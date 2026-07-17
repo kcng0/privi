@@ -11,11 +11,13 @@ import '../../application/settings/settings_controller.dart';
 import '../../core/constants.dart';
 import '../../core/l10n.dart';
 import '../../core/theme/vault_colors.dart';
+import '../../data/services/import/import_models.dart';
 import '../../domain/enums.dart';
 import '../../domain/models/album.dart';
 import '../../domain/models/album_view.dart';
 import '../../domain/models/media_item.dart';
 import '../common/grid_app_menu.dart';
+import '../common/vault_sheet.dart';
 import '../grid/media_grid_screen.dart';
 import '../import/import_progress_sheet.dart';
 import '../player/player_screen.dart';
@@ -33,8 +35,6 @@ class HomeShell extends ConsumerStatefulWidget {
 class _HomeShellState extends ConsumerState<HomeShell>
     with SingleTickerProviderStateMixin {
   late final TabController _tabs;
-
-  static const _chrome = Color(0xFF1B3A36);
 
   @override
   void initState() {
@@ -106,11 +106,10 @@ class _HomeShellState extends ConsumerState<HomeShell>
   /// Shared top-right ⋮ for Visible + Invisible home (same items on both tabs).
   Future<void> _menu() async {
     final cols = ref.read(settingsControllerProvider).albumColumns;
-    final choice = await showModalBottomSheet<String>(
-      context: context,
+    final choice = await showVaultSheet<String>(
+      context,
       showDragHandle: true,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFF1B3A36),
       builder: (ctx) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -192,8 +191,6 @@ class _HomeShellState extends ConsumerState<HomeShell>
         duration: const Duration(milliseconds: 800),
       ),
     );
-    ref.read(galleryServiceProvider).invalidateCache();
-    ref.read(galleryUiEpochProvider.notifier).bump();
     ref.invalidate(galleryFoldersProvider);
   }
 
@@ -215,14 +212,14 @@ class _HomeShellState extends ConsumerState<HomeShell>
         statusBarIconBrightness: Brightness.light,
       ),
       child: Scaffold(
-        backgroundColor: const Color(0xFF101412),
+        backgroundColor: context.vaultColors.surface,
         // Do NOT use SafeArea alone — chrome paints into status area deliberately
         // but content starts below it with generous padding.
         body: Column(
           children: [
             // ── Top chrome ──────────────────────────────────────
             ColoredBox(
-              color: _chrome,
+              color: context.vaultColors.chrome,
               child: Padding(
                 // Extra breathing room under status bar / camera cutout.
                 padding: EdgeInsets.only(top: topInset + 6),
@@ -445,11 +442,10 @@ class _InvisibleTab extends ConsumerWidget {
     final canRestore = album.systemKind != SystemAlbumKind.recycle;
     final pinned = album.isPinned;
 
-    final action = await showModalBottomSheet<String>(
-      context: context,
+    final action = await showVaultSheet<String>(
+      context,
       showDragHandle: true,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFF1B3A36),
       builder: (ctx) {
         final maxH = MediaQuery.sizeOf(ctx).height * 0.55;
         return SafeArea(
@@ -703,16 +699,14 @@ class _InvisibleTab extends ConsumerWidget {
     final messenger = ScaffoldMessenger.of(context);
     final nav = Navigator.of(context);
     final import = ref.read(importControllerProvider.notifier);
-    import.beginSession(statusMessage: 'Unhiding…');
+    import.beginSession(phase: ImportPhase.unhiding);
     // ignore: unawaited_futures
     showImportProgressSheet(context, title: context.l10n.unhide);
 
     var n = 0;
     try {
-      final summary = await import.runReveal(
-        items,
-        sessionAlreadyStarted: true,
-      );
+      final result = await import.restoreAlbum(album.id);
+      final summary = result.summary;
       n = summary.imported;
       if (!context.mounted) return;
       final msg = StringBuffer();
@@ -724,7 +718,9 @@ class _InvisibleTab extends ConsumerWidget {
           msg.write(' · ${context.l10n.cancelled}');
         }
         if (summary.failed > 0) {
-          msg.write(' · ${summary.failed} failed');
+          msg.write(
+            ' · ${context.l10n.failedItems(summary.failed)}',
+          );
         }
       }
       messenger.showSnackBar(SnackBar(content: Text(msg.toString())));
@@ -835,7 +831,7 @@ class _MosaicTile extends StatelessWidget {
         (cell.preferCover || cell.icon == null);
 
     return Material(
-      color: const Color(0xFF1B3A36),
+      color: context.vaultColors.chrome,
       child: InkWell(
         onTap: onTap,
         onLongPress: onLongPress,
@@ -850,11 +846,11 @@ class _MosaicTile extends StatelessWidget {
                 gaplessPlayback: false,
                 cacheWidth: 512,
                 errorBuilder: (_, __, ___) =>
-                    const ColoredBox(color: Color(0xFF1B3A36)),
+                    ColoredBox(color: context.vaultColors.chrome),
               )
             else if (cell.action || cell.icon != null)
               ColoredBox(
-                color: const Color(0xFF1B3A36),
+                color: context.vaultColors.chrome,
                 child: Center(
                   child: Icon(
                     cell.icon,
@@ -866,9 +862,9 @@ class _MosaicTile extends StatelessWidget {
                 ),
               )
             else
-              const ColoredBox(
-                color: Color(0xFF244842),
-                child: Center(
+              ColoredBox(
+                color: context.vaultColors.surfaceAlt,
+                child: const Center(
                   child: Icon(
                     Icons.photo_album_outlined,
                     color: Colors.white54,
@@ -886,7 +882,7 @@ class _MosaicTile extends StatelessWidget {
                     gradient: LinearGradient(
                       begin: Alignment.topCenter,
                       end: Alignment.bottomCenter,
-                      colors: [Colors.transparent, Color(0xCC000000)],
+                      colors: [Colors.transparent, Colors.black87],
                     ),
                   ),
                 ),

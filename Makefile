@@ -13,11 +13,13 @@ bootstrap: ## One-time project setup (native scaffold + deps + codegen)
 get: ## Fetch dependencies
 	$(FLUTTER) pub get
 
-gen: ## Run code generation once (drift + riverpod)
-	$(FLUTTER) pub run build_runner build --delete-conflicting-outputs
+gen: ## Run code generation once (l10n + drift)
+	$(FLUTTER) gen-l10n
+	$(FLUTTER) pub run build_runner build
 
 watch: ## Run code generation in watch mode
-	$(FLUTTER) pub run build_runner watch --delete-conflicting-outputs
+	$(FLUTTER) gen-l10n
+	$(FLUTTER) pub run build_runner watch
 
 format: ## Format all Dart code
 	dart format lib test

@@ -56,7 +56,7 @@ class AlbumCard extends StatelessWidget {
                   gradient: LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
-                    colors: [Colors.transparent, Color(0xCC000000)],
+                    colors: [Colors.transparent, Colors.black87],
                   ),
                 ),
               ),

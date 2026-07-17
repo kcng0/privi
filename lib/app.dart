@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'application/gallery/gallery_controller.dart';
 import 'application/import/import_controller.dart';
+import 'application/import/share_queue_controller.dart';
 import 'application/lock/lock_controller.dart';
 import 'application/providers.dart';
 import 'application/settings/settings_controller.dart';
@@ -28,10 +29,6 @@ class _PrivateHeartAppState extends ConsumerState<PrivateHeartApp>
     with WidgetsBindingObserver {
   final _share = ShareIntentService();
   final _navKey = GlobalKey<NavigatorState>();
-
-  /// Shared media received while locked; flushed on unlock.
-  List<ImportSource>? _pendingShare;
-  bool _flushingPendingShare = false;
 
   @override
   void initState() {
@@ -67,7 +64,7 @@ class _PrivateHeartAppState extends ConsumerState<PrivateHeartApp>
       // were backgrounded — refresh Visible without another Grant tap.
       ref.invalidate(galleryPermissionProvider);
       ref.invalidate(galleryFoldersProvider);
-      ref.read(galleryUiEpochProvider.notifier).bump();
+      ref.read(galleryServiceProvider).apply(const VisiblePermissionChanged());
     }
   }
 
@@ -75,7 +72,7 @@ class _PrivateHeartAppState extends ConsumerState<PrivateHeartApp>
     if (sources.isEmpty) return;
     final lock = ref.read(lockControllerProvider);
     if (lock.status != LockStatus.unlocked) {
-      _pendingShare = [...?_pendingShare, ...sources];
+      ref.read(shareQueueControllerProvider.notifier).enqueue(sources);
       final ctx = _navKey.currentContext;
       if (ctx != null && ctx.mounted) {
         ScaffoldMessenger.of(ctx).showSnackBar(
@@ -86,8 +83,9 @@ class _PrivateHeartAppState extends ConsumerState<PrivateHeartApp>
     }
 
     // Already importing: queue and let completion / unlock flush handle it.
-    if (ref.read(importControllerProvider).running || _flushingPendingShare) {
-      _pendingShare = [...?_pendingShare, ...sources];
+    if (ref.read(importControllerProvider).running ||
+        ref.read(shareQueueControllerProvider).flushing) {
+      ref.read(shareQueueControllerProvider.notifier).enqueue(sources);
       return;
     }
 
@@ -95,24 +93,21 @@ class _PrivateHeartAppState extends ConsumerState<PrivateHeartApp>
   }
 
   Future<void> _flushPendingShare() async {
-    if (_flushingPendingShare) return;
     if (ref.read(lockControllerProvider).status != LockStatus.unlocked) {
       return;
     }
     if (ref.read(importControllerProvider).running) return;
 
-    final pending = _pendingShare;
-    if (pending == null || pending.isEmpty) return;
+    final queue = ref.read(shareQueueControllerProvider.notifier);
+    final pending = queue.beginFlush();
+    if (pending == null) return;
 
-    _flushingPendingShare = true;
-    _pendingShare = null;
     try {
       await _runShareImport(pending);
     } finally {
-      _flushingPendingShare = false;
+      queue.finishFlush();
       // More shares may have arrived while we were importing.
-      if (_pendingShare != null &&
-          _pendingShare!.isNotEmpty &&
+      if (ref.read(shareQueueControllerProvider).hasPending &&
           ref.read(lockControllerProvider).status == LockStatus.unlocked) {
         // ignore: unawaited_futures
         _flushPendingShare();
@@ -125,7 +120,7 @@ class _PrivateHeartAppState extends ConsumerState<PrivateHeartApp>
     final ctx = _navKey.currentContext;
     if (ctx == null || !ctx.mounted) {
       // Context not ready — keep pending so unlock/rebuild can retry.
-      _pendingShare = [...sources, ...?_pendingShare];
+      ref.read(shareQueueControllerProvider.notifier).enqueue(sources);
       return;
     }
 
@@ -145,9 +140,8 @@ class _PrivateHeartAppState extends ConsumerState<PrivateHeartApp>
       ref.read(importControllerProvider.notifier).clearSummary();
     } finally {
       // Shares queued while this import was running.
-      if (!_flushingPendingShare &&
-          _pendingShare != null &&
-          _pendingShare!.isNotEmpty &&
+      if (!ref.read(shareQueueControllerProvider).flushing &&
+          ref.read(shareQueueControllerProvider).hasPending &&
           ref.read(lockControllerProvider).status == LockStatus.unlocked) {
         // ignore: unawaited_futures
         _flushPendingShare();

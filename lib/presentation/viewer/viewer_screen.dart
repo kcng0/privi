@@ -6,7 +6,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:video_player/video_player.dart';
 
-import '../../application/gallery/gallery_controller.dart';
 import '../../application/import/import_controller.dart';
 import '../../application/lock/lock_controller.dart';
 import '../../application/media/rating_controller.dart';
@@ -138,17 +137,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       return;
     }
     // Same Visible refresh path as batch unhide (no manual pull needed).
-    try {
-      await ref
-          .read(importControllerProvider.notifier)
-          .refreshVisibleAfterReveal();
-    } catch (_) {
-      final gallery = ref.read(galleryServiceProvider);
-      gallery.refreshAfterReveal();
-      ref.read(galleryUiEpochProvider.notifier).bump();
-      ref.invalidate(galleryFoldersProvider);
-      ref.invalidate(albumsProvider);
-    }
+    await ref
+        .read(importControllerProvider.notifier)
+        .refreshVisibleAfterReveal();
     if (!mounted) return;
     setState(() {
       widget.items.removeAt(_index);
@@ -310,8 +301,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                             VideoProgressIndicator(
                               _video!,
                               allowScrubbing: true,
-                              colors: const VideoProgressColors(
-                                playedColor: Color(0xFF5ECFBA),
+                              colors: VideoProgressColors(
+                                playedColor:
+                                    Theme.of(context).colorScheme.primary,
                               ),
                             ),
                           HeartRatingBar(

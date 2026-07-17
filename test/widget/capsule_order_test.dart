@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:privi/core/theme/app_theme.dart';
 import 'package:privi/presentation/common/floating_action_capsule.dart';
 
 void main() {
@@ -7,6 +8,7 @@ void main() {
       (tester) async {
     await tester.pumpWidget(
       MaterialApp(
+        theme: AppTheme.dark,
         home: Scaffold(
           body: FloatingActionCapsule(
             actions: [

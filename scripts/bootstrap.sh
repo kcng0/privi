@@ -72,8 +72,9 @@ fi
 echo "==> Fetching dependencies..."
 $FLUTTER pub get
 
-echo "==> Running code generation (drift + riverpod)..."
-$FLUTTER pub run build_runner build --delete-conflicting-outputs
+echo "==> Running code generation (l10n + drift)..."
+$FLUTTER gen-l10n
+$FLUTTER pub run build_runner build
 
 echo ""
 echo "Bootstrap complete."
