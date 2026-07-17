@@ -16,14 +16,14 @@ final class ShorebirdAppUpdateService implements AppUpdateService {
   }
 
   @override
-  Future<AppUpdateStatus> checkForUpdate() async {
-    if (!_updater.isAvailable) return AppUpdateStatus.unavailable;
+  Future<AppUpdateCheck> checkForUpdate() async {
+    if (!_updater.isAvailable) return const AppUpdateCheck.unavailable();
 
     return switch (await _updater.checkForUpdate()) {
-      UpdateStatus.upToDate => AppUpdateStatus.upToDate,
-      UpdateStatus.outdated => AppUpdateStatus.updateAvailable,
-      UpdateStatus.restartRequired => AppUpdateStatus.restartRequired,
-      UpdateStatus.unavailable => AppUpdateStatus.unavailable,
+      UpdateStatus.upToDate => const AppUpdateCheck.upToDate(),
+      UpdateStatus.outdated => const AppUpdateCheck.hotUpdateAvailable(),
+      UpdateStatus.restartRequired => const AppUpdateCheck.restartRequired(),
+      UpdateStatus.unavailable => const AppUpdateCheck.unavailable(),
     };
   }
 

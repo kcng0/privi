@@ -1288,6 +1288,12 @@ abstract class AppLocalizations {
   /// **'Download and restart now?'**
   String get updateDownloadPrompt;
 
+  /// No description provided for @appReleasePrompt.
+  ///
+  /// In en, this message translates to:
+  /// **'Privi {version} is available on GitHub.'**
+  String appReleasePrompt(String version);
+
   /// No description provided for @later.
   ///
   /// In en, this message translates to:
@@ -1299,6 +1305,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Update'**
   String get updateAction;
+
+  /// No description provided for @viewRelease.
+  ///
+  /// In en, this message translates to:
+  /// **'View'**
+  String get viewRelease;
 
   /// No description provided for @upToDate.
   ///

@@ -43,10 +43,13 @@ for external video playback. All media stays on-device.
 ### Hot updates
 
 Starting with **v1.0.4**, updates are fully user-controlled. Open **Settings →
-Check updates** to contact the update service. When a signed Dart patch is
-available, Privi asks before downloading it. Starting with v1.0.5, a successful
-download restarts Privi automatically so the patch is active immediately. The
-About dialog shows the base version/build and applied patch number.
+Check updates** to check the latest stable GitHub Release first, then the
+Shorebird hot-update channel for the installed base. A newer full release is
+shown with a confirmation action that opens its GitHub Release page. When a
+signed Dart patch is available, Privi asks before downloading it. Starting with
+v1.0.5, a successful patch download restarts Privi automatically so the patch
+is active immediately. The About dialog shows the base version/build and
+applied patch number.
 
 Android/native code, plugins, permissions, bundled assets, and Flutter engine
 changes still require a new APK. v1.0.3 contained the first updater but used its

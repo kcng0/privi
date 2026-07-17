@@ -5,6 +5,7 @@ import 'package:privi/application/lock/lock_controller.dart';
 import 'package:privi/application/providers.dart';
 import 'package:privi/application/update/app_restart_service.dart';
 import 'package:privi/application/update/app_update_service.dart';
+import 'package:privi/application/update/external_url_launcher.dart';
 import 'package:privi/core/app_build_info.dart';
 import 'package:privi/core/constants.dart';
 import 'package:privi/domain/enums.dart';
@@ -29,7 +30,7 @@ void main() {
   testWidgets('update is not downloaded before user confirmation',
       (tester) async {
     final service = _FakeAppUpdateService(
-      status: AppUpdateStatus.updateAvailable,
+      status: AppUpdateStatus.hotUpdateAvailable,
     );
     final restart = _FakeAppRestartService();
     await _pumpSettings(tester, service, appRestartService: restart);
@@ -54,7 +55,7 @@ void main() {
   testWidgets('confirmed update downloads and restarts the app',
       (tester) async {
     final service = _FakeAppUpdateService(
-      status: AppUpdateStatus.updateAvailable,
+      status: AppUpdateStatus.hotUpdateAvailable,
     );
     final restart = _FakeAppRestartService();
     await _pumpSettings(tester, service, appRestartService: restart);
@@ -103,7 +104,7 @@ void main() {
 
   testWidgets('download failure remains visible', (tester) async {
     final service = _FakeAppUpdateService(
-      status: AppUpdateStatus.updateAvailable,
+      status: AppUpdateStatus.hotUpdateAvailable,
       downloadError: Exception('network unavailable'),
     );
     final restart = _FakeAppRestartService();
@@ -124,7 +125,7 @@ void main() {
   testWidgets('restart failure remains visible after a successful download',
       (tester) async {
     final service = _FakeAppUpdateService(
-      status: AppUpdateStatus.updateAvailable,
+      status: AppUpdateStatus.hotUpdateAvailable,
     );
     final restart = _FakeAppRestartService(
       error: StateError('restart unavailable'),
@@ -142,12 +143,41 @@ void main() {
     expect(restart.restartCalls, 1);
     expect(find.text('Restart failed. Reopen Privi.'), findsOneWidget);
   });
+
+  testWidgets('GitHub release requires confirmation before opening its page',
+      (tester) async {
+    final releaseUri = Uri.parse(
+      'https://github.com/kcng0/privi/releases/tag/v1.2.4',
+    );
+    final service = _FakeAppUpdateService(
+      result: AppUpdateCheck.appReleaseAvailable(
+        version: '1.2.4',
+        uri: releaseUri,
+      ),
+    );
+    final launcher = _FakeExternalUrlLauncher();
+    await _pumpSettings(tester, service, externalUrlLauncher: launcher);
+    await tester.scrollUntilVisible(find.text('Check updates'), 500);
+
+    await tester.tap(find.text('Check updates'));
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(find.text('Privi 1.2.4 is available on GitHub.'), findsOneWidget);
+    expect(launcher.openedUris, isEmpty);
+
+    await tester.tap(find.widgetWithText(FilledButton, 'View'));
+    await tester.pumpAndSettle();
+
+    expect(launcher.openedUris, [releaseUri]);
+    expect(service.downloadCalls, 0);
+  });
 }
 
 Future<void> _pumpSettings(
   WidgetTester tester,
   AppUpdateService appUpdateService, {
   AppRestartService? appRestartService,
+  ExternalUrlLauncher? externalUrlLauncher,
 }) async {
   SharedPreferences.setMockInitialValues({});
   final preferences = await SharedPreferences.getInstance();
@@ -166,6 +196,9 @@ Future<void> _pumpSettings(
         appRestartServiceProvider.overrideWithValue(
           appRestartService ?? _FakeAppRestartService(),
         ),
+        externalUrlLauncherProvider.overrideWithValue(
+          externalUrlLauncher ?? _FakeExternalUrlLauncher(),
+        ),
         appUpdateServiceProvider.overrideWithValue(appUpdateService),
         lockControllerProvider.overrideWith(_UnlockedLock.new),
         vaultSizeBytesProvider.overrideWith((ref) async => 0),
@@ -182,19 +215,20 @@ Future<void> _pumpSettings(
 
 class _FakeAppUpdateService implements AppUpdateService {
   _FakeAppUpdateService({
-    this.status = AppUpdateStatus.upToDate,
+    AppUpdateStatus status = AppUpdateStatus.upToDate,
+    AppUpdateCheck? result,
     this.downloadError,
-  });
+  }) : result = result ?? _resultFor(status);
 
-  final AppUpdateStatus status;
+  final AppUpdateCheck result;
   final Object? downloadError;
   int checkCalls = 0;
   int downloadCalls = 0;
 
   @override
-  Future<AppUpdateStatus> checkForUpdate() async {
+  Future<AppUpdateCheck> checkForUpdate() async {
     checkCalls++;
-    return status;
+    return result;
   }
 
   @override
@@ -205,6 +239,28 @@ class _FakeAppUpdateService implements AppUpdateService {
 
   @override
   Future<int?> readCurrentPatchNumber() async => null;
+}
+
+AppUpdateCheck _resultFor(AppUpdateStatus status) => switch (status) {
+      AppUpdateStatus.upToDate => const AppUpdateCheck.upToDate(),
+      AppUpdateStatus.hotUpdateAvailable =>
+        const AppUpdateCheck.hotUpdateAvailable(),
+      AppUpdateStatus.restartRequired => const AppUpdateCheck.restartRequired(),
+      AppUpdateStatus.unavailable => const AppUpdateCheck.unavailable(),
+      AppUpdateStatus.appReleaseAvailable => throw ArgumentError.value(
+          status,
+          'status',
+          'A release result must include its version and URI',
+        ),
+    };
+
+class _FakeExternalUrlLauncher implements ExternalUrlLauncher {
+  final List<Uri> openedUris = [];
+
+  @override
+  Future<void> open(Uri uri) async {
+    openedUris.add(uri);
+  }
 }
 
 class _FakeAppRestartService implements AppRestartService {
