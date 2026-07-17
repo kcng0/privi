@@ -30,86 +30,75 @@ class ThumbnailTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final dpr = MediaQuery.devicePixelRatioOf(context);
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final logicalWidth = constraints.maxWidth.isFinite
-            ? constraints.maxWidth
-            : MediaThumbnailSpec.dimension / dpr;
-        final cachePx = (logicalWidth * dpr)
-            .ceil()
-            .clamp(128, MediaThumbnailSpec.dimension);
-
-        return Material(
-          color: context.vaultColors.chrome,
-          child: InkWell(
-            onTap: onTap,
-            onLongPress: onLongPress,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                Hero(
-                  tag: 'media-hero-${item.id}',
-                  // Videos without a still can't be decoded by Image.file (mp4).
-                  child: item.isVideo && !item.hasThumbnail
-                      ? const _VideoPlaceholder()
-                      : Image.file(
-                          File(item.displayPath),
-                          fit: BoxFit.cover,
-                          gaplessPlayback: true,
-                          cacheWidth: cachePx,
-                          cacheHeight: cachePx,
-                          errorBuilder: (_, __, ___) => item.isVideo
-                              ? const _VideoPlaceholder()
-                              : const _Broken(),
-                        ),
-                ),
-                if (item.isVideo)
-                  Positioned(
-                    top: 4,
-                    left: 4,
-                    child: VideoDurationBadge(durationMs: item.durationMs),
-                  ),
-                // Selection overlay
-                if (selecting)
-                  Positioned(
-                    top: 4,
-                    right: 4,
-                    child: Icon(
-                      selected ? Icons.check_circle : Icons.circle_outlined,
-                      color: selected
-                          ? Theme.of(context).colorScheme.primary
-                          : Colors.white70,
-                      size: 22,
+    return Material(
+      color: context.vaultColors.chrome,
+      child: InkWell(
+        onTap: onTap,
+        onLongPress: onLongPress,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Hero(
+              tag: 'media-hero-${item.id}',
+              // Videos without a still can't be decoded by Image.file (mp4).
+              child: item.isVideo && !item.hasThumbnail
+                  ? const _VideoPlaceholder()
+                  : Image.file(
+                      File(item.displayPath),
+                      fit: BoxFit.cover,
+                      gaplessPlayback: true,
+                      // Decode the canonical HD poster at its full width. With
+                      // no target height, Flutter preserves the source ratio.
+                      cacheWidth: MediaThumbnailSpec.dimension,
+                      errorBuilder: (_, __, ___) => item.isVideo
+                          ? const _VideoPlaceholder()
+                          : const _Broken(),
                     ),
-                  ),
-                if (selected)
-                  Container(
-                    decoration: BoxDecoration(
-                      border: Border.all(
-                        color: Theme.of(context).colorScheme.primary,
-                        width: 2.5,
-                      ),
-                    ),
-                  ),
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  child: HeartRatingBar(
-                    rating: item.rating,
-                    size: 13,
-                    height: GridDefaults.ratingBarHeight,
-                    // Enhancement: tap hearts to rate without sheet (when not selecting).
-                    interactive: !selecting && onRate != null,
-                    onRate: onRate,
-                  ),
-                ),
-              ],
             ),
-          ),
-        );
-      },
+            if (item.isVideo)
+              Positioned(
+                top: 4,
+                left: 4,
+                child: VideoDurationBadge(durationMs: item.durationMs),
+              ),
+            // Selection overlay
+            if (selecting)
+              Positioned(
+                top: 4,
+                right: 4,
+                child: Icon(
+                  selected ? Icons.check_circle : Icons.circle_outlined,
+                  color: selected
+                      ? Theme.of(context).colorScheme.primary
+                      : Colors.white70,
+                  size: 22,
+                ),
+              ),
+            if (selected)
+              Container(
+                decoration: BoxDecoration(
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.primary,
+                    width: 2.5,
+                  ),
+                ),
+              ),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: HeartRatingBar(
+                rating: item.rating,
+                size: 13,
+                height: GridDefaults.ratingBarHeight,
+                // Enhancement: tap hearts to rate without sheet (when not selecting).
+                interactive: !selecting && onRate != null,
+                onRate: onRate,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

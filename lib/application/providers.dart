@@ -6,9 +6,11 @@ import '../data/db/database.dart';
 import '../data/repositories/album_repository.dart';
 import '../data/repositories/media_repository.dart';
 import '../data/services/biometric_service.dart';
+import '../data/services/import/asset_gateway.dart';
 import '../data/services/import_service.dart';
 import '../data/services/maintenance_service.dart';
 import '../data/services/media_store_service.dart';
+import '../data/services/media_thumbnail_service.dart';
 import '../data/services/secure_window_service.dart';
 import '../data/services/security_service.dart';
 import '../data/services/vault_backup_service.dart';
@@ -64,6 +66,18 @@ final mediaStoreServiceProvider = Provider<MediaStoreService>((ref) {
   return MediaStoreService();
 });
 
+final assetGatewayProvider = Provider<AssetGateway>((ref) {
+  return const PhotoManagerAssetGateway();
+});
+
+final mediaThumbnailCacheProvider = Provider<MediaThumbnailCache>((ref) {
+  final cache = MediaThumbnailService(
+    assetGateway: ref.watch(assetGatewayProvider),
+  );
+  ref.onDispose(cache.clear);
+  return cache;
+});
+
 final mediaRepositoryProvider = Provider<MediaRepository>((ref) {
   return MediaRepository(
     ref.watch(databaseProvider),
@@ -80,6 +94,8 @@ final importServiceProvider = Provider<ImportService>((ref) {
     storage: ref.watch(vaultStorageProvider),
     mediaRepository: ref.watch(mediaRepositoryProvider),
     albumRepository: ref.watch(albumRepositoryProvider),
+    assetGateway: ref.watch(assetGatewayProvider),
+    thumbnailCache: ref.watch(mediaThumbnailCacheProvider),
   );
 });
 

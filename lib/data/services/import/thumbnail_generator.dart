@@ -5,8 +5,8 @@ import 'package:flutter/foundation.dart';
 import '../../../core/media_thumbnail_spec.dart';
 import '../../repositories/media_repository.dart';
 import '../media_rename_service.dart';
+import '../media_thumbnail_service.dart';
 import '../vault_storage_service.dart';
-import 'asset_gateway.dart';
 import 'file_system_gateway.dart';
 import 'hide_preparer.dart';
 import 'import_models.dart';
@@ -32,60 +32,36 @@ class ThumbnailGenerator {
     required VaultStorageService storage,
     required MediaRepository mediaRepository,
     required MediaRenameService renamer,
-    required AssetGateway assetGateway,
+    required MediaThumbnailCache thumbnailCache,
     required FileSystemGateway fileSystem,
   })  : _storage = storage,
         _media = mediaRepository,
         _renamer = renamer,
-        _assets = assetGateway,
+        _thumbnails = thumbnailCache,
         _files = fileSystem;
 
   final VaultStorageService _storage;
   final MediaRepository _media;
   final MediaRenameService _renamer;
-  final AssetGateway _assets;
+  final MediaThumbnailCache _thumbnails;
   final FileSystemGateway _files;
 
   static const int concurrency = 2;
 
-  /// Captures posters while MediaStore still owns the source asset. Work is
-  /// bounded to one native transfer chunk, so a whole-folder hide does not
-  /// retain every high-resolution poster in memory at once.
-  Future<List<PreparedHide>> captureBeforeHide(
+  /// Reuses posters that Visible already rendered without delaying the native
+  /// transfer for uncached media. Missing posters are generated after hiding.
+  Future<List<PreparedHide>> attachCachedPosters(
     List<PreparedHide> jobs,
   ) async {
-    final captured = List<PreparedHide>.of(jobs);
-    var next = 0;
+    return List<PreparedHide>.unmodifiable(jobs.map(_attachCachedPoster));
+  }
 
-    Future<void> worker() async {
-      while (true) {
-        final index = next;
-        if (index >= jobs.length) return;
-        next = index + 1;
-        final job = jobs[index];
-        final assetId = job.source.assetId;
-        if (assetId == null) continue;
-        try {
-          final bytes = await _assets
-              .thumbnailBytes(
-                assetId,
-                size: MediaThumbnailSpec.dimension,
-                quality: MediaThumbnailSpec.quality,
-                frameUs: MediaThumbnailSpec.videoFrameUs,
-              )
-              .timeout(const Duration(seconds: 6));
-          if (bytes != null && bytes.isNotEmpty) {
-            captured[index] = job.withThumbnailBytes(bytes);
-          }
-        } catch (error, stackTrace) {
-          debugPrint('capture thumb ${job.id}: $error\n$stackTrace');
-        }
-      }
-    }
-
-    final workers = jobs.length < concurrency ? jobs.length : concurrency;
-    await Future.wait(List.generate(workers, (_) => worker()));
-    return List<PreparedHide>.unmodifiable(captured);
+  PreparedHide _attachCachedPoster(PreparedHide job) {
+    final assetId = job.source.assetId;
+    if (assetId == null) return job;
+    final bytes = _thumbnails.peek(assetId);
+    if (bytes == null || bytes.isEmpty) return job;
+    return job.withThumbnailBytes(bytes);
   }
 
   Future<void> generateDeferred(
@@ -186,12 +162,7 @@ class ThumbnailGenerator {
     final assetId = job.assetId;
     if (assetId != null) {
       try {
-        final bytes = await _assets.thumbnailBytes(
-          assetId,
-          size: MediaThumbnailSpec.dimension,
-          quality: MediaThumbnailSpec.quality,
-          frameUs: MediaThumbnailSpec.videoFrameUs,
-        );
+        final bytes = await _thumbnails.load(assetId);
         if (bytes != null && bytes.isNotEmpty) {
           final nearBlack = job.isVideo && await isNearBlackImageBytes(bytes);
           if (!nearBlack) {

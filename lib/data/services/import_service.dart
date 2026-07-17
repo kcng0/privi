@@ -16,6 +16,7 @@ import 'import/vault_reveal_runner.dart';
 import 'import/vault_transfer_runner.dart';
 import 'media_rename_service.dart';
 import 'media_store_service.dart';
+import 'media_thumbnail_service.dart';
 import 'vault_storage_service.dart';
 
 export 'import/import_models.dart';
@@ -34,6 +35,7 @@ class ImportService {
     MediaStoreService? mediaStore,
     FileSystemGateway? fileSystem,
     AssetGateway? assetGateway,
+    MediaThumbnailCache? thumbnailCache,
     HidePreparer? preparer,
     VaultTransferRunner? transferRunner,
     VaultRevealRunner? revealRunner,
@@ -73,7 +75,8 @@ class ImportService {
           storage: storage,
           mediaRepository: mediaRepository,
           renamer: _renamer,
-          assetGateway: _assetGateway,
+          thumbnailCache: thumbnailCache ??
+              MediaThumbnailService(assetGateway: _assetGateway),
           fileSystem: _fileSystem,
         );
   }
@@ -232,7 +235,7 @@ class ImportService {
     await _transferRunner.run(
       prepared,
       session: activeSession,
-      beforeChunk: _thumbnailGenerator.captureBeforeHide,
+      beforeChunk: _thumbnailGenerator.attachCachedPosters,
       collectOutcomes: false,
       onChunk: (outcomes) async {
         for (final outcome in outcomes) {

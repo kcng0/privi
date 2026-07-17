@@ -12,6 +12,7 @@ import 'package:privi/data/services/import/hide_preparer.dart';
 import 'package:privi/data/services/import/import_models.dart';
 import 'package:privi/data/services/import/thumbnail_generator.dart';
 import 'package:privi/data/services/media_rename_service.dart';
+import 'package:privi/data/services/media_thumbnail_service.dart';
 import 'package:privi/data/services/vault_storage_service.dart';
 import 'package:privi/domain/models/media_item.dart';
 import 'package:sqlite3/open.dart';
@@ -136,11 +137,12 @@ void main() {
     final assets = _RecordingAssets();
     final renamer = _UnusedRenamer();
     final media = MediaRepository(database, storage);
+    final thumbnails = MediaThumbnailService(assetGateway: assets);
     final generator = ThumbnailGenerator(
       storage: storage,
       mediaRepository: media,
       renamer: renamer,
-      assetGateway: assets,
+      thumbnailCache: thumbnails,
       fileSystem: files,
     );
     await media.insert(
@@ -170,7 +172,8 @@ void main() {
       folderName: 'Camera',
       albumId: 'camera',
     );
-    final captured = await generator.captureBeforeHide([prepared]);
+    await thumbnails.load('asset-id');
+    final captured = await generator.attachCachedPosters([prepared]);
 
     await generator.generateOne(
       ThumbnailJob(
@@ -193,6 +196,48 @@ void main() {
     expect(renamer.thumbnailCalls, 0);
   });
 
+  test('batch hide does not decode uncached posters before moving files',
+      () async {
+    final database = AppDatabase.memory();
+    addTearDown(database.close);
+    final storage = _ThumbStorage();
+    final files = _RecordingFiles();
+    final assets = _RecordingAssets();
+    final generator = ThumbnailGenerator(
+      storage: storage,
+      mediaRepository: MediaRepository(database, storage),
+      renamer: _UnusedRenamer(),
+      thumbnailCache: MediaThumbnailService(assetGateway: assets),
+      fileSystem: files,
+    );
+    final prepared = List.generate(
+      12,
+      (index) => PreparedHide(
+        id: 'video-$index',
+        source: ImportSource(
+          path: '/visible/video-$index.mp4',
+          assetId: 'asset-$index',
+        ),
+        originalPath: '/visible/video-$index.mp4',
+        originalName: 'video-$index.mp4',
+        mimeType: 'video/mp4',
+        isVideo: true,
+        destinationPath: '/vault/video-$index.mp4',
+        folderName: 'Camera',
+        albumId: 'camera',
+      ),
+    );
+
+    final captured = await generator.attachCachedPosters(prepared);
+
+    expect(assets.thumbnailCalls, 0);
+    expect(captured, hasLength(prepared.length));
+    expect(
+      captured.every((job) => job.thumbnailBytes == null),
+      isTrue,
+    );
+  });
+
   test('repairs legacy low-resolution video thumbnails once', () async {
     final database = AppDatabase.memory();
     addTearDown(database.close);
@@ -205,7 +250,7 @@ void main() {
       storage: storage,
       mediaRepository: media,
       renamer: renamer,
-      assetGateway: assets,
+      thumbnailCache: MediaThumbnailService(assetGateway: assets),
       fileSystem: files,
     );
     const oldPath = '/thumbs/video-id.jpg';

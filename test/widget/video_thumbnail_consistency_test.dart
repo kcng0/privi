@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:privi/application/gallery/gallery_controller.dart';
 import 'package:privi/application/providers.dart';
+import 'package:privi/core/media_thumbnail_spec.dart';
 import 'package:privi/core/theme/app_theme.dart';
 import 'package:privi/data/services/gallery_service.dart';
 import 'package:privi/domain/enums.dart';
@@ -105,5 +106,41 @@ void main() {
     expect(find.text('1:05'), findsOneWidget);
     expect(find.byIcon(Icons.play_arrow), findsOneWidget);
     expect(find.byIcon(Icons.play_circle_fill), findsNothing);
+  });
+
+  testWidgets('Invisible poster decode preserves its source aspect ratio',
+      (tester) async {
+    final item = MediaItem(
+      id: 'invisible-video',
+      privatePath: '/missing/video.mp4',
+      originalName: 'video.mp4',
+      mimeType: 'video/mp4',
+      isVideo: true,
+      rating: 0,
+      dateAdded: DateTime.utc(2026),
+      sizeBytes: 1,
+      thumbnailPath: '/missing/poster.jpg',
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.dark,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: SizedBox.square(
+            dimension: 120,
+            child: ThumbnailTile(item: item),
+          ),
+        ),
+      ),
+    );
+
+    final image = tester.widget<Image>(find.byType(Image));
+    expect(image.fit, BoxFit.cover);
+    expect(image.image, isA<ResizeImage>());
+    final resizeImage = image.image as ResizeImage;
+    expect(resizeImage.width, MediaThumbnailSpec.dimension);
+    expect(resizeImage.height, isNull);
   });
 }
