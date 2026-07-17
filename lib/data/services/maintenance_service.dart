@@ -149,6 +149,7 @@ class MaintenanceService {
           privatePath = c.path;
         }
 
+        final taken = await file.lastModified();
         final item = MediaItem(
           id: id,
           privatePath: privatePath,
@@ -160,8 +161,9 @@ class MaintenanceService {
           height: null,
           durationMs: null,
           rating: 0,
-          dateAdded: DateTime.now().toUtc(),
-          dateTaken: await file.lastModified(),
+          // Preserve file mtime as both sort key and capture time — not "now".
+          dateAdded: taken.toUtc(),
+          dateTaken: taken.toUtc(),
           sizeBytes: len,
           thumbnailPath: null,
         );

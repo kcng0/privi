@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../application/gallery/gallery_controller.dart';
+import '../../application/import/import_controller.dart';
 import '../../application/lock/lock_controller.dart';
 import '../../application/media/rating_controller.dart';
 import '../../application/providers.dart';
@@ -136,11 +137,19 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       );
       return;
     }
-    final gallery = ref.read(galleryServiceProvider);
-    gallery.invalidateVaultPathCache();
-    gallery.refreshAfterMutation();
-    ref.read(galleryUiEpochProvider.notifier).bump();
-    ref.invalidate(galleryFoldersProvider);
+    // Same Visible refresh path as batch unhide (no manual pull needed).
+    try {
+      await ref
+          .read(importControllerProvider.notifier)
+          .refreshVisibleAfterReveal();
+    } catch (_) {
+      final gallery = ref.read(galleryServiceProvider);
+      gallery.refreshAfterReveal();
+      ref.read(galleryUiEpochProvider.notifier).bump();
+      ref.invalidate(galleryFoldersProvider);
+      ref.invalidate(albumsProvider);
+    }
+    if (!mounted) return;
     setState(() {
       widget.items.removeAt(_index);
       if (widget.items.isEmpty) {

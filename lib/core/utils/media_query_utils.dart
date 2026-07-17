@@ -69,7 +69,7 @@ abstract final class MediaQueryUtils {
         final c = _compareOne(a, b, s);
         if (c != 0) return c;
       }
-      return b.dateAdded.compareTo(a.dateAdded);
+      return _sortDate(b).compareTo(_sortDate(a));
     });
     return list;
   }
@@ -77,9 +77,10 @@ abstract final class MediaQueryUtils {
   static int _compareOne(MediaItem a, MediaItem b, MediaSort s) {
     switch (s) {
       case MediaSort.dateAddedDesc:
-        return b.dateAdded.compareTo(a.dateAdded);
+        // Prefer original capture time so hide/unhide doesn't reshuffle.
+        return _sortDate(b).compareTo(_sortDate(a));
       case MediaSort.dateAddedAsc:
-        return a.dateAdded.compareTo(b.dateAdded);
+        return _sortDate(a).compareTo(_sortDate(b));
       case MediaSort.nameAsc:
         return a.originalName
             .toLowerCase()
@@ -94,6 +95,9 @@ abstract final class MediaQueryUtils {
         return a.rating.compareTo(b.rating);
     }
   }
+
+  /// Capture/create time when known; otherwise vault insert time.
+  static DateTime _sortDate(MediaItem m) => m.dateTaken ?? m.dateAdded;
 
   static String sortLabel(MediaSort s) => switch (s) {
         MediaSort.dateAddedDesc => 'Newest first',

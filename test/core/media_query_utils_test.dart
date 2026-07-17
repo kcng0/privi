@@ -8,6 +8,7 @@ MediaItem item({
   required String name,
   int rating = 0,
   DateTime? dateAdded,
+  DateTime? dateTaken,
 }) {
   return MediaItem(
     id: id,
@@ -20,7 +21,7 @@ MediaItem item({
     durationMs: null,
     rating: rating,
     dateAdded: dateAdded ?? DateTime.utc(2026, 1, 1),
-    dateTaken: null,
+    dateTaken: dateTaken,
     sizeBytes: 10,
     thumbnailPath: null,
   );
@@ -93,6 +94,27 @@ void main() {
         sorts: const [MediaSort.ratingDesc, MediaSort.dateAddedDesc],
       );
       expect(out.map((e) => e.id).toList(), ['b', 'a', 'c']);
+    });
+
+    test('newest first prefers dateTaken over hide-time dateAdded', () {
+      // Simulated hide reshuffle: older capture written with newer dateAdded.
+      final olderCapture = item(
+        id: 'old',
+        name: 'old.jpg',
+        dateAdded: DateTime.utc(2026, 6, 1),
+        dateTaken: DateTime.utc(2020, 1, 1),
+      );
+      final newerCapture = item(
+        id: 'new',
+        name: 'new.jpg',
+        dateAdded: DateTime.utc(2026, 1, 1),
+        dateTaken: DateTime.utc(2025, 1, 1),
+      );
+      final out = MediaQueryUtils.apply(
+        items: [olderCapture, newerCapture],
+        sorts: const [MediaSort.dateAddedDesc],
+      );
+      expect(out.map((e) => e.id).toList(), ['new', 'old']);
     });
   });
 }

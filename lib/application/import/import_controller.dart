@@ -1,8 +1,10 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
+import 'package:photo_manager/photo_manager.dart';
 
 import '../../data/services/import_service.dart';
+import '../../domain/models/media_item.dart';
 import '../gallery/gallery_controller.dart';
 import '../providers.dart';
 
@@ -39,25 +41,25 @@ class ImportUiState {
 }
 
 class ImportController extends Notifier<ImportUiState> {
-  /// Cooperative cancel for the current hide session (resolve + import).
+  /// Cooperative cancel for the current hide/unhide session.
   bool _sessionCancel = false;
 
   @override
   ImportUiState build() => const ImportUiState();
 
-  /// Start a hide session before path resolve so Cancel works immediately.
+  /// Start a progress session before work so Cancel works immediately.
   ///
   /// Call this when the progress sheet is shown — not only when native work
   /// starts. Resets any previous cancel flag.
-  void beginSession() {
+  void beginSession({String statusMessage = 'Hiding…'}) {
     _sessionCancel = false;
     ref.read(importServiceProvider).resetCancel();
-    state = const ImportUiState(
+    state = ImportUiState(
       running: true,
       progress: ImportProgress(
         done: 0,
         total: 0,
-        statusMessage: 'Hiding…',
+        statusMessage: statusMessage,
       ),
     );
   }
@@ -128,7 +130,6 @@ class ImportController extends Notifier<ImportUiState> {
     if (!sessionAlreadyStarted) {
       beginSession();
     } else if (!state.running) {
-      // Sheet path called beginSession; keep running=true.
       state = state.copyWith(running: true);
     }
 
@@ -137,7 +138,6 @@ class ImportController extends Notifier<ImportUiState> {
     }
 
     final service = ref.read(importServiceProvider);
-    // Do not clear a cancel that arrived between beginSession and here.
     if (!_sessionCancel) {
       service.resetCancel();
     }
@@ -160,7 +160,6 @@ class ImportController extends Notifier<ImportUiState> {
         },
       );
     } catch (e) {
-      // Never leave running=true — UI would stick on the progress sheet.
       summary = ImportProgress(
         done: 0,
         total: sources.length,
@@ -170,7 +169,6 @@ class ImportController extends Notifier<ImportUiState> {
       );
     }
 
-    // Partial success still invalidates gallery so Visible counts recover.
     if (summary.imported > 0 && ref.mounted) {
       final gallery = ref.read(galleryServiceProvider);
       gallery.invalidateVaultPathCache();
@@ -182,6 +180,78 @@ class ImportController extends Notifier<ImportUiState> {
 
     _endSession(summary: summary);
     return summary;
+  }
+
+  /// Batch unhide with the same progress/cancel session model as hide.
+  Future<ImportProgress> runReveal(
+    List<MediaItem> items, {
+    bool sessionAlreadyStarted = false,
+  }) async {
+    if (!sessionAlreadyStarted) {
+      beginSession(statusMessage: 'Unhiding…');
+    } else if (!state.running) {
+      state = state.copyWith(running: true);
+    }
+
+    if (_sessionCancel) {
+      return _finishCancelled(total: items.length);
+    }
+
+    final service = ref.read(importServiceProvider);
+    if (!_sessionCancel) {
+      service.resetCancel();
+    }
+
+    ImportProgress summary;
+    try {
+      summary = await service.revealAll(
+        items,
+        isCancelRequested: () => _sessionCancel,
+        onProgress: (p) {
+          if (!ref.mounted) return;
+          state = ImportUiState(
+            running: true,
+            progress: p,
+            cancelling: _sessionCancel || p.cancelled,
+            lastSummary: state.lastSummary,
+          );
+        },
+      );
+    } catch (e) {
+      summary = ImportProgress(
+        done: 0,
+        total: items.length,
+        failed: items.length,
+        statusMessage: 'Done',
+        lastError: e.toString(),
+      );
+    }
+
+    if (summary.imported > 0 && ref.mounted) {
+      await refreshVisibleAfterReveal();
+    }
+
+    _endSession(summary: summary);
+    return summary;
+  }
+
+  /// Force Visible folders to reappear after unhide (no manual pull-to-refresh).
+  Future<void> refreshVisibleAfterReveal() async {
+    if (!ref.mounted) return;
+    final gallery = ref.read(galleryServiceProvider);
+    gallery.refreshAfterReveal();
+    try {
+      await PhotoManager.clearFileCache().timeout(const Duration(seconds: 2));
+    } catch (_) {}
+    // MediaStore needs a short beat after scan before folder counts update.
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+    gallery.invalidateCache();
+    ref.read(galleryUiEpochProvider.notifier).bump();
+    ref.invalidate(galleryFoldersProvider);
+    ref.invalidate(albumsProvider);
+    try {
+      await ref.read(galleryFoldersProvider.future);
+    } catch (_) {}
   }
 
   /// Request cancel. Safe to call anytime during a session (resolve or hide).

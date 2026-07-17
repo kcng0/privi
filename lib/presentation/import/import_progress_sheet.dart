@@ -120,6 +120,7 @@ Future<void> showImportProgressSheet(
 String _statusMessage(BuildContext context, String raw) {
   final l10n = context.l10n;
   if (raw == 'Hiding…' || raw == 'Hiding...') return l10n.hiding;
+  if (raw == 'Unhiding…' || raw == 'Unhiding...') return l10n.unhide;
   if (raw == 'Cancelled') return l10n.cancelled;
   if (raw == 'Done') return l10n.done;
   if (raw.startsWith('Hiding (')) return l10n.hiding; // parallel banner

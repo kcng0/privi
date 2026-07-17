@@ -568,12 +568,31 @@ class GalleryService {
         if (folder.isEmpty) folder = 'Imported';
         if (folder.toLowerCase() == 'download') folder = 'Downloads';
 
+        // Preserve MediaStore create time so vault "Newest first" matches Visible.
+        DateTime? dateTaken;
+        final createSec = entity.createDateSecond;
+        if (createSec != null && createSec > 0) {
+          dateTaken = DateTime.fromMillisecondsSinceEpoch(
+            createSec * 1000,
+            isUtc: true,
+          );
+        } else {
+          final modSec = entity.modifiedDateSecond;
+          if (modSec != null && modSec > 0) {
+            dateTaken = DateTime.fromMillisecondsSinceEpoch(
+              modSec * 1000,
+              isUtc: true,
+            );
+          }
+        }
+
         return ImportSource(
           path: file.path,
           name: entity.title ?? p.basename(file.path),
           mimeType: mime,
           assetId: id,
           sourceFolderName: folder,
+          dateTaken: dateTaken,
         );
       } catch (e) {
         debugPrint('resolve $id: $e');
