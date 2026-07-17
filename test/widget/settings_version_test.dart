@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:privi/application/lock/lock_controller.dart';
 import 'package:privi/application/providers.dart';
+import 'package:privi/application/update/app_restart_service.dart';
 import 'package:privi/application/update/app_update_service.dart';
 import 'package:privi/core/app_build_info.dart';
 import 'package:privi/core/constants.dart';
@@ -30,7 +31,8 @@ void main() {
     final service = _FakeAppUpdateService(
       status: AppUpdateStatus.updateAvailable,
     );
-    await _pumpSettings(tester, service);
+    final restart = _FakeAppRestartService();
+    await _pumpSettings(tester, service, appRestartService: restart);
     await tester.scrollUntilVisible(find.text('Check updates'), 500);
 
     await tester.tap(find.text('Check updates'));
@@ -39,21 +41,23 @@ void main() {
     expect(service.checkCalls, 1);
     expect(service.downloadCalls, 0);
     expect(find.text('Update available'), findsOneWidget);
-    expect(find.text('Download now? Applies after restart.'), findsOneWidget);
+    expect(find.text('Download and restart now?'), findsOneWidget);
 
     await tester.tap(find.widgetWithText(TextButton, 'Later'));
     await tester.pump(const Duration(milliseconds: 500));
     await tester.pumpAndSettle();
 
     expect(service.downloadCalls, 0);
+    expect(restart.restartCalls, 0);
   });
 
-  testWidgets('confirmed update downloads and requests restart',
+  testWidgets('confirmed update downloads and restarts the app',
       (tester) async {
     final service = _FakeAppUpdateService(
       status: AppUpdateStatus.updateAvailable,
     );
-    await _pumpSettings(tester, service);
+    final restart = _FakeAppRestartService();
+    await _pumpSettings(tester, service, appRestartService: restart);
     await tester.scrollUntilVisible(find.text('Check updates'), 500);
 
     await tester.tap(find.text('Check updates'));
@@ -63,7 +67,24 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(service.downloadCalls, 1);
-    expect(find.text('Update ready. Restart Privi.'), findsOneWidget);
+    expect(restart.restartCalls, 1);
+    expect(find.text('Restart failed. Reopen Privi.'), findsNothing);
+  });
+
+  testWidgets('ready update restarts without downloading again',
+      (tester) async {
+    final service = _FakeAppUpdateService(
+      status: AppUpdateStatus.restartRequired,
+    );
+    final restart = _FakeAppRestartService();
+    await _pumpSettings(tester, service, appRestartService: restart);
+    await tester.scrollUntilVisible(find.text('Check updates'), 500);
+
+    await tester.tap(find.text('Check updates'));
+    await tester.pumpAndSettle();
+
+    expect(service.downloadCalls, 0);
+    expect(restart.restartCalls, 1);
   });
 
   testWidgets('up-to-date check does not request download permission',
@@ -85,7 +106,8 @@ void main() {
       status: AppUpdateStatus.updateAvailable,
       downloadError: Exception('network unavailable'),
     );
-    await _pumpSettings(tester, service);
+    final restart = _FakeAppRestartService();
+    await _pumpSettings(tester, service, appRestartService: restart);
     await tester.scrollUntilVisible(find.text('Check updates'), 500);
 
     await tester.tap(find.text('Check updates'));
@@ -95,14 +117,38 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(service.downloadCalls, 1);
+    expect(restart.restartCalls, 0);
     expect(find.text('Update failed'), findsOneWidget);
+  });
+
+  testWidgets('restart failure remains visible after a successful download',
+      (tester) async {
+    final service = _FakeAppUpdateService(
+      status: AppUpdateStatus.updateAvailable,
+    );
+    final restart = _FakeAppRestartService(
+      error: StateError('restart unavailable'),
+    );
+    await _pumpSettings(tester, service, appRestartService: restart);
+    await tester.scrollUntilVisible(find.text('Check updates'), 500);
+
+    await tester.tap(find.text('Check updates'));
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.tap(find.widgetWithText(FilledButton, 'Update'));
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+
+    expect(service.downloadCalls, 1);
+    expect(restart.restartCalls, 1);
+    expect(find.text('Restart failed. Reopen Privi.'), findsOneWidget);
   });
 }
 
 Future<void> _pumpSettings(
   WidgetTester tester,
-  AppUpdateService appUpdateService,
-) async {
+  AppUpdateService appUpdateService, {
+  AppRestartService? appRestartService,
+}) async {
   SharedPreferences.setMockInitialValues({});
   final preferences = await SharedPreferences.getInstance();
 
@@ -116,6 +162,9 @@ Future<void> _pumpSettings(
             buildNumber: '42',
             patchNumber: 7,
           ),
+        ),
+        appRestartServiceProvider.overrideWithValue(
+          appRestartService ?? _FakeAppRestartService(),
         ),
         appUpdateServiceProvider.overrideWithValue(appUpdateService),
         lockControllerProvider.overrideWith(_UnlockedLock.new),
@@ -156,6 +205,19 @@ class _FakeAppUpdateService implements AppUpdateService {
 
   @override
   Future<int?> readCurrentPatchNumber() async => null;
+}
+
+class _FakeAppRestartService implements AppRestartService {
+  _FakeAppRestartService({this.error});
+
+  final Object? error;
+  int restartCalls = 0;
+
+  @override
+  Future<void> restart() async {
+    restartCalls++;
+    if (error case final restartError?) throw restartError;
+  }
 }
 
 class _UnlockedLock extends LockController {

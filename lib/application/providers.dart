@@ -17,6 +17,7 @@ import '../domain/enums.dart';
 import '../domain/models/album_view.dart';
 import '../domain/models/media_item.dart';
 import 'gallery/gallery_controller.dart';
+import 'update/app_restart_service.dart';
 import 'update/app_update_service.dart';
 
 /// Core DI graph. Manual providers for Phase 1 (codegen can replace later).
@@ -31,6 +32,10 @@ final appBuildInfoProvider = Provider<AppBuildInfo>((ref) {
 
 final appUpdateServiceProvider = Provider<AppUpdateService>((ref) {
   throw UnimplementedError('appUpdateServiceProvider must be overridden');
+});
+
+final appRestartServiceProvider = Provider<AppRestartService>((ref) {
+  throw UnimplementedError('appRestartServiceProvider must be overridden');
 });
 
 final databaseProvider = Provider<AppDatabase>((ref) {

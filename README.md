@@ -44,14 +44,15 @@ for external video playback. All media stays on-device.
 
 Starting with **v1.0.4**, updates are fully user-controlled. Open **Settings →
 Check updates** to contact the update service. When a signed Dart patch is
-available, Privi asks before downloading it; the patch takes effect after the
-next app restart. The About dialog shows the base version/build and applied
-patch number.
+available, Privi asks before downloading it. Starting with v1.0.5, a successful
+download restarts Privi automatically so the patch is active immediately. The
+About dialog shows the base version/build and applied patch number.
 
 Android/native code, plugins, permissions, bundled assets, and Flutter engine
 changes still require a new APK. v1.0.3 contained the first updater but used its
-automatic mode, so install v1.0.4 once to enable consent-based updates. Network
-access occurs only after the manual check; vault media stays on-device.
+automatic mode, so install v1.0.5 once to enable consent-based updates with
+automatic restart. Network access occurs only after the manual check; vault
+media stays on-device.
 
 ---
 
