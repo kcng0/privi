@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.content.ContentValues
 import android.content.Intent
 import android.graphics.Bitmap
+import android.media.ExifInterface
 import android.media.MediaMetadataRetriever
 import android.media.MediaScannerConnection
 import android.net.Uri
@@ -25,6 +26,9 @@ import java.io.File
 import java.io.FileOutputStream
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.TimeZone
 import java.util.concurrent.Executors
 
 /// Host activity: FileProvider, FLAG_SECURE, MediaStore rename for directory hide.
@@ -105,6 +109,15 @@ class MainActivity : FlutterFragmentActivity() {
                             return@setMethodCallHandler
                         }
                         result.success(resolveMediaPathById(id, isVideo))
+                    }
+                    "resolveCaptureDate" -> {
+                        // Capture/taken time only — never DATE_MODIFIED / mtime.
+                        val path = call.argument<String>("path")
+                        val mediaId = call.argument<String>("mediaId")?.toLongOrNull()
+                        val isVideo = call.argument<Boolean>("isVideo") ?: false
+                        runIo(result) {
+                            resolveCaptureDateSec(path, mediaId, isVideo)
+                        }
                     }
                     "isExternalStorageManager" -> {
                         result.success(isAllFilesAccess())
@@ -940,6 +953,162 @@ class MainActivity : FlutterFragmentActivity() {
         }
     }
 
+
+    /**
+     * Capture / taken time in **Unix seconds**.
+     *
+     * Priority (never DATE_MODIFIED / filesystem mtime):
+     * 1) MediaStore DATE_TAKEN (ms) for mediaId
+     * 2) Image EXIF DateTimeOriginal / DateTime
+     * 3) Video MediaMetadataRetriever METADATA_KEY_DATE
+     *
+     * Returns null when unknown — callers must not invent "now".
+     */
+    private fun resolveCaptureDateSec(
+        path: String?,
+        mediaId: Long?,
+        isVideo: Boolean,
+    ): Long? {
+        // 1) MediaStore DATE_TAKEN by id
+        if (mediaId != null) {
+            val fromStore = queryDateTakenSecById(mediaId, isVideo)
+            if (fromStore != null && fromStore > 0L) return fromStore
+        }
+        // 1b) MediaStore DATE_TAKEN by path
+        if (!path.isNullOrBlank()) {
+            val fromPath = queryDateTakenSecByPath(path, isVideo)
+            if (fromPath != null && fromPath > 0L) return fromPath
+        }
+        val filePath = path?.takeIf { it.isNotBlank() }
+            ?: mediaId?.let { resolveMediaPathById(it, isVideo) }
+        if (filePath.isNullOrBlank()) return null
+        val file = File(filePath)
+        if (!file.exists()) return null
+
+        // 2) Image EXIF
+        if (!isVideo) {
+            val exifSec = readExifDateSec(filePath)
+            if (exifSec != null && exifSec > 0L) return exifSec
+        }
+        // 3) Video container date
+        if (isVideo) {
+            val vidSec = readVideoDateSec(filePath)
+            if (vidSec != null && vidSec > 0L) return vidSec
+        }
+        // Still try EXIF for mis-tagged video=false images with odd mime.
+        val exifSec = readExifDateSec(filePath)
+        if (exifSec != null && exifSec > 0L) return exifSec
+        return null
+    }
+
+    private fun queryDateTakenSecById(id: Long, isVideo: Boolean): Long? {
+        val uris = listOf(
+            contentUriForMediaId(id, isVideo),
+            contentUriForMediaId(id, !isVideo),
+        )
+        for (uri in uris) {
+            try {
+                contentResolver.query(
+                    uri,
+                    arrayOf(MediaStore.MediaColumns.DATE_TAKEN),
+                    null,
+                    null,
+                    null,
+                )?.use { c ->
+                    if (c.moveToFirst()) {
+                        val idx = c.getColumnIndex(MediaStore.MediaColumns.DATE_TAKEN)
+                        if (idx >= 0 && !c.isNull(idx)) {
+                            val ms = c.getLong(idx)
+                            if (ms > 0L) return ms / 1000L
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("PrivateHeart", "queryDateTakenSecById: $e")
+            }
+        }
+        return null
+    }
+
+    private fun queryDateTakenSecByPath(path: String, isVideo: Boolean): Long? {
+        val selection = MediaStore.MediaColumns.DATA + "=?"
+        for (p in pathVariants(path)) {
+            for (collection in mediaCollections(isVideo)) {
+                try {
+                    contentResolver.query(
+                        collection,
+                        arrayOf(MediaStore.MediaColumns.DATE_TAKEN),
+                        selection,
+                        arrayOf(p),
+                        null,
+                    )?.use { c ->
+                        if (c.moveToFirst()) {
+                            val idx = c.getColumnIndex(MediaStore.MediaColumns.DATE_TAKEN)
+                            if (idx >= 0 && !c.isNull(idx)) {
+                                val ms = c.getLong(idx)
+                                if (ms > 0L) return ms / 1000L
+                            }
+                        }
+                    }
+                } catch (_: Exception) {
+                }
+            }
+        }
+        return null
+    }
+
+    private fun readExifDateSec(path: String): Long? {
+        return try {
+            val exif = ExifInterface(path)
+            val raw = exif.getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL)
+                ?: exif.getAttribute(ExifInterface.TAG_DATETIME)
+                ?: return null
+            // EXIF: "yyyy:MM:dd HH:mm:ss" (no timezone — treat as local).
+            val fmt = SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.US)
+            fmt.isLenient = true
+            val parsed = fmt.parse(raw) ?: return null
+            parsed.time / 1000L
+        } catch (e: Exception) {
+            android.util.Log.w("PrivateHeart", "readExifDateSec: $e")
+            null
+        }
+    }
+
+    private fun readVideoDateSec(path: String): Long? {
+        var retriever: MediaMetadataRetriever? = null
+        return try {
+            retriever = MediaMetadataRetriever()
+            retriever.setDataSource(path)
+            val raw = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DATE)
+                ?: return null
+            // Common: "yyyyMMdd'T'HHmmss.SSS'Z'" or similar.
+            val patterns = arrayOf(
+                "yyyyMMdd'T'HHmmss.SSS'Z'",
+                "yyyyMMdd'T'HHmmss'Z'",
+                "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+                "yyyy-MM-dd'T'HH:mm:ss'Z'",
+                "yyyy:MM:dd HH:mm:ss",
+            )
+            for (p in patterns) {
+                try {
+                    val fmt = SimpleDateFormat(p, Locale.US)
+                    fmt.timeZone = TimeZone.getTimeZone("UTC")
+                    val parsed = fmt.parse(raw)
+                    if (parsed != null) return parsed.time / 1000L
+                } catch (_: Exception) {
+                }
+            }
+            null
+        } catch (e: Exception) {
+            android.util.Log.w("PrivateHeart", "readVideoDateSec: $e")
+            null
+        } finally {
+            try {
+                retriever?.release()
+            } catch (_: Exception) {
+            }
+        }
+    }
 
     /** Absolute filesystem path for a MediaStore / photo_manager asset id. */
     private fun resolveMediaPathById(id: Long, isVideo: Boolean): String? {

@@ -449,8 +449,9 @@ class ImportService {
               height: null,
               durationMs: null,
               rating: 0,
-              // dateAdded drives Invisible "Newest first". Use original capture
-              // time when known so hide does not reshuffle order vs Visible.
+              // dateAdded drives Invisible "Newest first". Prefer original capture
+              // only — never invent a new capture time. If unknown, use hide
+              // time for vault listing only (dateTaken stays null).
               dateAdded: job.dateTaken?.toUtc() ?? DateTime.now().toUtc(),
               dateTaken: job.dateTaken?.toUtc(),
               sizeBytes: size,
@@ -613,9 +614,25 @@ class ImportService {
     final albumId =
         targetUserAlbumId ?? await _resolveMirrorAlbumId(folderName);
 
-    // Capture/create time only (MediaStore DATE_TAKEN / createDateSecond).
-    // Never use modified time or "now" — hide must not rewrite creation order.
+    // Capture time only: MediaStore DATE_TAKEN → EXIF / video metadata.
+    // Never use modified time or "now" — missing stays null so we don't invent dates.
     DateTime? dateTaken = src.dateTaken;
+    if (dateTaken == null) {
+      try {
+        final sec = await _mediaStore.resolveCaptureDateSec(
+          path: originalPath,
+          mediaId: src.assetId,
+          isVideo: isVideo,
+        );
+        if (sec != null && sec > 0) {
+          dateTaken = DateTime.fromMillisecondsSinceEpoch(
+            sec * 1000,
+            isUtc: true,
+          );
+        }
+      } catch (_) {}
+    }
+    // photo_manager createDateSecond as last non-mtime fallback (often DATE_TAKEN).
     if (dateTaken == null && src.assetId != null) {
       try {
         final entity = await AssetEntity.fromId(src.assetId!);
@@ -756,10 +773,11 @@ class ImportService {
       }
     }
 
-    // Re-index with original capture/create epoch (seconds). Do not touch
-    // file mtime as the Gallery sort key — MediaStore DATE_TAKEN/DATE_ADDED.
-    final taken = item.dateTaken ?? item.dateAdded;
-    final takenSec = taken.toUtc().millisecondsSinceEpoch ~/ 1000;
+    // Re-index with original capture epoch only when we truly know it.
+    // Do not push hide-time dateAdded into MediaStore DATE_TAKEN.
+    final taken = item.dateTaken;
+    final takenSec =
+        taken == null ? null : taken.toUtc().millisecondsSinceEpoch ~/ 1000;
     try {
       await _mediaStore.scanPath(
         visiblePath,

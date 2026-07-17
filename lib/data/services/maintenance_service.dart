@@ -149,14 +149,22 @@ class MaintenanceService {
           privatePath = c.path;
         }
 
-        // Reinstall recovery: no MediaStore create date available for vault
-        // orphans. Prefer null dateTaken over inventing "now"; use a stable
-        // non-now fallback only for sort (file mtime is last resort here).
-        DateTime? taken;
+        // Reinstall recovery: resolve real capture time from vault file (EXIF /
+        // video metadata). Never invent "now" as dateTaken.
+        DateTime? dateTaken;
         try {
-          taken = await file.lastModified();
+          final sec = await _mediaStore.resolveCaptureDateSec(
+            path: privatePath,
+            isVideo: isVideo,
+          );
+          if (sec != null && sec > 0) {
+            dateTaken = DateTime.fromMillisecondsSinceEpoch(
+              sec * 1000,
+              isUtc: true,
+            );
+          }
         } catch (_) {}
-        final sortKey = taken?.toUtc() ?? DateTime.utc(1970);
+        final sortKey = dateTaken ?? DateTime.utc(1970);
         final item = MediaItem(
           id: id,
           privatePath: privatePath,
@@ -169,9 +177,7 @@ class MaintenanceService {
           durationMs: null,
           rating: 0,
           dateAdded: sortKey,
-          // Keep dateTaken null unless we have a real capture time — recovery
-          // path has no MediaStore DATE_TAKEN.
-          dateTaken: null,
+          dateTaken: dateTaken,
           sizeBytes: len,
           thumbnailPath: null,
         );
@@ -237,6 +243,60 @@ class MaintenanceService {
       skipped: skipped,
       failed: failed,
     );
+  }
+
+  /// Repair vault sort/capture dates from real capture metadata.
+  ///
+  /// For each active vault item, resolves capture time via MediaStore DATE_TAKEN
+  /// → EXIF → video metadata (never filesystem mtime). Updates [dateTaken] and
+  /// [dateAdded] only when a real capture time is found.
+  ///
+  /// Safe after older hides that stored hide-time as dateAdded.
+  Future<String> repairCaptureDates() async {
+    final rows = await _media.listActive();
+    if (rows.isEmpty) {
+      return 'No vault media to repair';
+    }
+    var fixed = 0;
+    var skipped = 0;
+    var failed = 0;
+    for (final item in rows) {
+      try {
+        final sec = await _mediaStore.resolveCaptureDateSec(
+          path: item.privatePath,
+          isVideo: item.isVideo,
+        );
+        if (sec == null || sec <= 0) {
+          skipped++;
+          continue;
+        }
+        final taken = DateTime.fromMillisecondsSinceEpoch(
+          sec * 1000,
+          isUtc: true,
+        );
+        // Skip no-op when already correct (within 1s).
+        final existing = item.dateTaken?.toUtc();
+        final added = item.dateAdded.toUtc();
+        if (existing != null &&
+            (existing.difference(taken).inSeconds).abs() <= 1 &&
+            (added.difference(taken).inSeconds).abs() <= 1) {
+          skipped++;
+          continue;
+        }
+        await _media.updateDates(
+          item.id,
+          dateTaken: taken,
+          dateAdded: taken,
+        );
+        fixed++;
+      } catch (e) {
+        debugPrint('repairCaptureDates ${item.id}: $e');
+        failed++;
+      }
+    }
+    return 'Fixed $fixed date(s)'
+        '${skipped > 0 ? ', skipped $skipped' : ''}'
+        '${failed > 0 ? ', failed $failed' : ''}';
   }
 
   Future<List<_OrphanCandidate>> _discoverOrphanFiles(

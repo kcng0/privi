@@ -101,6 +101,18 @@ class MediaRepository {
   Future<void> updateThumbnail(String id, String? thumbnailPath) =>
       _db.updateMediaThumbnail(id, thumbnailPath);
 
+  Future<void> updateDates(
+    String id, {
+    required DateTime dateTaken,
+    required DateTime dateAdded,
+  }) =>
+      _db.updateMediaDates(id, dateTaken: dateTaken, dateAdded: dateAdded);
+
+  Future<List<MediaItem>> listActive() async {
+    final rows = await _db.listActiveMediaRows();
+    return rows.map(_map).toList(growable: false);
+  }
+
   Future<void> softDelete(String id) =>
       _db.softDeleteMedia(id, DateTime.now().toUtc());
 
