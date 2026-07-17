@@ -159,18 +159,17 @@ class ThumbnailGenerator {
       return output.path;
     }
 
+    // Reuse the exact poster the Visible browser rendered so the vault grid
+    // stays consistent with what the user saw before hiding. Native seeking is
+    // a last resort only when the asset poster is unavailable.
     final assetId = job.assetId;
     if (assetId != null) {
       try {
         final bytes = await _thumbnails.load(assetId);
         if (bytes != null && bytes.isNotEmpty) {
-          final nearBlack = job.isVideo && await isNearBlackImageBytes(bytes);
-          if (!nearBlack) {
-            final output = await _storage.thumbFileFor(job.id);
-            await _files.writeBytes(output.path, bytes);
-            return output.path;
-          }
-          debugPrint('asset thumb rejected (near-black) for ${job.id}');
+          final output = await _storage.thumbFileFor(job.id);
+          await _files.writeBytes(output.path, bytes);
+          return output.path;
         }
       } catch (error, stackTrace) {
         debugPrint('asset thumb: $error\n$stackTrace');
@@ -216,46 +215,6 @@ class ThumbnailGenerator {
     } catch (error, stackTrace) {
       debugPrint('file thumb: $error\n$stackTrace');
       return null;
-    }
-  }
-
-  /// True when average Rec.601 luma is below [threshold] (0–255).
-  Future<bool> isNearBlackImageBytes(
-    Uint8List bytes, {
-    double threshold = 15.0,
-  }) async {
-    ui.Image? image;
-    try {
-      final codec = await ui.instantiateImageCodec(bytes, targetWidth: 64);
-      final frame = await codec.getNextFrame();
-      image = frame.image;
-      final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
-      if (data == null) return false;
-      final width = image.width;
-      final height = image.height;
-      if (width <= 0 || height <= 0) return false;
-
-      final rgba = data.buffer.asUint8List();
-      var total = 0.0;
-      var samples = 0;
-      final stepX = (width / 10).floor().clamp(1, width);
-      final stepY = (height / 10).floor().clamp(1, height);
-      for (var y = 0; y < height; y += stepY) {
-        for (var x = 0; x < width; x += stepX) {
-          final index = (y * width + x) * 4;
-          if (index + 2 >= rgba.length) continue;
-          total += 0.299 * rgba[index] +
-              0.587 * rgba[index + 1] +
-              0.114 * rgba[index + 2];
-          samples++;
-        }
-      }
-      return samples > 0 && (total / samples) < threshold;
-    } catch (error, stackTrace) {
-      debugPrint('luma check: $error\n$stackTrace');
-      return false;
-    } finally {
-      image?.dispose();
     }
   }
 }
