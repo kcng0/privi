@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../../core/constants.dart';
+import '../../core/media_thumbnail_spec.dart';
 import 'hide_naming.dart';
 
 /// Manages vault directories:
@@ -136,12 +137,12 @@ class VaultStorageService {
   String thumbPathFor(String id) {
     final base =
         _thumbs?.path ?? p.join(VaultPaths.vaultDir, VaultPaths.thumbsDir);
-    return p.join(base, '$id.jpg');
+    return p.join(base, MediaThumbnailSpec.fileName(id));
   }
 
   Future<File> thumbFileFor(String id) async {
     final thumbs = await thumbsDir;
-    return File(p.join(thumbs.path, '$id.jpg'));
+    return File(p.join(thumbs.path, MediaThumbnailSpec.fileName(id)));
   }
 
   Future<void> deleteMediaFiles({

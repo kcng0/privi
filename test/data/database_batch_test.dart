@@ -9,18 +9,21 @@ import 'package:sqlite3/open.dart';
 MediaItemsCompanion _row({
   required String id,
   required String path,
+  String? originalName,
   int rating = 0,
   int sizeBytes = 100,
+  DateTime? dateAdded,
+  DateTime? dateTaken,
   DateTime? deletedAt,
 }) {
-  final now = DateTime.utc(2026, 1, 1);
   return MediaItemsCompanion.insert(
     id: id,
     privatePath: path,
-    originalName: '$id.jpg',
+    originalName: originalName ?? '$id.jpg',
     mimeType: 'image/jpeg',
     isVideo: false,
-    dateAdded: now,
+    dateAdded: dateAdded ?? DateTime.utc(2026, 1, 1),
+    dateTaken: Value(dateTaken),
     sizeBytes: sizeBytes,
     rating: Value(rating),
     deletedAt: Value(deletedAt),
@@ -139,6 +142,80 @@ void main() {
     expect((await db.getMediaById('t'))!.thumbnailPath, '/thumbs/t.jpg');
   });
 
+  test('album queries preserve original capture chronology after hide',
+      () async {
+    await db.insertAlbum(
+      AlbumsCompanion.insert(
+        id: 'camera',
+        name: 'Camera',
+        isSystem: false,
+        createdAt: DateTime.utc(2026, 1, 1),
+      ),
+    );
+    await db.insertMedia(
+      _row(
+        id: 'older-capture',
+        path: '/v/older.jpg',
+        dateAdded: DateTime.utc(2026, 7, 2),
+        dateTaken: DateTime.utc(2020, 1, 1),
+      ),
+    );
+    await db.insertMedia(
+      _row(
+        id: 'newer-capture',
+        path: '/v/newer.jpg',
+        dateAdded: DateTime.utc(2026, 7, 1),
+        dateTaken: DateTime.utc(2025, 1, 1),
+      ),
+    );
+    await db.addMembership(
+      'camera',
+      'older-capture',
+      DateTime.utc(2026, 7, 2),
+    );
+    await db.addMembership(
+      'camera',
+      'newer-capture',
+      DateTime.utc(2026, 7, 1),
+    );
+
+    expect(
+      (await db.listActiveMedia()).map((row) => row.id),
+      ['newer-capture', 'older-capture'],
+    );
+    expect(
+      (await db.listInUserAlbum('camera')).map((row) => row.id),
+      ['newer-capture', 'older-capture'],
+    );
+    expect((await db.latestInUserAlbum('camera'))?.id, 'newer-capture');
+  });
+
+  test('date ties use the same exact filename order as client sorting',
+      () async {
+    final sameDate = DateTime.utc(2025, 1, 1);
+    await db.insertMedia(
+      _row(
+        id: 'lowercase',
+        path: '/v/alpha.mp4',
+        originalName: 'alpha.mp4',
+        dateTaken: sameDate,
+      ),
+    );
+    await db.insertMedia(
+      _row(
+        id: 'uppercase',
+        path: '/v/Zeta.mp4',
+        originalName: 'Zeta.mp4',
+        dateTaken: sameDate,
+      ),
+    );
+
+    expect(
+      (await db.listActiveMedia()).map((row) => row.id),
+      ['uppercase', 'lowercase'],
+    );
+  });
+
   test('softDeleteMediaMany and restoreMediaMany', () async {
     await db.insertMedia(_row(id: 'a', path: '/v/a.jpg'));
     await db.insertMedia(_row(id: 'b', path: '/v/b.jpg'));
@@ -183,6 +260,7 @@ void main() {
     final rows = await db.customSelect('PRAGMA index_list(media_items)').get();
     final names = rows.map((r) => r.data['name'] as String?).toSet();
     expect(names, contains('idx_media_items_deleted_date'));
+    expect(names, contains('idx_media_items_original_date'));
     expect(names, contains('idx_media_items_private_path'));
 
     final am = await db.customSelect('PRAGMA index_list(album_media)').get();

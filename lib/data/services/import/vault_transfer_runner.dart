@@ -66,7 +66,9 @@ class VaultTransferRunner {
   Future<List<TransferOutcome>> run(
     List<PreparedHide> jobs, {
     required ImportSession session,
+    Future<List<PreparedHide>> Function(List<PreparedHide> jobs)? beforeChunk,
     Future<void> Function(List<TransferOutcome> outcomes)? onChunk,
+    bool collectOutcomes = true,
   }) async {
     final allOutcomes = <TransferOutcome>[];
     for (var offset = 0;
@@ -75,9 +77,16 @@ class VaultTransferRunner {
       final end = offset + nativeBatchChunk > jobs.length
           ? jobs.length
           : offset + nativeBatchChunk;
-      final chunk = jobs.sublist(offset, end);
+      var chunk = jobs.sublist(offset, end);
+      if (beforeChunk != null) {
+        chunk = await beforeChunk(List<PreparedHide>.unmodifiable(chunk));
+        if (chunk.length != end - offset) {
+          throw StateError('beforeChunk must preserve the transfer batch');
+        }
+      }
+      if (session.isCancelled) break;
       final outcomes = await _transferChunk(chunk, session);
-      allOutcomes.addAll(outcomes);
+      if (collectOutcomes) allOutcomes.addAll(outcomes);
       await onChunk?.call(List<TransferOutcome>.unmodifiable(outcomes));
     }
     return List<TransferOutcome>.unmodifiable(allOutcomes);

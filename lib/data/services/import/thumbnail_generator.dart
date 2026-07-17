@@ -2,11 +2,13 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 
+import '../../../core/media_thumbnail_spec.dart';
 import '../../repositories/media_repository.dart';
 import '../media_rename_service.dart';
 import '../vault_storage_service.dart';
 import 'asset_gateway.dart';
 import 'file_system_gateway.dart';
+import 'hide_preparer.dart';
 import 'import_models.dart';
 
 class ThumbnailJob {
@@ -15,12 +17,14 @@ class ThumbnailJob {
     required this.privatePath,
     required this.isVideo,
     this.assetId,
+    this.sourceThumbnailBytes,
   });
 
   final String id;
   final String privatePath;
   final bool isVideo;
   final String? assetId;
+  final Uint8List? sourceThumbnailBytes;
 }
 
 class ThumbnailGenerator {
@@ -44,6 +48,46 @@ class ThumbnailGenerator {
 
   static const int concurrency = 2;
 
+  /// Captures posters while MediaStore still owns the source asset. Work is
+  /// bounded to one native transfer chunk, so a whole-folder hide does not
+  /// retain every high-resolution poster in memory at once.
+  Future<List<PreparedHide>> captureBeforeHide(
+    List<PreparedHide> jobs,
+  ) async {
+    final captured = List<PreparedHide>.of(jobs);
+    var next = 0;
+
+    Future<void> worker() async {
+      while (true) {
+        final index = next;
+        if (index >= jobs.length) return;
+        next = index + 1;
+        final job = jobs[index];
+        final assetId = job.source.assetId;
+        if (assetId == null) continue;
+        try {
+          final bytes = await _assets
+              .thumbnailBytes(
+                assetId,
+                size: MediaThumbnailSpec.dimension,
+                quality: MediaThumbnailSpec.quality,
+                frameUs: MediaThumbnailSpec.videoFrameUs,
+              )
+              .timeout(const Duration(seconds: 6));
+          if (bytes != null && bytes.isNotEmpty) {
+            captured[index] = job.withThumbnailBytes(bytes);
+          }
+        } catch (error, stackTrace) {
+          debugPrint('capture thumb ${job.id}: $error\n$stackTrace');
+        }
+      }
+    }
+
+    final workers = jobs.length < concurrency ? jobs.length : concurrency;
+    await Future.wait(List.generate(workers, (_) => worker()));
+    return List<PreparedHide>.unmodifiable(captured);
+  }
+
   Future<void> generateDeferred(
     List<ThumbnailJob> jobs,
     ImportSession session,
@@ -56,12 +100,9 @@ class ThumbnailGenerator {
         next = index + 1;
         final job = jobs[index];
         try {
-          final path = await makeThumbnail(job).timeout(
+          await generateOne(job).timeout(
             const Duration(seconds: 6),
           );
-          if (path != null && path.isNotEmpty) {
-            await _media.updateThumbnail(job.id, path);
-          }
         } catch (error, stackTrace) {
           debugPrint('deferred thumb ${job.id}: $error\n$stackTrace');
         }
@@ -72,11 +113,85 @@ class ThumbnailGenerator {
     await Future.wait(List.generate(workers, (_) => worker()));
   }
 
+  Future<String?> generateOne(ThumbnailJob job) async {
+    final path = await makeThumbnail(job);
+    if (path != null && path.isNotEmpty) {
+      await _media.updateThumbnail(job.id, path);
+    }
+    return path;
+  }
+
+  /// Upgrades thumbnails created by earlier releases without touching media
+  /// whose v2 poster is already present. Failed items remain eligible for the
+  /// next launch instead of being marked complete.
+  Future<int> repairOutdatedVideos() async {
+    final items = await _media.listActive();
+    final videos = items.where((item) => item.isVideo).toList(growable: false);
+    var next = 0;
+    var repaired = 0;
+
+    Future<void> worker() async {
+      while (true) {
+        final index = next;
+        if (index >= videos.length) return;
+        next = index + 1;
+        final item = videos[index];
+        final oldPath = item.thumbnailPath;
+        try {
+          if (MediaThumbnailSpec.isCurrentPath(oldPath) &&
+              oldPath != null &&
+              await _files.exists(oldPath)) {
+            continue;
+          }
+          final path = await generateOne(
+            ThumbnailJob(
+              id: item.id,
+              privatePath: item.privatePath,
+              isVideo: true,
+            ),
+          ).timeout(const Duration(seconds: 8));
+          if (path == null) {
+            debugPrint('thumbnail repair ${item.id}: no poster generated');
+            continue;
+          }
+          repaired++;
+          if (oldPath != null && oldPath.isNotEmpty && oldPath != path) {
+            try {
+              if (await _files.exists(oldPath)) await _files.delete(oldPath);
+            } catch (error, stackTrace) {
+              debugPrint(
+                'delete legacy thumb ${item.id}: $error\n$stackTrace',
+              );
+            }
+          }
+        } catch (error, stackTrace) {
+          debugPrint('thumbnail repair ${item.id}: $error\n$stackTrace');
+        }
+      }
+    }
+
+    final workers = videos.length < concurrency ? videos.length : concurrency;
+    await Future.wait(List.generate(workers, (_) => worker()));
+    return repaired;
+  }
+
   Future<String?> makeThumbnail(ThumbnailJob job) async {
+    final sourceThumbnailBytes = job.sourceThumbnailBytes;
+    if (sourceThumbnailBytes != null && sourceThumbnailBytes.isNotEmpty) {
+      final output = await _storage.thumbFileFor(job.id);
+      await _files.writeBytes(output.path, sourceThumbnailBytes);
+      return output.path;
+    }
+
     final assetId = job.assetId;
     if (assetId != null) {
       try {
-        final bytes = await _assets.thumbnailBytes(assetId, 256);
+        final bytes = await _assets.thumbnailBytes(
+          assetId,
+          size: MediaThumbnailSpec.dimension,
+          quality: MediaThumbnailSpec.quality,
+          frameUs: MediaThumbnailSpec.videoFrameUs,
+        );
         if (bytes != null && bytes.isNotEmpty) {
           final nearBlack = job.isVideo && await isNearBlackImageBytes(bytes);
           if (!nearBlack) {
@@ -97,7 +212,7 @@ class ThumbnailGenerator {
         final ok = await _renamer.videoThumbnail(
           path: job.privatePath,
           destPath: output.path,
-          maxSize: 256,
+          maxSize: MediaThumbnailSpec.dimension,
         );
         if (ok &&
             await _files.exists(output.path) &&
@@ -113,7 +228,10 @@ class ThumbnailGenerator {
     try {
       if (await _files.length(job.privatePath) > 8 * 1024 * 1024) return null;
       final bytes = await _files.readBytes(job.privatePath);
-      final codec = await ui.instantiateImageCodec(bytes, targetWidth: 256);
+      final codec = await ui.instantiateImageCodec(
+        bytes,
+        targetWidth: MediaThumbnailSpec.dimension,
+      );
       final frame = await codec.getNextFrame();
       final data = await frame.image.toByteData(format: ui.ImageByteFormat.png);
       frame.image.dispose();

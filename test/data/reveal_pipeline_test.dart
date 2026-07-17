@@ -69,7 +69,13 @@ class _NoopAssets implements AssetGateway {
   Future<File?> originFile(String id) async => null;
 
   @override
-  Future<Uint8List?> thumbnailBytes(String id, int size) async => null;
+  Future<Uint8List?> thumbnailBytes(
+    String id, {
+    required int size,
+    required int quality,
+    required int frameUs,
+  }) async =>
+      null;
 }
 
 void main() {
