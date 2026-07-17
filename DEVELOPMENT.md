@@ -10,7 +10,8 @@ live under `docs/` are kept local-only and are not part of the published repo.
 | Flutter SDK | **3.44.6** | Pinned via [`.fvmrc`](./.fvmrc) → use FVM. |
 | Dart | bundled with Flutter | — |
 | Java (JDK) | 17+ | Needed for Android Gradle. |
-| Android SDK | platform **36** + build-tools + cmdline-tools | Licenses accepted. |
+| Android SDK | platform **37** + build-tools + cmdline-tools | Licenses accepted. |
+| Shorebird CLI | current stable | Needed only for local base-release/patch validation. |
 | A device | Android 8.0 (API 26)+ | Real device recommended; install **VLC** to test external playback. |
 
 ## Fastest path: one-shot installer
@@ -60,7 +61,7 @@ back to `flutter` automatically.
 Easiest via Android Studio (SDK Manager) or `sdkmanager` cmdline-tools:
 
 ```bash
-sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+sdkmanager "platform-tools" "platforms;android-37" "build-tools;36.0.0"
 yes | sdkmanager --licenses
 flutter config --android-sdk "$ANDROID_HOME"
 flutter doctor            # resolve anything still red
@@ -148,7 +149,8 @@ assets/branding/ # launcher / about icons
 scripts/         # bootstrap + toolchain installer
 .github/workflows/
   ci.yaml        # PR / main: format, analyze, test, debug APK
-  release.yml    # tag v* / manual: release APK + GitHub Release
+  release.yml    # tag v* / manual: Shorebird base APK + GitHub Release
+  patch.yml      # manual: signed Dart patch for an existing release
 ```
 
 ## Branching, CI, releases
@@ -157,10 +159,14 @@ scripts/         # bootstrap + toolchain installer
 - **CI** (`.github/workflows/ci.yaml`) on push/PR to `main`: format check,
   codegen, analyze, test. **No APK build** — that is release-only.
 - **Release** (`.github/workflows/release.yml`) on tag `v*` only (or
-  `workflow_dispatch`): builds a release APK, publishes
+  `workflow_dispatch`): creates a Shorebird base release APK, publishes
   `privi-<version>.apk` plus SHA-256/SHA-512 checksum files, and creates a
   GitHub Release. GitHub also auto-attaches **Source code (zip/tar.gz)** for
   the tag. A normal commit to `main` never triggers this workflow.
+- **Patch** (`.github/workflows/patch.yml`) is manual and only runs from
+  `main`. It analyzes and tests the current code, rejects native or asset
+  differences, signs the Dart patch, and publishes it to the selected
+  Shorebird track.
 
 Cut a release:
 
@@ -171,7 +177,42 @@ git tag v0.1.1
 git push origin main --tags
 ```
 
-Or **Actions → Release APK → Run workflow** and enter a tag name.
+Or **Actions → Release APK → Run workflow** and enter a tag name. The tag must
+match the `pubspec.yaml` version name (`1.0.3+4` uses tag `v1.0.3`), which keeps
+the GitHub release and About version aligned.
+
+### Shorebird hot updates
+
+The first Shorebird-capable base is v1.0.3. Its updater checks for signed code
+patches in the background and applies a downloaded patch on the next restart.
+`Settings → About` displays the package version/build plus the active patch
+number. Existing v1.0.2 installations require one normal APK upgrade because
+that binary does not contain the Shorebird engine.
+
+Use a patch only when the change is Dart code and the base version remains
+unchanged:
+
+1. Make the Dart-only change on a branch and merge it through a PR.
+2. Run **Actions → Shorebird Patch** from `main`.
+3. Enter the exact Shorebird base version, such as `1.0.3+4`.
+4. Publish to `staging` first; after verification, publish the reviewed commit
+   to `stable`.
+
+Do not override Shorebird's native/asset diff checks. Changes to Android code,
+the manifest, plugins, assets, or Flutter itself cannot be delivered by a Dart
+patch; bump `pubspec.yaml` and publish a new base APK instead. This is a
+technical platform boundary, not a fallback path.
+
+For local validation, install the official Shorebird CLI, authenticate, and run:
+
+```bash
+shorebird release android --flutter-version 3.44.6 --artifact apk \
+  --public-key-path shorebird_public.pem --dry-run
+```
+
+Patch signing uses the committed public key (`shorebird_public.pem`) and the
+private key stored only in GitHub Actions secrets. Back up the private key
+offline; never commit it.
 
 ### Release signing (Play Protect)
 
@@ -194,9 +235,11 @@ Required repository secrets:
 | `ANDROID_KEYSTORE_PASSWORD` | keystore password |
 | `ANDROID_KEY_ALIAS` | key alias (default `privi`) |
 | `ANDROID_KEY_PASSWORD` | key password |
+| `SHOREBIRD_TOKEN` | Shorebird CI authentication token |
+| `SHOREBIRD_PATCH_PRIVATE_KEY` | PEM private key used to sign patches |
 
 Local `make apk` picks up `android/key.properties` automatically. CI decodes the
-keystore from secrets before `flutter build apk --release` and fails if the
+keystore from secrets before the Shorebird release/patch build and fails if the
 resulting APK is still debug-signed.
 
 Also enabled on release builds: R8 minify + resource shrink
@@ -224,5 +267,7 @@ users cannot update without uninstalling. Never commit keystores.
 | Device not listed under WSL2 | Share adb from Windows or use wireless `adb connect`. |
 | Release workflow failed on permissions | Repo needs `contents: write` for the `GITHUB_TOKEN` (set in the workflow). |
 | Release workflow: missing ANDROID_* secrets | Run `./scripts/setup-release-keystore.sh` and add the four secrets under repo Settings → Secrets. |
+| Release/patch workflow: missing SHOREBIRD_* secret | Add the CI token and patch private key under repo Settings → Secrets and variables → Actions. |
+| Shorebird rejects native or asset diffs | Publish a new base APK; do not use `--allow-native-diffs` or `--allow-asset-diffs`. |
 | Play Protect “Unsafe” on sideload | Ensure CI uses the permanent release keystore (not debug). Submit VirusTotal + Play Protect appeal for new signatures. |
 | `make apk` still debug-signed | Create `android/key.properties` via `./scripts/setup-release-keystore.sh`. |

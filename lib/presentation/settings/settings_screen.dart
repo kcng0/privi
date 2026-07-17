@@ -21,6 +21,11 @@ class SettingsScreen extends ConsumerWidget {
     final s = ref.watch(settingsControllerProvider);
     final lock = ref.watch(lockControllerProvider);
     final appBuildInfo = ref.watch(appBuildInfoProvider);
+    final versionAndPatch = [
+      appBuildInfo.versionAndBuild,
+      if (appBuildInfo.patchNumber case final patchNumber?)
+        context.l10n.patchLabel(patchNumber),
+    ].join(' · ');
     final notifier = ref.read(settingsControllerProvider.notifier);
 
     return Scaffold(
@@ -279,9 +284,9 @@ class SettingsScreen extends ConsumerWidget {
             leading: const Icon(Icons.info_outline),
             title: const Text(AppInfo.name),
             subtitle: Text(
-              'v${appBuildInfo.versionAndBuild} · ${AppInfo.licenseShort}',
+              'v$versionAndPatch · ${AppInfo.licenseShort}',
             ),
-            onTap: () => _showAbout(context, appBuildInfo.versionAndBuild),
+            onTap: () => _showAbout(context, versionAndPatch),
           ),
           ListTile(
             leading: const Icon(Icons.person_outline),

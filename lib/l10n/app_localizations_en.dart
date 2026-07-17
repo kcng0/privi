@@ -660,6 +660,11 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String patchLabel(int number) {
+    return 'Patch $number';
+  }
+
+  @override
   String authorLabel(String author) {
     return 'Author: $author';
   }

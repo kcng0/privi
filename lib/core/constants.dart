@@ -7,12 +7,12 @@ abstract final class AppInfo {
   static const String author = 'kcng0';
   static const String authorUrl = 'https://github.com/kcng0';
   static const String tagline =
-      'Personal offline media vault — hide, rate, and play privately.';
+      'Personal on-device media vault — hide, rate, and play privately.';
   static const String about =
-      'Privi is a personal, offline Android media vault. '
+      'Privi is a personal, on-device Android media vault. '
       'Hide photos and videos from the system gallery, rate them with hearts, '
       'organize into albums, and play them back with a PIN/pattern lock.\n\n'
-      'Sideload-only. No cloud, no accounts, no analytics.';
+      'Sideload-only. Media stays on-device. No accounts or analytics.';
   static const String licenseShort = 'MIT License';
   static const String licenseBody = 'MIT License\n\n'
       'Copyright (c) 2026 kcng0\n\n'

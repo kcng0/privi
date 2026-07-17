@@ -650,6 +650,11 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String patchLabel(int number) {
+    return '补丁 $number';
+  }
+
+  @override
   String authorLabel(String author) {
     return '作者：$author';
   }
@@ -1523,6 +1528,11 @@ class AppLocalizationsZhCn extends AppLocalizationsZh {
   }
 
   @override
+  String patchLabel(int number) {
+    return '补丁 $number';
+  }
+
+  @override
   String authorLabel(String author) {
     return '作者：$author';
   }
@@ -2393,6 +2403,11 @@ class AppLocalizationsZhHk extends AppLocalizationsZh {
   @override
   String versionLabel(String version) {
     return '版本 $version';
+  }
+
+  @override
+  String patchLabel(int number) {
+    return '修補 $number';
   }
 
   @override
