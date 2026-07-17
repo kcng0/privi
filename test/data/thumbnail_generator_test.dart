@@ -185,12 +185,12 @@ void main() {
       ),
     );
 
-    expect(files.writtenPath, '/thumbs/video-id.v2.jpg');
+    expect(files.writtenPath, '/thumbs/video-id.v3.jpg');
     expect(identical(captured.single.thumbnailBytes, assets.poster), isTrue);
     expect(files.writtenBytes, assets.poster);
     expect(
       (await database.getMediaById('video-id'))?.thumbnailPath,
-      '/thumbs/video-id.v2.jpg',
+      '/thumbs/video-id.v3.jpg',
     );
     expect(assets.thumbnailCalls, 1);
     expect(renamer.thumbnailCalls, 0);
@@ -254,7 +254,7 @@ void main() {
       fileSystem: files,
     );
     const oldPath = '/thumbs/video-id.jpg';
-    const newPath = '/thumbs/video-id.v2.jpg';
+    const newPath = '/thumbs/video-id.v3.jpg';
     files.existing.addAll([oldPath, newPath]);
     await media.insert(
       MediaItem(
