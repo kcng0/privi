@@ -57,6 +57,33 @@ class MediaStoreService {
     }
   }
 
+  /// Capture/taken time in Unix **seconds**.
+  ///
+  /// Sources (never mtime): MediaStore DATE_TAKEN → EXIF → video metadata.
+  /// Returns null when unknown.
+  Future<int?> resolveCaptureDateSec({
+    String? path,
+    String? mediaId,
+    required bool isVideo,
+  }) async {
+    try {
+      final result = await _channel.invokeMethod<dynamic>(
+        'resolveCaptureDate',
+        {
+          'path': path,
+          'mediaId': mediaId,
+          'isVideo': isVideo,
+        },
+      );
+      if (result is int) return result;
+      if (result is num) return result.toInt();
+      return int.tryParse('$result');
+    } catch (e) {
+      debugPrint('resolveCaptureDate: $e');
+      return null;
+    }
+  }
+
   /// Re-index a path into MediaStore (unhide).
   ///
   /// When [dateTakenSec] / [dateAddedSec] are set (Unix seconds), they are

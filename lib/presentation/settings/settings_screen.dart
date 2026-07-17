@@ -188,6 +188,12 @@ class SettingsScreen extends ConsumerWidget {
             onTap: () => _scanOrphans(context, ref),
           ),
           ListTile(
+            leading: const Icon(Icons.event_available_outlined),
+            title: Text(context.l10n.repairCaptureDates),
+            subtitle: Text(context.l10n.repairCaptureDatesSubtitle),
+            onTap: () => _repairCaptureDates(context, ref),
+          ),
+          ListTile(
             leading: const Icon(Icons.restore_page_outlined),
             title: Text(context.l10n.recoverVault),
             subtitle: Text(context.l10n.recoverVaultSubtitle),
@@ -544,6 +550,28 @@ class SettingsScreen extends ConsumerWidget {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(result.summary)),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(context.l10n.scanFailed('$e'))),
+        );
+      }
+    }
+  }
+
+  Future<void> _repairCaptureDates(BuildContext context, WidgetRef ref) async {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(context.l10n.repairingCaptureDates)),
+    );
+    try {
+      final msg =
+          await ref.read(maintenanceServiceProvider).repairCaptureDates();
+      ref.invalidate(albumsProvider);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(msg)),
         );
       }
     } catch (e) {

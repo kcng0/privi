@@ -622,6 +622,16 @@ class AppLocalizationsEn extends AppLocalizations {
   String get recoveringVault => 'Recovering vault files…';
 
   @override
+  String get repairCaptureDates => 'Repair capture dates';
+
+  @override
+  String get repairCaptureDatesSubtitle =>
+      'Fix vault sort order from original capture time (not hide time)';
+
+  @override
+  String get repairingCaptureDates => 'Repairing capture dates…';
+
+  @override
   String get author => 'Author';
 
   @override

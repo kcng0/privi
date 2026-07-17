@@ -1198,6 +1198,24 @@ abstract class AppLocalizations {
   /// **'Recovering vault files…'**
   String get recoveringVault;
 
+  /// No description provided for @repairCaptureDates.
+  ///
+  /// In en, this message translates to:
+  /// **'Repair capture dates'**
+  String get repairCaptureDates;
+
+  /// No description provided for @repairCaptureDatesSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Fix vault sort order from original capture time (not hide time)'**
+  String get repairCaptureDatesSubtitle;
+
+  /// No description provided for @repairingCaptureDates.
+  ///
+  /// In en, this message translates to:
+  /// **'Repairing capture dates…'**
+  String get repairingCaptureDates;
+
   /// No description provided for @author.
   ///
   /// In en, this message translates to:

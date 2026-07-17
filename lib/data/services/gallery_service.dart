@@ -578,6 +578,22 @@ class GalleryService {
             isUtc: true,
           );
         }
+        // Prefer native DATE_TAKEN / EXIF when photo_manager create is missing.
+        if (dateTaken == null) {
+          try {
+            final sec = await store.resolveCaptureDateSec(
+              path: file.path,
+              mediaId: id,
+              isVideo: isVideo,
+            );
+            if (sec != null && sec > 0) {
+              dateTaken = DateTime.fromMillisecondsSinceEpoch(
+                sec * 1000,
+                isUtc: true,
+              );
+            }
+          } catch (_) {}
+        }
 
         return ImportSource(
           path: file.path,

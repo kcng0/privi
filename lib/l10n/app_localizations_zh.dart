@@ -613,6 +613,15 @@ class AppLocalizationsZh extends AppLocalizations {
   String get recoveringVault => '正在恢复保险库文件…';
 
   @override
+  String get repairCaptureDates => '修复拍摄日期';
+
+  @override
+  String get repairCaptureDatesSubtitle => '按原始拍摄时间修正保险库排序（非隐藏时间）';
+
+  @override
+  String get repairingCaptureDates => '正在修复拍摄日期…';
+
+  @override
   String get author => '作者';
 
   @override
@@ -1428,6 +1437,15 @@ class AppLocalizationsZhCn extends AppLocalizationsZh {
   String get recoveringVault => '正在恢复保险库文件…';
 
   @override
+  String get repairCaptureDates => '修复拍摄日期';
+
+  @override
+  String get repairCaptureDatesSubtitle => '按原始拍摄时间修正保险库排序（非隐藏时间）';
+
+  @override
+  String get repairingCaptureDates => '正在修复拍摄日期…';
+
+  @override
   String get author => '作者';
 
   @override
@@ -2241,6 +2259,15 @@ class AppLocalizationsZhHk extends AppLocalizationsZh {
 
   @override
   String get recoveringVault => '正在復原保險庫檔案…';
+
+  @override
+  String get repairCaptureDates => '修復拍攝日期';
+
+  @override
+  String get repairCaptureDatesSubtitle => '按原始拍攝時間修正保險庫排序（非隱藏時間）';
+
+  @override
+  String get repairingCaptureDates => '正在修復拍攝日期…';
 
   @override
   String get author => '作者';

@@ -365,12 +365,13 @@ class _InvisibleTab extends ConsumerWidget {
               accent: true,
               preferCover: true,
             ),
+          // User albums first; "+ New" sits just above Recycle Bin (second last).
+          ...user.map(_Cell.album),
           _Cell.action(
             label: context.l10n.newAlbum,
             icon: Icons.add,
             onTap: onNewAlbum,
           ),
-          ...user.map(_Cell.album),
           if (recycle != null)
             _Cell.special(view: recycle, icon: Icons.delete_outline),
         ];

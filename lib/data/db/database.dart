@@ -182,6 +182,24 @@ class AppDatabase extends _$AppDatabase {
     );
   }
 
+  /// Repair capture/sort timestamps without touching the media file.
+  Future<void> updateMediaDates(
+    String id, {
+    required DateTime dateTaken,
+    required DateTime dateAdded,
+  }) {
+    return (update(mediaItems)..where((t) => t.id.equals(id))).write(
+      MediaItemsCompanion(
+        dateTaken: Value(dateTaken),
+        dateAdded: Value(dateAdded),
+      ),
+    );
+  }
+
+  Future<List<MediaItemRow>> listActiveMediaRows() {
+    return (select(mediaItems)..where((t) => t.deletedAt.isNull())).get();
+  }
+
   Future<void> updateMediaRatings(List<String> ids, int rating) async {
     if (ids.isEmpty) return;
     final r = rating.clamp(0, 3);
