@@ -414,8 +414,17 @@
   "checkUpdates": "Check updates",
   "updateAvailableTitle": "Update available",
   "updateDownloadPrompt": "Download and restart now?",
+  "appReleasePrompt": "Privi {version} is available on GitHub.",
+  "@appReleasePrompt": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
   "later": "Later",
   "updateAction": "Update",
+  "viewRelease": "View",
   "upToDate": "Up to date",
   "updateRestartFailed": "Restart failed. Reopen Privi.",
   "updatesUnavailable": "Updates unavailable",

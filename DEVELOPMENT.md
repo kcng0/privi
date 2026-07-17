@@ -202,10 +202,18 @@ the GitHub release and About version aligned.
 
 The first Shorebird-capable base was v1.0.3. v1.0.4 disables Shorebird's
 automatic updater: the app makes no update request until the user selects
-`Settings → Check updates`, then asks again before downloading an available
-patch. Starting with v1.0.5, a successful download triggers a full Android
-process restart so the new Flutter engine loads the patch. `Settings → About`
-displays the package version/build plus the active patch number.
+`Settings → Check updates`. The manual flow first calls GitHub's latest-release
+endpoint. When a newer stable APK release exists, the app asks before opening
+that exact GitHub Release page; otherwise it checks Shorebird and asks again
+before downloading an available patch. Starting with v1.0.5, a successful
+patch download triggers a full Android process restart so the new Flutter
+engine loads the patch. `Settings → About` displays the package version/build
+plus the active patch number.
+
+`AppUpdateCoordinator` owns this ordering. `GithubAppReleaseSource` validates
+the release tag as SemVer and accepts only HTTPS links on `github.com`; response
+and parsing failures remain visible as update-check failures rather than
+silently skipping the full-release check.
 
 Android's `INTERNET` permission is a normal install-time permission and has no
 runtime system dialog. The manual action and download confirmation are Privi's

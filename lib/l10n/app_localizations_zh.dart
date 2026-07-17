@@ -664,10 +664,18 @@ class AppLocalizationsZh extends AppLocalizations {
   String get updateDownloadPrompt => '立即下载并重启？';
 
   @override
+  String appReleasePrompt(String version) {
+    return 'GitHub 已发布 Privi $version';
+  }
+
+  @override
   String get later => '稍后';
 
   @override
   String get updateAction => '更新';
+
+  @override
+  String get viewRelease => '查看';
 
   @override
   String get upToDate => '已是最新版本';
@@ -1572,10 +1580,18 @@ class AppLocalizationsZhCn extends AppLocalizationsZh {
   String get updateDownloadPrompt => '立即下载并重启？';
 
   @override
+  String appReleasePrompt(String version) {
+    return 'GitHub 已发布 Privi $version';
+  }
+
+  @override
   String get later => '稍后';
 
   @override
   String get updateAction => '更新';
+
+  @override
+  String get viewRelease => '查看';
 
   @override
   String get upToDate => '已是最新版本';
@@ -2480,10 +2496,18 @@ class AppLocalizationsZhHk extends AppLocalizationsZh {
   String get updateDownloadPrompt => '立即下載並重新啟動？';
 
   @override
+  String appReleasePrompt(String version) {
+    return 'GitHub 已發布 Privi $version';
+  }
+
+  @override
   String get later => '稍後';
 
   @override
   String get updateAction => '更新';
+
+  @override
+  String get viewRelease => '查看';
 
   @override
   String get upToDate => '已是最新版本';

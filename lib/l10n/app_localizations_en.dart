@@ -674,10 +674,18 @@ class AppLocalizationsEn extends AppLocalizations {
   String get updateDownloadPrompt => 'Download and restart now?';
 
   @override
+  String appReleasePrompt(String version) {
+    return 'Privi $version is available on GitHub.';
+  }
+
+  @override
   String get later => 'Later';
 
   @override
   String get updateAction => 'Update';
+
+  @override
+  String get viewRelease => 'View';
 
   @override
   String get upToDate => 'Up to date';

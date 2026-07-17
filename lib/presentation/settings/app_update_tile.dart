@@ -36,14 +36,16 @@ class _AppUpdateTileState extends ConsumerState<AppUpdateTile> {
 
     final service = ref.read(appUpdateServiceProvider);
     try {
-      final status = await service.checkForUpdate();
+      final result = await service.checkForUpdate();
       if (!mounted) return;
 
-      switch (status) {
+      switch (result.status) {
         case AppUpdateStatus.upToDate:
           _showMessage(context.l10n.upToDate);
-        case AppUpdateStatus.updateAvailable:
+        case AppUpdateStatus.hotUpdateAvailable:
           await _confirmAndDownload(service);
+        case AppUpdateStatus.appReleaseAvailable:
+          await _confirmAndOpenRelease(result);
         case AppUpdateStatus.restartRequired:
           await _restartApp();
         case AppUpdateStatus.unavailable:
@@ -54,6 +56,36 @@ class _AppUpdateTileState extends ConsumerState<AppUpdateTile> {
       if (mounted) _showMessage(context.l10n.updateCheckFailed);
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _confirmAndOpenRelease(AppUpdateCheck result) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(context.l10n.updateAvailableTitle),
+        content: Text(
+          context.l10n.appReleasePrompt(result.releaseVersion!),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text(context.l10n.later),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(context.l10n.viewRelease),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    try {
+      await ref.read(externalUrlLauncherProvider).open(result.releaseUri!);
+    } catch (error, stackTrace) {
+      debugPrint('open release url failed: $error\n$stackTrace');
+      if (mounted) _showMessage(context.l10n.couldNotOpenBrowser);
     }
   }
 

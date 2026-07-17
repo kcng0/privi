@@ -2,14 +2,19 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:pub_semver/pub_semver.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shorebird_code_push/shorebird_code_push.dart';
 
 import 'app.dart';
 import 'application/providers.dart';
 import 'application/settings/settings_controller.dart';
+import 'application/update/app_update_coordinator.dart';
 import 'core/app_build_info.dart';
+import 'data/services/android_external_url_launcher.dart';
+import 'data/services/github_app_release_source.dart';
 import 'data/services/platform_app_restart_service.dart';
 import 'data/services/shorebird_app_update_service.dart';
 
@@ -17,14 +22,20 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   final packageInfo = await PackageInfo.fromPlatform();
-  final appUpdateService = ShorebirdAppUpdateService(
+  final hotUpdateService = ShorebirdAppUpdateService(
     updater: ShorebirdUpdater(),
   );
+  final appUpdateService = AppUpdateCoordinator(
+    currentVersion: Version.parse(packageInfo.version),
+    releaseSource: GithubAppReleaseSource(client: http.Client()),
+    hotUpdates: hotUpdateService,
+  );
   const appRestartService = PlatformAppRestartService();
+  const externalUrlLauncher = AndroidExternalUrlLauncher();
   final appBuildInfo = AppBuildInfo(
     version: packageInfo.version,
     buildNumber: packageInfo.buildNumber,
-    patchNumber: await appUpdateService.readCurrentPatchNumber(),
+    patchNumber: await hotUpdateService.readCurrentPatchNumber(),
   );
   final prefs = await SharedPreferences.getInstance();
   final container = ProviderContainer(
@@ -32,6 +43,7 @@ Future<void> main() async {
       sharedPreferencesProvider.overrideWithValue(prefs),
       appBuildInfoProvider.overrideWithValue(appBuildInfo),
       appRestartServiceProvider.overrideWithValue(appRestartService),
+      externalUrlLauncherProvider.overrideWithValue(externalUrlLauncher),
       appUpdateServiceProvider.overrideWithValue(appUpdateService),
     ],
   );

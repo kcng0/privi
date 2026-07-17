@@ -1,4 +1,3 @@
-import 'package:android_intent_plus/android_intent.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -287,7 +286,7 @@ class SettingsScreen extends ConsumerWidget {
             subtitle: Text(
               'v$versionAndPatch · ${AppInfo.licenseShort}',
             ),
-            onTap: () => _showAbout(context, versionAndPatch),
+            onTap: () => _showAbout(context, ref, versionAndPatch),
           ),
           const AppUpdateTile(),
           ListTile(
@@ -295,7 +294,7 @@ class SettingsScreen extends ConsumerWidget {
             title: Text(context.l10n.author),
             subtitle: const Text(AppInfo.author),
             trailing: const Icon(Icons.open_in_new, size: 18),
-            onTap: () => _openAuthorUrl(context),
+            onTap: () => _openAuthorUrl(context, ref),
           ),
           ListTile(
             leading: const Icon(Icons.gavel_outlined),
@@ -308,13 +307,11 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
-  Future<void> _openAuthorUrl(BuildContext context) async {
+  Future<void> _openAuthorUrl(BuildContext context, WidgetRef ref) async {
     try {
-      const intent = AndroidIntent(
-        action: 'action_view',
-        data: AppInfo.authorUrl,
-      );
-      await intent.launch();
+      await ref.read(externalUrlLauncherProvider).open(
+            Uri.parse(AppInfo.authorUrl),
+          );
     } catch (e) {
       debugPrint('open author url: $e');
       if (context.mounted) {
@@ -325,7 +322,11 @@ class SettingsScreen extends ConsumerWidget {
     }
   }
 
-  void _showAbout(BuildContext context, String versionAndBuild) {
+  void _showAbout(
+    BuildContext context,
+    WidgetRef ref,
+    String versionAndBuild,
+  ) {
     showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -368,7 +369,7 @@ class SettingsScreen extends ConsumerWidget {
               InkWell(
                 onTap: () {
                   Navigator.pop(ctx);
-                  _openAuthorUrl(context);
+                  _openAuthorUrl(context, ref);
                 },
                 child: Padding(
                   padding: const EdgeInsets.symmetric(vertical: 4),

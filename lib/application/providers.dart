@@ -21,6 +21,7 @@ import '../domain/models/media_item.dart';
 import 'gallery/gallery_controller.dart';
 import 'update/app_restart_service.dart';
 import 'update/app_update_service.dart';
+import 'update/external_url_launcher.dart';
 
 /// Core DI graph. Manual providers for Phase 1 (codegen can replace later).
 
@@ -38,6 +39,10 @@ final appUpdateServiceProvider = Provider<AppUpdateService>((ref) {
 
 final appRestartServiceProvider = Provider<AppRestartService>((ref) {
   throw UnimplementedError('appRestartServiceProvider must be overridden');
+});
+
+final externalUrlLauncherProvider = Provider<ExternalUrlLauncher>((ref) {
+  throw UnimplementedError('externalUrlLauncherProvider must be overridden');
 });
 
 final databaseProvider = Provider<AppDatabase>((ref) {

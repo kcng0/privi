@@ -13,8 +13,8 @@ void main() {
 
     expect(await service.readCurrentPatchNumber(), 3);
     expect(
-      await service.checkForUpdate(),
-      AppUpdateStatus.updateAvailable,
+      (await service.checkForUpdate()).status,
+      AppUpdateStatus.hotUpdateAvailable,
     );
 
     await service.downloadUpdate();
@@ -33,7 +33,7 @@ void main() {
       final service = ShorebirdAppUpdateService(
         updater: _FakeShorebirdUpdater(status: entry.key),
       );
-      expect(await service.checkForUpdate(), entry.value);
+      expect((await service.checkForUpdate()).status, entry.value);
     }
   });
 
