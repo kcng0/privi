@@ -76,11 +76,21 @@ class MainActivity : FlutterFragmentActivity() {
                     "scanMediaPath" -> {
                         val path = call.argument<String>("path")
                         val mime = call.argument<String>("mimeType")
+                        // Optional original capture/create epochs (seconds).
+                        val dateTakenSec = call.argument<Number>("dateTakenSec")?.toLong()
+                        val dateAddedSec = call.argument<Number>("dateAddedSec")?.toLong()
                         if (path.isNullOrEmpty()) {
                             result.success(false)
                             return@setMethodCallHandler
                         }
-                        result.success(scanMediaPath(path, mime))
+                        result.success(
+                            scanMediaPath(
+                                path,
+                                mime,
+                                dateTakenSec = dateTakenSec,
+                                dateAddedSec = dateAddedSec,
+                            ),
+                        )
                     }
                     "resolveMediaPath" -> {
                         val idStr = call.argument<String>("id")
@@ -823,8 +833,17 @@ class MainActivity : FlutterFragmentActivity() {
     /**
      * Re-index a visible file into MediaStore (unhide).
      * Clears IS_PENDING and restores a real mime type so pickers show it.
+     *
+     * When [dateTakenSec] / [dateAddedSec] are provided (Unix seconds), they are
+     * written so Gallery "Newest first" keeps the original capture order instead
+     * of the unhide/scan time.
      */
-    private fun scanMediaPath(path: String, mimeType: String?): Boolean {
+    private fun scanMediaPath(
+        path: String,
+        mimeType: String?,
+        dateTakenSec: Long? = null,
+        dateAddedSec: Long? = null,
+    ): Boolean {
         return try {
             val file = File(path)
             if (!file.exists()) return false
@@ -850,6 +869,15 @@ class MainActivity : FlutterFragmentActivity() {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     put(MediaStore.MediaColumns.IS_PENDING, 0)
                 }
+                // Original capture/create — not scan time.
+                if (dateTakenSec != null && dateTakenSec > 0L) {
+                    put(MediaStore.MediaColumns.DATE_TAKEN, dateTakenSec * 1000L)
+                    // DATE_ADDED is seconds since epoch on MediaStore.
+                    put(MediaStore.MediaColumns.DATE_ADDED, dateTakenSec)
+                }
+                if (dateAddedSec != null && dateAddedSec > 0L) {
+                    put(MediaStore.MediaColumns.DATE_ADDED, dateAddedSec)
+                }
             }
             val selection = MediaStore.MediaColumns.DATA + "=?"
             var revived = 0
@@ -866,8 +894,45 @@ class MainActivity : FlutterFragmentActivity() {
                 this,
                 arrayOf(path),
                 if (mime == null) null else arrayOf(mime),
-                null,
-            )
+            ) { scannedPath, uri ->
+                // After scan, force DATE_TAKEN / DATE_ADDED again — scanners often
+                // stamp "now" which reshuffles Gallery order after unhide.
+                if (uri != null && dateTakenSec != null && dateTakenSec > 0L) {
+                    try {
+                        val fix = ContentValues().apply {
+                            put(MediaStore.MediaColumns.DATE_TAKEN, dateTakenSec * 1000L)
+                            put(
+                                MediaStore.MediaColumns.DATE_ADDED,
+                                dateAddedSec ?: dateTakenSec,
+                            )
+                        }
+                        contentResolver.update(uri, fix, null, null)
+                    } catch (e: Exception) {
+                        android.util.Log.w("PrivateHeart", "scan date fix: $e")
+                    }
+                } else if (scannedPath != null && dateTakenSec != null && dateTakenSec > 0L) {
+                    try {
+                        val fix = ContentValues().apply {
+                            put(MediaStore.MediaColumns.DATE_TAKEN, dateTakenSec * 1000L)
+                            put(
+                                MediaStore.MediaColumns.DATE_ADDED,
+                                dateAddedSec ?: dateTakenSec,
+                            )
+                            @Suppress("DEPRECATION")
+                            put(MediaStore.MediaColumns.DATA, scannedPath)
+                        }
+                        val sel = MediaStore.MediaColumns.DATA + "=?"
+                        for (collection in mediaCollections(isVideo)) {
+                            try {
+                                contentResolver.update(collection, fix, sel, arrayOf(scannedPath))
+                            } catch (_: Exception) {
+                            }
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.w("PrivateHeart", "scan path date fix: $e")
+                    }
+                }
+            }
             true
         } catch (e: Exception) {
             android.util.Log.e("PrivateHeart", "scanMediaPath: $e")
