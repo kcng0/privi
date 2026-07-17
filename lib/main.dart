@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shorebird_code_push/shorebird_code_push.dart';
 
 import 'app.dart';
 import 'application/providers.dart';
@@ -14,9 +15,14 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   final packageInfo = await PackageInfo.fromPlatform();
+  final shorebirdUpdater = ShorebirdUpdater();
+  final currentPatch = shorebirdUpdater.isAvailable
+      ? await shorebirdUpdater.readCurrentPatch()
+      : null;
   final appBuildInfo = AppBuildInfo(
     version: packageInfo.version,
     buildNumber: packageInfo.buildNumber,
+    patchNumber: currentPatch?.number,
   );
   final prefs = await SharedPreferences.getInstance();
   final container = ProviderContainer(

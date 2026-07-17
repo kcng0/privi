@@ -1,9 +1,9 @@
 # Privi
 
-Personal, offline **Android media vault**. Hide photos & videos from the system
+Personal, on-device **Android media vault**. Hide photos & videos from the system
 gallery, rate them **1–3 hearts**, favorite, play playlists (built-in or
 **VLC**), and lock the app with **pattern / PIN + biometric**. Dark theme only.
-Sideload-only — no cloud, no accounts, no analytics.
+Sideload-only — media stays local; no cloud storage, accounts, or analytics.
 
 **Author:** [kcng0](https://github.com/kcng0) · **License:** [MIT](./LICENSE) · **Support:** [Buy Me a Coffee](https://buymeacoffee.com/kcng0).
 
@@ -40,6 +40,18 @@ for external video playback. All media stays on-device.
 > still get a Play Protect “unknown app” prompt until Google has seen the
 > binary — use **Install anyway** and leave harmful-app detection enabled.
 
+### Hot updates
+
+Starting with **v1.0.3**, release APKs include Shorebird code push. Install that
+base APK once; compatible signed Dart patches then download in the background
+and take effect after the next app restart. The About dialog shows both the base
+version/build and the applied patch number.
+
+Android/native code, plugins, permissions, bundled assets, and Flutter engine
+changes still require a new APK. Versions older than v1.0.3 do not contain the
+updater, so they require this one final manual APK upgrade. Network access is
+used for signed update checks and patch downloads; vault media stays on-device.
+
 ---
 
 ## Features
@@ -50,7 +62,7 @@ for external video playback. All media stays on-device.
 - **Built-in player** + open-in-VLC
 - **Pattern / PIN + biometric** lock, optional `FLAG_SECURE` (block screenshots)
 - **Share-to-Privi** import intents for images and videos
-- Fully offline — no `INTERNET` permission
+- On-device media storage; network access is limited to signed code updates
 
 ### Keywords / search terms
 
@@ -66,7 +78,7 @@ GitHub topics: `flutter` `android` `photo-vault` `video-vault` `private-gallery`
 
 ## Screenshots
 
-Captured on device with **Privi v0.1.0**. Dark UI only — vault stays fully offline.
+Captured on device with **Privi v0.1.0**. Dark UI only — vault media stays local.
 
 | Invisible vault | Lock | Playlist |
 |:---------------:|:----:|:--------:|
@@ -90,9 +102,9 @@ Captured on device with **Privi v0.1.0**. Dark UI only — vault stays fully off
 
 | Tool | Notes |
 |------|--------|
-| Flutter stable (≥ 3.24) | Prefer [FVM](https://fvm.app/) (`.fvmrc` pins `stable`) |
+| Flutter **3.44.6** | Prefer [FVM](https://fvm.app/) (`.fvmrc` pins the exact version) |
 | JDK 17+ | Android Gradle |
-| Android SDK | platform **36**, build-tools, cmdline-tools, licenses accepted |
+| Android SDK | platform **37**, build-tools, cmdline-tools, licenses accepted |
 | Device / emulator | Android 8.0+ (API 26) |
 
 ### One-shot setup (Ubuntu / WSL2)
@@ -150,7 +162,8 @@ Full environment notes, troubleshooting, and CI details:
 | Workflow | Trigger | What it does |
 |----------|---------|--------------|
 | [CI](./.github/workflows/ci.yaml) | push / PR to `main` | format, codegen, analyze, test only |
-| [Release](./.github/workflows/release.yml) | tag `v*` or manual dispatch | release APK + checksums (+ GitHub source zip/tar) |
+| [Release](./.github/workflows/release.yml) | tag `v*` or manual dispatch | Shorebird base APK + checksums + GitHub Release |
+| [Patch](./.github/workflows/patch.yml) | manual dispatch on `main` | signed Dart patch for an existing base release |
 
 To cut a release from a clean `main`:
 
@@ -160,7 +173,10 @@ git tag v0.1.1
 git push origin v0.1.1
 ```
 
-Or run **Actions → Release APK → Run workflow**.
+Or run **Actions → Release APK → Run workflow**. For Dart-only fixes that do
+not require a new APK, merge the change through a PR without bumping the app
+version, then run **Actions → Shorebird Patch** with the exact base version
+(for example `1.0.3+4`).
 
 ---
 

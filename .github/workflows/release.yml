@@ -1,6 +1,6 @@
 name: Release APK
 
-# Build a sideloadable release APK and publish a GitHub Release with:
+# Build a Shorebird-enabled sideloadable APK and publish a GitHub Release with:
 #   - privi-<version>.apk
 #   - SHA256SUMS (+ .sha256 sidecar)
 # GitHub also auto-attaches Source code (zip) and Source code (tar.gz) for the tag.
@@ -14,6 +14,7 @@ name: Release APK
 #   ANDROID_KEYSTORE_PASSWORD
 #   ANDROID_KEY_ALIAS
 #   ANDROID_KEY_PASSWORD
+#   SHOREBIRD_TOKEN           Shorebird CI token
 # Generate locally with: ./scripts/setup-release-keystore.sh
 on:
   push:
@@ -50,6 +51,11 @@ jobs:
           flutter-version: "3.44.6"
           cache: true
 
+      - name: Set up Shorebird
+        uses: shorebirdtech/setup-shorebird@v1
+        with:
+          cache: true
+
       - name: Show Flutter version
         run: flutter --version
 
@@ -69,18 +75,28 @@ jobs:
 
       - name: Resolve version
         id: version
+        env:
+          DISPATCH_TAG: ${{ inputs.tag }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
         run: |
           set -euo pipefail
           # pubspec: version: 0.1.0+1  →  name=0.1.0  code=1
           FULL=$(grep -E '^version:' pubspec.yaml | head -1 | awk '{print $2}')
           NAME="${FULL%%+*}"
           CODE="${FULL##*+}"
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.tag }}" ]; then
-            TAG="${{ inputs.tag }}"
-          elif [ "${{ github.ref_type }}" = "tag" ]; then
-            TAG="${{ github.ref_name }}"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ -n "$DISPATCH_TAG" ]; then
+            TAG="$DISPATCH_TAG"
+          elif [ "$REF_TYPE" = "tag" ]; then
+            TAG="$REF_NAME"
           else
             TAG="v${NAME}"
+          fi
+          EXPECTED_TAG="v${NAME}"
+          if [ "$TAG" != "$EXPECTED_TAG" ]; then
+            echo "error: release tag '$TAG' must match pubspec version '$EXPECTED_TAG'" >&2
+            exit 1
           fi
           FILE_VER="${TAG#v}"
           {
@@ -93,16 +109,17 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "Resolved release: tag=${TAG} pubspec=${FULL} apk=privi-${FILE_VER}.apk"
 
-      - name: Decode release keystore
+      - name: Decode release credentials
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          SHOREBIRD_TOKEN: ${{ secrets.SHOREBIRD_TOKEN }}
         run: |
           set -euo pipefail
           missing=0
-          for v in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+          for v in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD SHOREBIRD_TOKEN; do
             if [ -z "${!v:-}" ]; then
               echo "error: missing repository secret: $v" >&2
               missing=1
@@ -127,8 +144,17 @@ jobs:
           } > android/key.properties
           chmod 600 android/app/upload-keystore.jks android/key.properties
 
-      - name: Build release APK
-        run: flutter build apk --release
+      - name: Create Shorebird release APK
+        id: shorebird-release
+        uses: shorebirdtech/shorebird-release@v1
+        env:
+          SHOREBIRD_TOKEN: ${{ secrets.SHOREBIRD_TOKEN }}
+        with:
+          flutter-version: "3.44.6"
+          platform: android
+          args: >-
+            --artifact=apk
+            --public-key-path=shorebird_public.pem
 
       - name: Verify APK is release-signed (not debug)
         run: |
@@ -233,7 +259,7 @@ jobs:
           body: |
             ## Privi ${{ steps.version.outputs.tag }}
 
-            Sideload APK for Android 8.0+ (API 26). Offline media vault — no cloud, no accounts, no analytics.
+            Sideload APK for Android 8.0+ (API 26). Media stays on-device; no cloud storage, accounts, or analytics.
             **License:** MIT (see `LICENSE`).
 
             ### Downloads
@@ -263,11 +289,13 @@ jobs:
                ```
             3. On your phone, open the APK and allow install from that source if asked.
             4. If Play Protect warns on first install of a new signature, choose **More details → Install anyway** and leave **Improve harmful app detection** enabled so Google can learn this build is safe.
-            5. Launch **Privi**.
+            5. Launch **Privi**. Future compatible Dart updates download in the background and apply on the next restart without reinstalling the APK.
 
             | | |
             |---|---|
             | **pubspec version** | `${{ steps.version.outputs.full }}` |
+            | **Shorebird release** | `${{ steps.shorebird-release.outputs.release-version }}` |
+            | **Code push** | signed Dart patches; native/plugin/asset changes require a new APK |
             | **Signing** | permanent release keystore (CI secrets) |
             | **Min Android** | 8.0 (API 26) |
             | **targetSdk** | 36 |

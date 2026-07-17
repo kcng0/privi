@@ -1264,6 +1264,12 @@ abstract class AppLocalizations {
   /// **'Version {version}'**
   String versionLabel(String version);
 
+  /// No description provided for @patchLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Patch {number}'**
+  String patchLabel(int number);
+
   /// No description provided for @authorLabel.
   ///
   /// In en, this message translates to:

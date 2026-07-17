@@ -29,7 +29,8 @@ android {
 
     defaultConfig {
         applicationId = "com.privi.app"
-        minSdk = flutter.minSdkVersion
+        // Product baseline documented in the architecture and install guides.
+        minSdk = 26
         // Keep current Play / Play Protect baseline (API 34+ required; 36 is fine).
         targetSdk = 36
         versionCode = flutter.versionCode

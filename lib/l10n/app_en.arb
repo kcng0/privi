@@ -403,6 +403,14 @@
       }
     }
   },
+  "patchLabel": "Patch {number}",
+  "@patchLabel": {
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  },
   "authorLabel": "Author: {author}",
   "@authorLabel": {
     "placeholders": {

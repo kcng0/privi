@@ -194,6 +194,7 @@
   "license": "授權條款",
   "couldNotOpenBrowser": "無法開啟瀏覽器",
   "versionLabel": "版本 {version}",
+  "patchLabel": "修補 {number}",
   "authorLabel": "作者：{author}",
   "exportFailed": "匯出失敗：{error}",
   "importFailed": "匯入失敗：{error}",

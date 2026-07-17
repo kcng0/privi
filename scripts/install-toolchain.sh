@@ -9,7 +9,7 @@
 #   ./scripts/install-toolchain.sh --doctor     # just run `flutter doctor -v`
 #
 # Override defaults with env vars, e.g.:
-#   CMDLINE_TOOLS_VERSION=13114758 ANDROID_PLATFORM=android-34 ./scripts/install-toolchain.sh
+#   CMDLINE_TOOLS_VERSION=13114758 ANDROID_PLATFORM=android-37 ./scripts/install-toolchain.sh
 #
 # NON-goals: this does NOT install a device/emulator (impractical on WSL2 —
 # use a physical phone; see the guide) and does NOT run the project bootstrap
@@ -24,7 +24,7 @@ FLUTTER_CHANNEL="${FLUTTER_CHANNEL:-stable}"
 FLUTTER_HOME="${FLUTTER_HOME:-$HOME/flutter}"
 ANDROID_HOME="${ANDROID_HOME:-$HOME/Android/Sdk}"
 CMDLINE_TOOLS_VERSION="${CMDLINE_TOOLS_VERSION:-11076708}" # see guide to update
-ANDROID_PLATFORM="${ANDROID_PLATFORM:-android-36}" # match Flutter's required platform
+ANDROID_PLATFORM="${ANDROID_PLATFORM:-android-37}" # match compileSdk in android/app
 BUILD_TOOLS="${BUILD_TOOLS:-36.0.0}"
 
 APT_PKGS=(curl git unzip xz-utils zip libglu1-mesa)

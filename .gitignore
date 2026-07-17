@@ -81,6 +81,7 @@ app.*.map.json
 *.local
 secrets/
 *.pem
+!shorebird_public.pem
 *.p12
 credentials.json
 service-account*.json

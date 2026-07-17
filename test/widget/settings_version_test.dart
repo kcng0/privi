@@ -21,7 +21,11 @@ void main() {
         overrides: [
           sharedPreferencesProvider.overrideWithValue(preferences),
           appBuildInfoProvider.overrideWithValue(
-            AppBuildInfo(version: '1.2.3', buildNumber: '42'),
+            AppBuildInfo(
+              version: '1.2.3',
+              buildNumber: '42',
+              patchNumber: 7,
+            ),
           ),
           lockControllerProvider.overrideWith(_UnlockedLock.new),
           vaultSizeBytesProvider.overrideWith((ref) async => 0),
@@ -36,12 +40,12 @@ void main() {
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(find.text(AppInfo.name), 500);
 
-    expect(find.text('v1.2.3 (42) · MIT License'), findsOneWidget);
+    expect(find.text('v1.2.3 (42) · Patch 7 · MIT License'), findsOneWidget);
 
     await tester.tap(find.widgetWithText(ListTile, AppInfo.name));
     await tester.pumpAndSettle();
 
-    expect(find.text('Version 1.2.3 (42)'), findsOneWidget);
+    expect(find.text('Version 1.2.3 (42) · Patch 7'), findsOneWidget);
   });
 }
 
