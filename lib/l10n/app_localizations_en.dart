@@ -465,6 +465,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get confirmPattern => 'Confirm pattern';
 
   @override
+  String get redrawPattern => 'Redraw pattern';
+
+  @override
   String get drawYourPattern => 'Draw your pattern';
 
   @override

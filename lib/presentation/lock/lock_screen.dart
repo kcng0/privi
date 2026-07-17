@@ -92,6 +92,18 @@ class _LockScreenState extends ConsumerState<LockScreen> {
     });
   }
 
+  /// First-run / recovery: leave confirm step and redraw the initial pattern.
+  void _backFromConfirmSetup() {
+    if (_busy || !_confirming) return;
+    setState(() {
+      _setupFirst = null;
+      _confirming = false;
+      _patternError = false;
+      _patternKey++;
+    });
+    ref.read(lockControllerProvider.notifier).clearError();
+  }
+
   Future<void> _onPattern(String pattern) async {
     if (_busy) return;
     final lock = ref.read(lockControllerProvider);
@@ -324,104 +336,145 @@ class _LockScreenState extends ConsumerState<LockScreen> {
     final patternSize =
         (MediaQuery.sizeOf(context).shortestSide * 0.72).clamp(240.0, 320.0);
 
-    return Scaffold(
-      body: SafeArea(
-        minimum: const EdgeInsets.only(top: 8),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Expanded(
-              child: Center(
-                child: SingleChildScrollView(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.lock_outline,
-                        size: 48,
-                        color: context.vaultColors.heart,
-                      ),
-                      const SizedBox(height: AppSpacing.lg),
-                      Text(
-                        title,
-                        textAlign: TextAlign.center,
-                        style: theme.textTheme.headlineSmall,
-                      ),
-                      if (isSetup && !_confirming)
-                        Padding(
-                          padding: const EdgeInsets.only(top: AppSpacing.sm),
-                          child: Text(
-                            context.l10n.connectAtLeast4Dots,
+    // Setup confirm step: system back returns to first pattern (not app exit).
+    final canPopSetupConfirm = !(isSetup && _confirming);
+
+    return PopScope(
+      canPop: canPopSetupConfirm,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && isSetup && _confirming) {
+          _backFromConfirmSetup();
+        }
+      },
+      child: Scaffold(
+        appBar: isSetup && _confirming
+            ? AppBar(
+                backgroundColor: Colors.transparent,
+                elevation: 0,
+                leading: IconButton(
+                  tooltip: MaterialLocalizations.of(context).backButtonTooltip,
+                  onPressed: _busy ? null : _backFromConfirmSetup,
+                  icon: const Icon(Icons.arrow_back),
+                ),
+              )
+            : null,
+        body: SafeArea(
+          minimum: const EdgeInsets.only(top: 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: Center(
+                  child: SingleChildScrollView(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.lock_outline,
+                          size: 48,
+                          color: context.vaultColors.heart,
+                        ),
+                        const SizedBox(height: AppSpacing.lg),
+                        Text(
+                          title,
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.headlineSmall,
+                        ),
+                        if (isSetup && !_confirming)
+                          Padding(
+                            padding: const EdgeInsets.only(top: AppSpacing.sm),
+                            child: Text(
+                              context.l10n.connectAtLeast4Dots,
+                              textAlign: TextAlign.center,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                        if (isSetup && _confirming)
+                          Padding(
+                            padding: const EdgeInsets.only(top: AppSpacing.sm),
+                            child: Text(
+                              context.l10n.drawSamePatternAgain,
+                              textAlign: TextAlign.center,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                        if (hasError && lock.errorMessage != null) ...[
+                          const SizedBox(height: AppSpacing.sm),
+                          Text(
+                            _mapLockError(context, lock.errorMessage),
                             textAlign: TextAlign.center,
                             style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
+                              color: theme.colorScheme.error,
                             ),
                           ),
-                        ),
-                      if (hasError && lock.errorMessage != null) ...[
-                        const SizedBox(height: AppSpacing.sm),
-                        Text(
-                          _mapLockError(context, lock.errorMessage),
-                          textAlign: TextAlign.center,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.error,
+                        ],
+                        if (usePattern) ...[
+                          const SizedBox(height: AppSpacing.xl),
+                          // Explicit Center — fixed-size pattern must not hug left.
+                          Center(
+                            child: PatternLock(
+                              key: ValueKey(_patternKey),
+                              size: patternSize,
+                              onCompleted: _onPattern,
+                              enabled: !_busy,
+                              error: hasError,
+                            ),
                           ),
-                        ),
-                      ],
-                      if (usePattern) ...[
-                        const SizedBox(height: AppSpacing.xl),
-                        // Explicit Center — fixed-size pattern must not hug left.
-                        Center(
-                          child: PatternLock(
-                            key: ValueKey(_patternKey),
-                            size: patternSize,
-                            onCompleted: _onPattern,
-                            enabled: !_busy,
+                          if (isSetup && _confirming) ...[
+                            const SizedBox(height: AppSpacing.md),
+                            TextButton.icon(
+                              onPressed: _busy ? null : _backFromConfirmSetup,
+                              icon: const Icon(Icons.replay, size: 18),
+                              label: Text(context.l10n.redrawPattern),
+                            ),
+                          ],
+                          if (showBio) ...[
+                            const SizedBox(height: AppSpacing.lg),
+                            Center(
+                              child: IconButton.filledTonal(
+                                tooltip: context.l10n.unlockWithBiometric,
+                                onPressed: _busy ? null : _onBiometric,
+                                icon: const Icon(Icons.fingerprint, size: 28),
+                              ),
+                            ),
+                          ],
+                          if (!isSetup) ...[
+                            const SizedBox(height: AppSpacing.md),
+                            TextButton(
+                              onPressed: _busy ? null : _forgotPattern,
+                              child: Text(context.l10n.forgotPatternTitle),
+                            ),
+                          ],
+                        ] else ...[
+                          const SizedBox(height: AppSpacing.xl),
+                          PinDots(
+                            length: _pinLen,
+                            filled: _buffer.length,
                             error: hasError,
                           ),
-                        ),
-                        if (showBio) ...[
-                          const SizedBox(height: AppSpacing.lg),
-                          Center(
-                            child: IconButton.filledTonal(
-                              tooltip: context.l10n.unlockWithBiometric,
-                              onPressed: _busy ? null : _onBiometric,
-                              icon: const Icon(Icons.fingerprint, size: 28),
-                            ),
-                          ),
                         ],
-                        if (!isSetup) ...[
-                          const SizedBox(height: AppSpacing.md),
-                          TextButton(
-                            onPressed: _busy ? null : _forgotPattern,
-                            child: Text(context.l10n.forgotPatternTitle),
-                          ),
-                        ],
-                      ] else ...[
-                        const SizedBox(height: AppSpacing.xl),
-                        PinDots(
-                          length: _pinLen,
-                          filled: _buffer.length,
-                          error: hasError,
-                        ),
                       ],
-                    ],
+                    ),
                   ),
                 ),
               ),
-            ),
-            if (!usePattern)
-              PinPad(
-                onDigit: _onDigit,
-                onBackspace: _backspace,
-                showBiometric: showBio,
-                onBiometric: _onBiometric,
-              ),
-            const SizedBox(height: AppSpacing.xl),
-          ],
+              if (!usePattern)
+                PinPad(
+                  onDigit: _onDigit,
+                  onBackspace: _backspace,
+                  showBiometric: showBio,
+                  onBiometric: _onBiometric,
+                ),
+              const SizedBox(height: AppSpacing.xl),
+            ],
+          ),
         ),
       ),
     );

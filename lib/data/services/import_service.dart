@@ -1101,6 +1101,8 @@ class ImportService {
     String? assetId,
   }) async {
     // Fast path: MediaStore thumbnail (may still work briefly after move).
+    // For videos, reject near-black system posters so we fall through to the
+    // native %seek + luma MediaMetadataRetriever pipeline.
     if (assetId != null) {
       try {
         final entity = await AssetEntity.fromId(assetId);
@@ -1109,9 +1111,13 @@ class ImportService {
           quality: 70,
         );
         if (bytes != null && bytes.isNotEmpty) {
-          final out = await _storage.thumbFileFor(id);
-          await out.writeAsBytes(bytes, flush: true);
-          return out.path;
+          final nearBlack = isVideo && await _isNearBlackImageBytes(bytes);
+          if (!nearBlack) {
+            final out = await _storage.thumbFileFor(id);
+            await out.writeAsBytes(bytes, flush: true);
+            return out.path;
+          }
+          debugPrint('asset thumb rejected (near-black) for $id');
         }
       } catch (e) {
         debugPrint('asset thumb: $e');
@@ -1119,6 +1125,7 @@ class ImportService {
     }
 
     // Videos: decode a still from the vault file (MediaMetadataRetriever).
+    // Native side: dynamic % seek + sampled luminance across candidates.
     if (isVideo) {
       try {
         final out = await _storage.thumbFileFor(id);
@@ -1155,6 +1162,50 @@ class ImportService {
     } catch (e) {
       debugPrint('file thumb: $e');
       return null;
+    }
+  }
+
+  /// True when average Rec.601 luma of [bytes] is below [threshold] (0–255).
+  /// Samples a coarse grid after decode — used to reject black MediaStore posters.
+  Future<bool> _isNearBlackImageBytes(
+    Uint8List bytes, {
+    double threshold = 15.0,
+  }) async {
+    ui.Image? image;
+    try {
+      final codec = await ui.instantiateImageCodec(bytes, targetWidth: 64);
+      final frame = await codec.getNextFrame();
+      image = frame.image;
+      final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+      if (data == null) return false;
+      final w = image.width;
+      final h = image.height;
+      if (w <= 0 || h <= 0) return false;
+
+      final bd = data.buffer.asUint8List();
+      var total = 0.0;
+      var samples = 0;
+      final stepX = (w / 10).floor().clamp(1, w);
+      final stepY = (h / 10).floor().clamp(1, h);
+      for (var y = 0; y < h; y += stepY) {
+        for (var x = 0; x < w; x += stepX) {
+          final i = (y * w + x) * 4;
+          if (i + 2 >= bd.length) continue;
+          final r = bd[i];
+          final g = bd[i + 1];
+          final b = bd[i + 2];
+          total += 0.299 * r + 0.587 * g + 0.114 * b;
+          samples++;
+        }
+      }
+      if (samples == 0) return false;
+      return (total / samples) < threshold;
+    } catch (e) {
+      debugPrint('luma check: $e');
+      // On decode failure, do not block the fast path.
+      return false;
+    } finally {
+      image?.dispose();
     }
   }
 }
