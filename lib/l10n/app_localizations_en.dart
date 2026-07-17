@@ -665,6 +665,36 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get checkUpdates => 'Check updates';
+
+  @override
+  String get updateAvailableTitle => 'Update available';
+
+  @override
+  String get updateDownloadPrompt => 'Download now? Applies after restart.';
+
+  @override
+  String get later => 'Later';
+
+  @override
+  String get updateAction => 'Update';
+
+  @override
+  String get upToDate => 'Up to date';
+
+  @override
+  String get updateReadyRestart => 'Update ready. Restart Privi.';
+
+  @override
+  String get updatesUnavailable => 'Updates unavailable';
+
+  @override
+  String get updateCheckFailed => 'Check failed';
+
+  @override
+  String get updateDownloadFailed => 'Update failed';
+
+  @override
   String authorLabel(String author) {
     return 'Author: $author';
   }

@@ -411,6 +411,16 @@
       }
     }
   },
+  "checkUpdates": "Check updates",
+  "updateAvailableTitle": "Update available",
+  "updateDownloadPrompt": "Download now? Applies after restart.",
+  "later": "Later",
+  "updateAction": "Update",
+  "upToDate": "Up to date",
+  "updateReadyRestart": "Update ready. Restart Privi.",
+  "updatesUnavailable": "Updates unavailable",
+  "updateCheckFailed": "Check failed",
+  "updateDownloadFailed": "Update failed",
   "authorLabel": "Author: {author}",
   "@authorLabel": {
     "placeholders": {
