@@ -1,11 +1,12 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:photo_manager/photo_manager.dart';
 import '../../domain/enums.dart';
 import 'hide_naming.dart';
+import 'import/asset_gateway.dart';
+import 'import/file_system_gateway.dart';
 import 'import_service.dart';
 import 'media_store_service.dart';
 
@@ -61,31 +62,229 @@ class GalleryAsset {
   final int? createDateMs;
 }
 
-class GalleryService {
+sealed class VisibleMutation {
+  const VisibleMutation();
+}
+
+class VisibleHidden extends VisibleMutation {
+  const VisibleHidden({
+    required this.pathId,
+    required this.hiddenCount,
+    this.assetIds = const [],
+    this.originalPaths = const [],
+  });
+
+  final String pathId;
+  final int hiddenCount;
+  final List<String> assetIds;
+  final List<String> originalPaths;
+}
+
+class VisibleRevealed extends VisibleMutation {
+  const VisibleRevealed();
+}
+
+class VisibleFilterChanged extends VisibleMutation {
+  const VisibleFilterChanged();
+}
+
+class VisiblePermissionChanged extends VisibleMutation {
+  const VisiblePermissionChanged();
+}
+
+class VisibleLibrarySnapshot {
+  const VisibleLibrarySnapshot({
+    required this.folders,
+    required this.isExcluded,
+  });
+
+  final List<GalleryFolder> folders;
+  final bool Function(AssetEntity asset) isExcluded;
+}
+
+/// Single owner for Visible-library caches, exclusions, and mutations.
+class VisibleLibraryState {
   final Map<MediaKindFilter, List<AssetPathEntity>> _pathCache = {};
   DateTime? _pathCacheAt;
+  final Set<String> _affectedPathIds = {};
+  final Map<String, int> _coverEpoch = {};
+  final Set<String> _hiddenAssetIds = {};
+  final Set<String> _hiddenOriginalKeys = {};
+  bool _vaultHydrated = false;
+  List<GalleryFolder> _folders = const [];
+  MediaKindFilter? _foldersFilter;
+
+  final _changes = StreamController<int>.broadcast();
+  int _version = 0;
+
+  Stream<int> get changes => _changes.stream;
+
+  void dispose() => _changes.close();
+
+  void apply(VisibleMutation mutation) {
+    switch (mutation) {
+      case VisibleHidden():
+        _applyHidden(mutation);
+      case VisibleRevealed():
+        _affectedPathIds.clear();
+        _hiddenAssetIds.clear();
+        _hiddenOriginalKeys.clear();
+        _vaultHydrated = false;
+        _folders = const [];
+        _foldersFilter = null;
+        invalidatePaths(notify: false);
+      case VisibleFilterChanged() || VisiblePermissionChanged():
+        _folders = const [];
+        _foldersFilter = null;
+        invalidatePaths(notify: false);
+    }
+    _notify();
+  }
+
+  void _applyHidden(VisibleHidden mutation) {
+    if (mutation.hiddenCount <= 0) return;
+    if (mutation.pathId.isNotEmpty) _affectedPathIds.add(mutation.pathId);
+    _coverEpoch[mutation.pathId] = (_coverEpoch[mutation.pathId] ?? 0) + 1;
+    _hiddenAssetIds.addAll(mutation.assetIds);
+    _hiddenOriginalKeys.addAll(
+      mutation.originalPaths.map(originalPathKey).whereType<String>(),
+    );
+
+    _folders = [
+      for (final folder in _folders)
+        if (folder.id == mutation.pathId)
+          folder.copyWith(
+            count: math.max(0, folder.count - mutation.hiddenCount),
+            coverEpoch: _coverEpoch[folder.id] ?? folder.coverEpoch,
+          )
+        else
+          folder,
+    ].where((folder) => folder.count > 0).toList(growable: false);
+  }
+
+  void hydrateOriginalPaths(Iterable<String> paths) {
+    _hiddenOriginalKeys
+      ..clear()
+      ..addAll(paths.map(originalPathKey).whereType<String>());
+    _vaultHydrated = true;
+    _notify();
+  }
+
+  void setFolders(MediaKindFilter filter, List<GalleryFolder> value) {
+    _foldersFilter = filter;
+    _folders = List.unmodifiable(value);
+  }
+
+  void reconcileCount(String pathId, int visibleCount) {
+    _folders = [
+      for (final folder in _folders)
+        if (folder.id == pathId)
+          folder.copyWith(
+            count: visibleCount,
+            coverEpoch: _coverEpoch[pathId] ?? folder.coverEpoch,
+          )
+        else
+          folder,
+    ].where((folder) => folder.count > 0).toList(growable: false);
+    _notify();
+  }
+
+  VisibleLibrarySnapshot snapshot(MediaKindFilter filter) {
+    final assetIds = Set<String>.unmodifiable(_hiddenAssetIds);
+    final originalKeys = Set<String>.unmodifiable(_hiddenOriginalKeys);
+    final hydrated = _vaultHydrated;
+    return VisibleLibrarySnapshot(
+      folders: _foldersFilter == filter
+          ? List<GalleryFolder>.unmodifiable(_folders)
+          : const [],
+      isExcluded: (asset) {
+        if (assetIds.contains(asset.id) ||
+            GalleryService.isHiddenAsset(asset)) {
+          return true;
+        }
+        if (!hydrated) return false;
+        final key = assetKey(asset.relativePath, asset.title);
+        return key != null && originalKeys.contains(key);
+      },
+    );
+  }
+
+  bool isExcluded(AssetEntity asset) {
+    return isExcludedKey(
+      assetId: asset.id,
+      relativePath: asset.relativePath,
+      title: asset.title,
+      hasHiddenMarker: GalleryService.isHiddenAsset(asset),
+    );
+  }
+
+  @visibleForTesting
+  bool isExcludedKey({
+    required String assetId,
+    required String? relativePath,
+    required String? title,
+    bool hasHiddenMarker = false,
+  }) {
+    if (_hiddenAssetIds.contains(assetId) || hasHiddenMarker) return true;
+    if (!_vaultHydrated) return false;
+    final key = assetKey(relativePath, title);
+    return key != null && _hiddenOriginalKeys.contains(key);
+  }
+
+  void invalidatePaths({bool notify = true}) {
+    _pathCache.clear();
+    _pathCacheAt = null;
+    if (notify) _notify();
+  }
+
+  void _notify() => _changes.add(++_version);
+
+  static String? assetKey(String? relativePath, String? title) {
+    if (relativePath == null || title == null || title.isEmpty) return null;
+    final rel = _normalize(relativePath).replaceAll(RegExp(r'^/+|/+$'), '');
+    if (rel.isEmpty) return null;
+    return '${rel.toLowerCase()}/${title.toLowerCase()}';
+  }
+
+  static String? originalPathKey(String path) {
+    var normalized = _normalize(path.trim());
+    if (normalized.isEmpty) return null;
+    for (final prefix in const ['/storage/emulated/0/', '/sdcard/']) {
+      if (normalized.toLowerCase().startsWith(prefix)) {
+        normalized = normalized.substring(prefix.length);
+        break;
+      }
+    }
+    final directory = p.dirname(normalized).replaceAll(RegExp(r'^/+|/+$'), '');
+    final name = p.basename(normalized);
+    if (directory.isEmpty || name.isEmpty) return null;
+    return '${directory.toLowerCase()}/${name.toLowerCase()}';
+  }
+
+  static String _normalize(String path) => path.replaceAll('\\', '/');
+}
+
+class GalleryService {
+  GalleryService({
+    AssetGateway? assetGateway,
+    FileSystemGateway? fileSystem,
+    MediaStoreService? mediaStore,
+    VisibleLibraryState? visibleState,
+  })  : _assets = assetGateway ?? const PhotoManagerAssetGateway(),
+        _files = fileSystem ?? const IoFileSystemGateway(),
+        _mediaStore = mediaStore ?? MediaStoreService(),
+        _visibleState = visibleState ?? VisibleLibraryState();
+
+  final AssetGateway _assets;
+  final FileSystemGateway _files;
+  final MediaStoreService _mediaStore;
+  final VisibleLibraryState _visibleState;
+
   static const _cacheTtl = Duration(seconds: 45);
 
-  /// Session deductions after hide (MediaStore still lists rename-hidden files).
-  final Map<String, int> _hiddenDeduction = {};
+  Stream<int> get changes => _visibleState.changes;
 
-  /// Force cover reload after hide for a path.
-  final Map<String, int> _coverEpoch = {};
-
-  /// Asset ids hidden this session (fast filter for asset grids).
-  final Set<String> _hiddenAssetIds = {};
-
-  /// Absolute paths already in the vault (cold-start count hydration).
-  final Set<String> _vaultHiddenPaths = {};
-
-  /// Basenames of vault hidden files for O(1) asset title filtering.
-  final Set<String> _vaultHiddenBasenames = {};
-
-  bool _vaultHydrated = false;
-
-  /// Last fast folder snapshot (for optimistic patches without full I/O).
-  List<GalleryFolder>? _lastFolders;
-  MediaKindFilter? _lastFoldersFilter;
+  void dispose() => _visibleState.dispose();
 
   RequestType _requestType(MediaKindFilter filter) {
     return switch (filter) {
@@ -111,124 +310,56 @@ class GalleryService {
   }
 
   Future<bool> hasPermission() async {
-    final s = await PhotoManager.getPermissionState(
-      requestOption: const PermissionRequestOption(),
-    );
+    final s = await permissionState();
     return s.isAuth || s.hasAccess;
   }
 
-  void invalidateCache() {
-    _pathCache.clear();
-    _pathCacheAt = null;
+  Future<PermissionState> permissionState() {
+    return PhotoManager.getPermissionState(
+      requestOption: const PermissionRequestOption(),
+    );
   }
 
-  /// Lightweight cache drop only — no multi-second MediaStore sweeps.
-  void refreshAfterMutation() {
-    invalidateCache();
-  }
+  Future<void> clearFileCache() => _assets.clearFileCache();
 
-  bool get isVaultHydrated => _vaultHydrated;
-
-  /// Drop path cache so the next [ensureVaultHydrated] reloads from DB.
-  void invalidateVaultPathCache() {
-    _vaultHydrated = false;
-    _vaultHiddenPaths.clear();
-    _vaultHiddenBasenames.clear();
-  }
-
-  /// Clear session-only hide bookkeeping (deductions + asset ids).
-  ///
-  /// Required after unhide/restore: [noteHidden] subtracts from Visible counts,
-  /// and without reversing those deductions restored folders stay at 0 and are
-  /// filtered out of [listFolders] until process restart.
-  void clearSessionHideDeductions() {
-    _hiddenDeduction.clear();
-    _hiddenAssetIds.clear();
-    _lastFolders = null;
-    _lastFoldersFilter = null;
-    invalidateCache();
-  }
-
-  /// Full refresh after unhide/restore: drop hide deductions + MediaStore path cache.
-  void refreshAfterReveal() {
-    clearSessionHideDeductions();
-    invalidateVaultPathCache();
-  }
-
-  /// Hydrate once per process until [invalidateVaultPathCache] / force hydrate.
+  /// Hydrate once per process until a reveal or permission/filter mutation.
   Future<void> ensureVaultHydrated(
     Future<List<String>> Function() loadPaths,
   ) async {
-    if (_vaultHydrated) return;
+    if (_visibleState._vaultHydrated) return;
     hydrateFromVaultPaths(await loadPaths());
   }
 
   /// Seed deductions from vault DB paths so Visible counts stay correct after
   /// cold start (session deductions alone only cover hides in this process).
-  void hydrateFromVaultPaths(Iterable<String> privatePaths) {
-    _vaultHiddenPaths.clear();
-    _vaultHiddenBasenames.clear();
-    for (final raw in privatePaths) {
-      final path = raw.trim();
-      if (path.isEmpty) continue;
-      final norm = _normalizePath(path);
-      _vaultHiddenPaths.add(norm);
-      _vaultHiddenBasenames.add(p.basename(norm));
-    }
-    _vaultHydrated = true;
+  void hydrateFromVaultPaths(Iterable<String> originalPaths) {
+    _visibleState.hydrateOriginalPaths(originalPaths);
   }
 
-  static String _normalizePath(String path) {
-    // Android paths may differ by trailing slash / case of volume root.
-    var s = path.replaceAll('\\', '/');
-    if (s.length > 1 && s.endsWith('/')) s = s.substring(0, s.length - 1);
-    return s;
-  }
+  void apply(VisibleMutation mutation) => _visibleState.apply(mutation);
 
-  /// Instant UI update after a successful hide (no library-wide scan).
-  ///
-  /// Rename-hide leaves the file in MediaStore under a new name, so raw album
-  /// counts do not drop. We deduct [hiddenCount] from [pathId] and the "All"
-  /// album, bump cover epoch, and remember asset ids for the media grid.
-  List<GalleryFolder>? noteHidden({
+  VisibleLibrarySnapshot snapshot(MediaKindFilter filter) =>
+      _visibleState.snapshot(filter);
+
+  /// Apply an optimistic hide, then reconcile the affected folder precisely.
+  Future<void> recordHidden({
     required String pathId,
     required int hiddenCount,
+    required MediaKindFilter filter,
     List<String> assetIds = const [],
-  }) {
-    if (hiddenCount <= 0) return _lastFolders;
-    _hiddenDeduction[pathId] = (_hiddenDeduction[pathId] ?? 0) + hiddenCount;
-    _coverEpoch[pathId] = (_coverEpoch[pathId] ?? 0) + 1;
-    _hiddenAssetIds.addAll(assetIds);
-
-    if (_lastFolders == null) return null;
-
-    String? allId;
-    for (final f in _lastFolders!) {
-      if (f.isAll) {
-        allId = f.id;
-        break;
-      }
-    }
-    if (allId != null && allId != pathId) {
-      _hiddenDeduction[allId] = (_hiddenDeduction[allId] ?? 0) + hiddenCount;
-      _coverEpoch[allId] = (_coverEpoch[allId] ?? 0) + 1;
-    }
-
-    _lastFolders = [
-      for (final f in _lastFolders!)
-        if (f.id == pathId || f.id == allId)
-          f.copyWith(
-            count: math.max(0, f.count - hiddenCount),
-            coverEpoch: _coverEpoch[f.id] ?? f.coverEpoch,
-          )
-        else
-          f,
-    ]
-        // Drop empty folders (except keep All if it still has items).
-        .where((f) => f.count > 0)
-        .toList();
-
-    return _lastFolders;
+    List<String> originalPaths = const [],
+  }) async {
+    _visibleState.apply(
+      VisibleHidden(
+        pathId: pathId,
+        hiddenCount: hiddenCount,
+        assetIds: assetIds,
+        originalPaths: originalPaths,
+      ),
+    );
+    _visibleState.invalidatePaths();
+    final count = await recountVisible(pathId: pathId, filter: filter);
+    _visibleState.reconcileCount(pathId, count);
   }
 
   Future<List<AssetPathEntity>> _paths(
@@ -236,11 +367,11 @@ class GalleryService {
     bool force = false,
   }) async {
     final now = DateTime.now();
-    final cached = _pathCache[filter];
+    final cached = _visibleState._pathCache[filter];
     if (!force &&
         cached != null &&
-        _pathCacheAt != null &&
-        now.difference(_pathCacheAt!) < _cacheTtl) {
+        _visibleState._pathCacheAt != null &&
+        now.difference(_visibleState._pathCacheAt!) < _cacheTtl) {
       return cached;
     }
     // hasAll: false — do not request the virtual Recent/All album at all.
@@ -251,12 +382,12 @@ class GalleryService {
       onlyAll: false,
       filterOption: _filterOptions,
     );
-    _pathCache[filter] = list;
-    _pathCacheAt = now;
+    _visibleState._pathCache[filter] = list;
+    _visibleState._pathCacheAt = now;
     return list;
   }
 
-  static bool _isHiddenAsset(AssetEntity a) {
+  static bool isHiddenAsset(AssetEntity a) {
     final title = a.title ?? '';
     if (HideNaming.isHiddenPath(title)) return true;
     final rel = a.relativePath ?? '';
@@ -265,17 +396,7 @@ class GalleryService {
   }
 
   bool _isExcluded(AssetEntity a) {
-    if (_hiddenAssetIds.contains(a.id)) return true;
-    if (_isHiddenAsset(a)) return true;
-    if (_vaultHydrated && _vaultHiddenBasenames.isNotEmpty) {
-      final title = a.title;
-      if (title != null &&
-          title.isNotEmpty &&
-          _vaultHiddenBasenames.contains(title)) {
-        return true;
-      }
-    }
-    return false;
+    return _visibleState.isExcluded(a);
   }
 
   /// Virtual/system albums we never show in Visible (real folders only).
@@ -316,21 +437,11 @@ class GalleryService {
     return false;
   }
 
-  /// Fast folder list: MediaStore counts minus session hide deductions and a
-  /// vault-path heuristic (count of vault files whose parent folder name matches).
-  /// Avoids paging every asset in every album (that made hide "Refreshing…" lag).
+  /// Fast folder list based on MediaStore counts and reconciled session state.
   Future<List<GalleryFolder>> listFolders(MediaKindFilter filter) async {
     final paths = await _paths(filter);
     final rawCounts =
         await Future.wait(paths.map((path) => path.assetCountAsync));
-
-    // Map folder display name → vault-hidden file count (best-effort cold start).
-    final vaultByFolder = <String, int>{};
-    for (final vp in _vaultHiddenPaths) {
-      final parent = p.basename(p.dirname(vp)).toLowerCase();
-      if (parent.isEmpty) continue;
-      vaultByFolder[parent] = (vaultByFolder[parent] ?? 0) + 1;
-    }
 
     final folders = <GalleryFolder>[];
     for (var i = 0; i < paths.length; i++) {
@@ -343,20 +454,9 @@ class GalleryService {
         continue;
       }
       final raw = rawCounts[i];
-      final session = _hiddenDeduction[path.id] ?? 0;
-      // Prefer explicit session deduction; otherwise use vault path heuristic.
-      var deduct = session;
-      if (session == 0 && _vaultHydrated) {
-        final key = folderName.toLowerCase();
-        deduct = vaultByFolder[key] ?? 0;
-        // Common alias: MediaStore "Download" vs vault "Downloads".
-        if (deduct == 0 && key == 'download') {
-          deduct = vaultByFolder['downloads'] ?? 0;
-        } else if (deduct == 0 && key == 'downloads') {
-          deduct = vaultByFolder['download'] ?? 0;
-        }
-      }
-      final count = math.max(0, raw - deduct);
+      final count = _visibleState._affectedPathIds.contains(path.id)
+          ? await recountVisible(pathId: path.id, filter: filter)
+          : raw;
       if (count <= 0) continue;
       folders.add(
         GalleryFolder(
@@ -364,7 +464,7 @@ class GalleryService {
           name: folderName,
           count: count,
           isAll: false,
-          coverEpoch: _coverEpoch[path.id] ?? 0,
+          coverEpoch: _visibleState._coverEpoch[path.id] ?? 0,
         ),
       );
     }
@@ -373,8 +473,7 @@ class GalleryService {
       if (a.isAll != b.isAll) return a.isAll ? -1 : 1;
       return a.name.toLowerCase().compareTo(b.name.toLowerCase());
     });
-    _lastFolders = folders;
-    _lastFoldersFilter = filter;
+    _visibleState.setFolders(filter, folders);
     return folders;
   }
 
@@ -395,10 +494,7 @@ class GalleryService {
     if (path == null) return 0;
 
     final total = await path.assetCountAsync;
-    if (total <= 0) {
-      _hiddenDeduction[pathId] = 0;
-      return 0;
-    }
+    if (total <= 0) return 0;
 
     var visible = 0;
     const pageSize = 100;
@@ -415,8 +511,6 @@ class GalleryService {
       page++;
     }
 
-    // Align session deduction with MediaStore so fast counts stay correct.
-    _hiddenDeduction[pathId] = math.max(0, total - visible);
     return visible;
   }
 
@@ -493,56 +587,58 @@ class GalleryService {
 
   Future<AssetEntity?> entity(String id) => AssetEntity.fromId(id);
 
-  List<GalleryFolder>? get cachedFolders =>
-      _lastFoldersFilter == null ? null : _lastFolders;
-
   /// Resolve real filesystem paths for hide (not app-cache exports).
   Future<List<ImportSource>> resolveForHide(
     List<String> assetIds, {
     String? sourceFolderName,
   }) async {
     if (assetIds.isEmpty) return const [];
-    final store = MediaStoreService();
     const concurrency = 6;
     final out = <ImportSource?>[];
 
     Future<ImportSource?> one(String id) async {
       try {
-        final entity =
-            await AssetEntity.fromId(id).timeout(const Duration(seconds: 3));
-        if (entity == null) return null;
+        final info = await _assets.info(id).timeout(const Duration(seconds: 3));
+        if (info == null) return null;
 
-        final isVideo = entity.type == AssetType.video;
-        final mime = entity.mimeType ?? (isVideo ? 'video/mp4' : 'image/jpeg');
+        final isVideo = info.isVideo;
+        final mime = info.mimeType ?? (isVideo ? 'video/mp4' : 'image/jpeg');
 
         // Prefer native MediaStore DATA path (fast, no full file open).
         final String? absPath =
-            await store.resolveMediaPath(id: id, isVideo: isVideo);
+            await _mediaStore.resolveMediaPath(id: id, isVideo: isVideo);
 
-        File? file;
+        String? resolvedPath;
         if (absPath != null &&
             absPath.isNotEmpty &&
-            File(absPath).existsSync()) {
-          file = File(absPath);
+            await _files.exists(absPath)) {
+          resolvedPath = absPath;
         } else {
           // Short timeouts — skip rather than stall the batch.
           try {
-            file = await entity.file.timeout(const Duration(seconds: 4));
+            resolvedPath = (await _assets
+                    .entityFile(id)
+                    .timeout(const Duration(seconds: 4)))
+                ?.path;
           } catch (e) {
             debugPrint('entity.file timeout/fail $id: $e');
           }
-          if (file == null || !await file.exists()) {
+          if (resolvedPath == null || !await _files.exists(resolvedPath)) {
             try {
-              file =
-                  await entity.originFile.timeout(const Duration(seconds: 6));
+              resolvedPath = (await _assets
+                      .originFile(id)
+                      .timeout(const Duration(seconds: 6)))
+                  ?.path;
             } catch (e) {
               debugPrint('originFile fail $id: $e');
             }
           }
         }
-        if (file == null || !await file.exists()) return null;
-        if (file.path.startsWith('content:')) return null;
-        final path = file.path;
+        if (resolvedPath == null || !await _files.exists(resolvedPath)) {
+          return null;
+        }
+        if (resolvedPath.startsWith('content:')) return null;
+        final path = resolvedPath;
         final lower = path.toLowerCase();
         if (lower.contains('/cache/') ||
             lower.contains('/.thumbnails/') ||
@@ -554,7 +650,7 @@ class GalleryService {
 
         var folder = sourceFolderName?.trim();
         if (folder == null || folder.isEmpty) {
-          final rel = entity.relativePath;
+          final rel = info.relativePath;
           if (rel != null && rel.isNotEmpty) {
             final parts = rel
                 .replaceAll('\\', '/')
@@ -564,14 +660,14 @@ class GalleryService {
             folder = parts.isNotEmpty ? parts.last : null;
           }
         }
-        folder ??= p.basename(p.dirname(file.path));
+        folder ??= p.basename(p.dirname(path));
         if (folder.isEmpty) folder = 'Imported';
         if (folder.toLowerCase() == 'download') folder = 'Downloads';
 
         // Capture/create time only — never modified time (hide/unhide must not
         // reshuffle "Newest first" vs system Gallery).
         DateTime? dateTaken;
-        final createSec = entity.createDateSecond;
+        final createSec = await _assets.createDateSecond(id);
         if (createSec != null && createSec > 0) {
           dateTaken = DateTime.fromMillisecondsSinceEpoch(
             createSec * 1000,
@@ -581,8 +677,8 @@ class GalleryService {
         // Prefer native DATE_TAKEN / EXIF when photo_manager create is missing.
         if (dateTaken == null) {
           try {
-            final sec = await store.resolveCaptureDateSec(
-              path: file.path,
+            final sec = await _mediaStore.resolveCaptureDateSec(
+              path: path,
               mediaId: id,
               isVideo: isVideo,
             );
@@ -592,12 +688,14 @@ class GalleryService {
                 isUtc: true,
               );
             }
-          } catch (_) {}
+          } catch (error, stackTrace) {
+            debugPrint('resolve capture date $id: $error\n$stackTrace');
+          }
         }
 
         return ImportSource(
-          path: file.path,
-          name: entity.title ?? p.basename(file.path),
+          path: path,
+          name: info.title ?? p.basename(path),
           mimeType: mime,
           assetId: id,
           sourceFolderName: folder,

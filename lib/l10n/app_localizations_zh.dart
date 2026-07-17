@@ -178,6 +178,12 @@ class AppLocalizationsZh extends AppLocalizations {
   String get hiding => '正在隐藏…';
 
   @override
+  String get resolvingMedia => '正在准备媒体…';
+
+  @override
+  String get unhiding => '正在取消隐藏…';
+
+  @override
   String hidingParallel(int workers) {
     return '正在隐藏（×$workers）…';
   }
@@ -451,6 +457,11 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String progressOkSkipFail(int imported, int skipped, int failed) {
     return '成功 $imported · 跳过 $skipped · 失败 $failed';
+  }
+
+  @override
+  String failedItems(int count) {
+    return '失败 $count 项';
   }
 
   @override
@@ -828,7 +839,42 @@ class AppLocalizationsZh extends AppLocalizations {
   String get wrongPin => 'PIN 错误';
 
   @override
+  String get noSystemLock => '请先在 Android 设置中启用屏幕锁定';
+
+  @override
   String get systemAuthCancelled => '系统验证已取消';
+
+  @override
+  String get scanFailedShort => '扫描失败';
+
+  @override
+  String get screenshotSettingFailed => '无法更新截屏保护';
+
+  @override
+  String get noOrphanVaultFiles => '未找到保险库文件';
+
+  @override
+  String recoveryResult(int recovered, int skipped, int failed) {
+    return '已恢复 $recovered · 跳过 $skipped · 失败 $failed';
+  }
+
+  @override
+  String galleryRecoveryResult(int restored, int skipped, int failed) {
+    return '已还原 $restored · 跳过 $skipped · 失败 $failed';
+  }
+
+  @override
+  String get noVaultMediaToRepair => '没有需要修复的媒体';
+
+  @override
+  String captureDateRepairResult(int fixed, int skipped, int failed) {
+    return '已修复 $fixed · 跳过 $skipped · 失败 $failed';
+  }
+
+  @override
+  String unlockLockout(int seconds) {
+    return '请在 $seconds 秒后重试';
+  }
 }
 
 /// The translations for Chinese, as used in China (`zh_CN`).
@@ -1005,6 +1051,12 @@ class AppLocalizationsZhCn extends AppLocalizationsZh {
   String get hiding => '正在隐藏…';
 
   @override
+  String get resolvingMedia => '正在准备媒体…';
+
+  @override
+  String get unhiding => '正在取消隐藏…';
+
+  @override
   String hidingParallel(int workers) {
     return '正在隐藏（×$workers）…';
   }
@@ -1278,6 +1330,11 @@ class AppLocalizationsZhCn extends AppLocalizationsZh {
   @override
   String progressOkSkipFail(int imported, int skipped, int failed) {
     return '成功 $imported · 跳过 $skipped · 失败 $failed';
+  }
+
+  @override
+  String failedItems(int count) {
+    return '失败 $count 项';
   }
 
   @override
@@ -1655,7 +1712,42 @@ class AppLocalizationsZhCn extends AppLocalizationsZh {
   String get wrongPin => 'PIN 错误';
 
   @override
+  String get noSystemLock => '请先在 Android 设置中启用屏幕锁定';
+
+  @override
   String get systemAuthCancelled => '系统验证已取消';
+
+  @override
+  String get scanFailedShort => '扫描失败';
+
+  @override
+  String get screenshotSettingFailed => '无法更新截屏保护';
+
+  @override
+  String get noOrphanVaultFiles => '未找到保险库文件';
+
+  @override
+  String recoveryResult(int recovered, int skipped, int failed) {
+    return '已恢复 $recovered · 跳过 $skipped · 失败 $failed';
+  }
+
+  @override
+  String galleryRecoveryResult(int restored, int skipped, int failed) {
+    return '已还原 $restored · 跳过 $skipped · 失败 $failed';
+  }
+
+  @override
+  String get noVaultMediaToRepair => '没有需要修复的媒体';
+
+  @override
+  String captureDateRepairResult(int fixed, int skipped, int failed) {
+    return '已修复 $fixed · 跳过 $skipped · 失败 $failed';
+  }
+
+  @override
+  String unlockLockout(int seconds) {
+    return '请在 $seconds 秒后重试';
+  }
 }
 
 /// The translations for Chinese, as used in Hong Kong (`zh_HK`).
@@ -1830,6 +1922,12 @@ class AppLocalizationsZhHk extends AppLocalizationsZh {
 
   @override
   String get hiding => '正在隱藏…';
+
+  @override
+  String get resolvingMedia => '正在準備媒體…';
+
+  @override
+  String get unhiding => '正在取消隱藏…';
 
   @override
   String hidingParallel(int workers) {
@@ -2105,6 +2203,11 @@ class AppLocalizationsZhHk extends AppLocalizationsZh {
   @override
   String progressOkSkipFail(int imported, int skipped, int failed) {
     return '成功 $imported · 略過 $skipped · 失敗 $failed';
+  }
+
+  @override
+  String failedItems(int count) {
+    return '失敗 $count 項';
   }
 
   @override
@@ -2482,5 +2585,40 @@ class AppLocalizationsZhHk extends AppLocalizationsZh {
   String get wrongPin => 'PIN 錯誤';
 
   @override
+  String get noSystemLock => '請先在 Android 設定中啟用螢幕鎖定';
+
+  @override
   String get systemAuthCancelled => '系統驗證已取消';
+
+  @override
+  String get scanFailedShort => '掃描失敗';
+
+  @override
+  String get screenshotSettingFailed => '無法更新截圖保護';
+
+  @override
+  String get noOrphanVaultFiles => '未找到保險庫檔案';
+
+  @override
+  String recoveryResult(int recovered, int skipped, int failed) {
+    return '已恢復 $recovered · 略過 $skipped · 失敗 $failed';
+  }
+
+  @override
+  String galleryRecoveryResult(int restored, int skipped, int failed) {
+    return '已還原 $restored · 略過 $skipped · 失敗 $failed';
+  }
+
+  @override
+  String get noVaultMediaToRepair => '沒有需要修復的媒體';
+
+  @override
+  String captureDateRepairResult(int fixed, int skipped, int failed) {
+    return '已修復 $fixed · 略過 $skipped · 失敗 $failed';
+  }
+
+  @override
+  String unlockLockout(int seconds) {
+    return '請在 $seconds 秒後重試';
+  }
 }

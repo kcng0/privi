@@ -9,7 +9,7 @@ import '../../application/providers.dart';
 import '../../application/settings/settings_controller.dart';
 import '../../core/constants.dart';
 import '../../core/l10n.dart';
-import '../../data/services/secure_window_service.dart';
+import '../../data/services/maintenance_service.dart';
 import '../lock/pattern_lock.dart';
 
 /// Full settings — security, display, playback, storage export/import.
@@ -66,10 +66,13 @@ class SettingsScreen extends ConsumerWidget {
                           ),
                         );
                       }
-                    } catch (e) {
+                    } catch (e, stackTrace) {
+                      debugPrint('biometric setting update: $e\n$stackTrace');
                       if (context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('$e')),
+                          SnackBar(
+                            content: Text(context.l10n.biometricUpdateFailed),
+                          ),
                         );
                       }
                     }
@@ -99,8 +102,19 @@ class SettingsScreen extends ConsumerWidget {
             title: Text(context.l10n.blockScreenshots),
             value: s.flagSecure,
             onChanged: (v) async {
-              await notifier.setFlagSecure(v);
-              await SecureWindowService().setFlagSecure(v);
+              try {
+                await ref.read(secureWindowServiceProvider).setFlagSecure(v);
+                await notifier.setFlagSecure(v);
+              } catch (e, stackTrace) {
+                debugPrint('FLAG_SECURE setting: $e\n$stackTrace');
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(context.l10n.screenshotSettingFailed),
+                    ),
+                  );
+                }
+              }
             },
           ),
           _SectionHeader(context.l10n.sectionDisplay),
@@ -456,10 +470,17 @@ class SettingsScreen extends ConsumerWidget {
           SnackBar(content: Text(context.l10n.patternUpdated)),
         );
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      debugPrint('change pattern: $e\n$stackTrace');
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('$e')),
+          SnackBar(
+            content: Text(
+              lock.usesPattern
+                  ? context.l10n.wrongPattern
+                  : context.l10n.wrongPin,
+            ),
+          ),
         );
       }
     }
@@ -549,13 +570,14 @@ class SettingsScreen extends ConsumerWidget {
       ref.invalidate(albumsProvider);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(result.summary)),
+          SnackBar(content: Text(_recoverySummary(context, result))),
         );
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      debugPrint('orphan scan: $e\n$stackTrace');
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(context.l10n.scanFailed('$e'))),
+          SnackBar(content: Text(context.l10n.scanFailedShort)),
         );
       }
     }
@@ -566,18 +588,19 @@ class SettingsScreen extends ConsumerWidget {
       SnackBar(content: Text(context.l10n.repairingCaptureDates)),
     );
     try {
-      final msg =
+      final result =
           await ref.read(maintenanceServiceProvider).repairCaptureDates();
       ref.invalidate(albumsProvider);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(msg)),
+          SnackBar(content: Text(_captureDateSummary(context, result))),
         );
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      debugPrint('capture date repair: $e\n$stackTrace');
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(context.l10n.scanFailed('$e'))),
+          SnackBar(content: Text(context.l10n.scanFailedShort)),
         );
       }
     }
@@ -629,16 +652,49 @@ class SettingsScreen extends ConsumerWidget {
       ref.invalidate(albumsProvider);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(result.summary)),
+          SnackBar(content: Text(_recoverySummary(context, result))),
         );
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      debugPrint('vault recovery: $e\n$stackTrace');
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(context.l10n.scanFailed('$e'))),
+          SnackBar(content: Text(context.l10n.scanFailedShort)),
         );
       }
     }
+  }
+
+  static String _recoverySummary(
+    BuildContext context,
+    VaultRecoveryResult result,
+  ) {
+    return switch (result.status) {
+      VaultRecoveryStatus.noFiles => context.l10n.noOrphanVaultFiles,
+      VaultRecoveryStatus.reindexed => context.l10n.recoveryResult(
+          result.reindexed,
+          result.skipped,
+          result.failed,
+        ),
+      VaultRecoveryStatus.restoredToGallery =>
+        context.l10n.galleryRecoveryResult(
+          result.reindexed,
+          result.skipped,
+          result.failed,
+        ),
+    };
+  }
+
+  static String _captureDateSummary(
+    BuildContext context,
+    CaptureDateRepairResult result,
+  ) {
+    if (!result.hadMedia) return context.l10n.noVaultMediaToRepair;
+    return context.l10n.captureDateRepairResult(
+      result.fixed,
+      result.skipped,
+      result.failed,
+    );
   }
 
   static String _formatBytes(int bytes) {

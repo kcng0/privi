@@ -1,4 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
 import '../data/db/database.dart';
 import '../data/repositories/album_repository.dart';
 import '../data/repositories/media_repository.dart';
@@ -6,6 +8,7 @@ import '../data/services/biometric_service.dart';
 import '../data/services/import_service.dart';
 import '../data/services/maintenance_service.dart';
 import '../data/services/media_store_service.dart';
+import '../data/services/secure_window_service.dart';
 import '../data/services/security_service.dart';
 import '../data/services/vault_backup_service.dart';
 import '../data/services/vault_storage_service.dart';
@@ -15,6 +18,10 @@ import '../domain/models/media_item.dart';
 import 'gallery/gallery_controller.dart';
 
 /// Core DI graph. Manual providers for Phase 1 (codegen can replace later).
+
+final sharedPreferencesProvider = Provider<SharedPreferences>((ref) {
+  throw UnimplementedError('sharedPreferencesProvider must be overridden');
+});
 
 final databaseProvider = Provider<AppDatabase>((ref) {
   final db = AppDatabase();
@@ -28,6 +35,10 @@ final vaultStorageProvider = Provider<VaultStorageService>((ref) {
 
 final securityServiceProvider = Provider<SecurityService>((ref) {
   return SecurityService();
+});
+
+final secureWindowServiceProvider = Provider<SecureWindowService>((ref) {
+  return SecureWindowService();
 });
 
 final biometricServiceProvider = Provider<BiometricService>((ref) {

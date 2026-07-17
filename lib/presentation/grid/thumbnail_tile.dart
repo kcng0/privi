@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../../core/constants.dart';
+import '../../core/theme/vault_colors.dart';
 import '../../domain/models/media_item.dart';
 import '../common/heart_rating_bar.dart';
 
@@ -32,7 +33,7 @@ class ThumbnailTile extends StatelessWidget {
     final cachePx = (256 * dpr).round().clamp(128, 384);
 
     return Material(
-      color: const Color(0xFF1B3A36),
+      color: context.vaultColors.chrome,
       child: InkWell(
         onTap: onTap,
         onLongPress: onLongPress,
@@ -148,9 +149,9 @@ class _Broken extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const ColoredBox(
-      color: Color(0xFF244842),
-      child: Icon(Icons.broken_image_outlined, color: Colors.white38),
+    return ColoredBox(
+      color: context.vaultColors.surfaceAlt,
+      child: const Icon(Icons.broken_image_outlined, color: Colors.white38),
     );
   }
 }
@@ -160,9 +161,9 @@ class _VideoPlaceholder extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const ColoredBox(
-      color: Color(0xFF244842),
-      child: Center(
+    return ColoredBox(
+      color: context.vaultColors.surfaceAlt,
+      child: const Center(
         child: Icon(Icons.videocam_outlined, color: Colors.white38, size: 36),
       ),
     );

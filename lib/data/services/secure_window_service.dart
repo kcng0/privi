@@ -8,8 +8,9 @@ class SecureWindowService {
   Future<void> setFlagSecure(bool enabled) async {
     try {
       await _channel.invokeMethod<void>('setFlagSecure', {'enabled': enabled});
-    } catch (e) {
-      debugPrint('FLAG_SECURE: $e');
+    } catch (e, stackTrace) {
+      debugPrint('FLAG_SECURE: $e\n$stackTrace');
+      Error.throwWithStackTrace(e, stackTrace);
     }
   }
 }

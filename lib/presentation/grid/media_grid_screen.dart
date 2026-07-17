@@ -10,7 +10,9 @@ import '../../application/providers.dart';
 import '../../application/settings/settings_controller.dart';
 import '../../core/constants.dart';
 import '../../core/l10n.dart';
+import '../../core/theme/vault_colors.dart';
 import '../../core/utils/media_query_utils.dart';
+import '../../data/services/import/import_models.dart';
 import '../../data/services/intent_service.dart';
 import '../../domain/enums.dart';
 import '../../domain/models/album.dart';
@@ -19,7 +21,9 @@ import '../common/empty_state.dart';
 import '../common/floating_action_capsule.dart';
 import '../common/grid_app_menu.dart';
 import '../common/media_details_sheet.dart';
+import '../common/media_grid_scaffold.dart';
 import '../common/quick_rating_sheet.dart';
+import '../common/vault_sheet.dart';
 import '../import/import_progress_sheet.dart';
 import '../player/player_screen.dart';
 import '../viewer/viewer_screen.dart';
@@ -224,9 +228,9 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
       );
       return;
     }
-    final target = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: const Color(0xFF1B3A36),
+    final target = await showVaultSheet<String>(
+      context,
+      showDragHandle: false,
       builder: (ctx) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -329,7 +333,7 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
     final messenger = ScaffoldMessenger.of(context);
     final nav = Navigator.of(context);
     final import = ref.read(importControllerProvider.notifier);
-    import.beginSession(statusMessage: 'Unhiding…');
+    import.beginSession(phase: ImportPhase.unhiding);
     // ignore: unawaited_futures
     showImportProgressSheet(context, title: context.l10n.unhide);
 
@@ -350,7 +354,7 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
           msg.write(' · ${context.l10n.cancelled}');
         }
         if (summary.failed > 0) {
-          msg.write(' · ${summary.failed} failed');
+          msg.write(' · ${context.l10n.failedItems(summary.failed)}');
         }
       }
       messenger.showSnackBar(SnackBar(content: Text(msg.toString())));
@@ -449,7 +453,7 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
                   top: top,
                   width: menuW,
                   child: Material(
-                    color: const Color(0xFF1B3A36),
+                    color: context.vaultColors.chrome,
                     elevation: 10,
                     borderRadius: BorderRadius.circular(12),
                     child: Padding(
@@ -535,10 +539,9 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
   }
 
   Future<void> _showOverflowMenu(List<MediaItem> items) async {
-    final choice = await showModalBottomSheet<String>(
-      context: context,
+    final choice = await showVaultSheet<String>(
+      context,
       showDragHandle: true,
-      backgroundColor: const Color(0xFF1B3A36),
       builder: (ctx) {
         return SafeArea(
           child: Column(
@@ -624,75 +627,72 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
         (selecting ? GridDefaults.selectionCapsuleClearance : 0);
     final sel = ref.read(selectionControllerProvider.notifier);
 
-    return Scaffold(
-      appBar: AppBar(
-        centerTitle: true,
-        leading: selecting
-            ? IconButton(
-                icon: const Icon(Icons.close),
-                onPressed: sel.clear,
-              )
-            : null,
-        title: selecting
-            ? Text(context.l10n.selectedCount(selected.length))
-            : _searchOpen
-                ? TextField(
-                    controller: _searchCtrl,
-                    autofocus: true,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: InputDecoration(
-                      hintText: context.l10n.searchNameHint,
-                      hintStyle: const TextStyle(color: Colors.white54),
-                      border: InputBorder.none,
-                      isDense: true,
-                    ),
-                    onChanged: (_) => setState(() {}),
-                  )
-                : Text(widget.title),
-        actions: [
-          if (selecting)
-            IconButton(
-              tooltip: context.l10n.selectAll,
-              icon: const Icon(Icons.select_all),
-              onPressed: () {
-                asyncMedia.whenData((raw) {
-                  final items = _applyQuery(raw, kind: kind);
-                  sel.selectAll(items.map((e) => e.id));
-                });
-              },
+    return MediaGridScaffold<MediaItem>(
+      leading: selecting
+          ? IconButton(
+              icon: const Icon(Icons.close),
+              onPressed: sel.clear,
             )
-          else ...[
-            if (!_isRecycle)
-              asyncMedia.maybeWhen(
-                data: (items) => IconButton(
-                  tooltip: context.l10n.playPlaylist,
-                  icon: const Icon(Icons.play_arrow),
-                  onPressed: items.isEmpty
-                      ? null
-                      : () => _playAlbum(_applyQuery(items, kind: kind)),
-                ),
-                orElse: () => const SizedBox.shrink(),
-              ),
-            asyncMedia.maybeWhen(
-              data: (raw) {
+          : null,
+      title: selecting
+          ? Text(context.l10n.selectedCount(selected.length))
+          : _searchOpen
+              ? TextField(
+                  controller: _searchCtrl,
+                  autofocus: true,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: InputDecoration(
+                    hintText: context.l10n.searchNameHint,
+                    hintStyle: const TextStyle(color: Colors.white54),
+                    border: InputBorder.none,
+                    isDense: true,
+                  ),
+                  onChanged: (_) => setState(() {}),
+                )
+              : Text(widget.title),
+      actions: [
+        if (selecting)
+          IconButton(
+            tooltip: context.l10n.selectAll,
+            icon: const Icon(Icons.select_all),
+            onPressed: () {
+              asyncMedia.whenData((raw) {
                 final items = _applyQuery(raw, kind: kind);
-                return IconButton(
-                  key: _overflowKey,
-                  tooltip: context.l10n.more,
-                  icon: const Icon(Icons.more_vert),
-                  onPressed: () => _showOverflowMenu(items),
-                );
-              },
-              orElse: () => IconButton(
+                sel.selectAll(items.map((e) => e.id));
+              });
+            },
+          )
+        else ...[
+          if (!_isRecycle)
+            asyncMedia.maybeWhen(
+              data: (items) => IconButton(
+                tooltip: context.l10n.playPlaylist,
+                icon: const Icon(Icons.play_arrow),
+                onPressed: items.isEmpty
+                    ? null
+                    : () => _playAlbum(_applyQuery(items, kind: kind)),
+              ),
+              orElse: () => const SizedBox.shrink(),
+            ),
+          asyncMedia.maybeWhen(
+            data: (raw) {
+              final items = _applyQuery(raw, kind: kind);
+              return IconButton(
                 key: _overflowKey,
                 tooltip: context.l10n.more,
                 icon: const Icon(Icons.more_vert),
-                onPressed: () => _showOverflowMenu(const []),
-              ),
+                onPressed: () => _showOverflowMenu(items),
+              );
+            },
+            orElse: () => IconButton(
+              key: _overflowKey,
+              tooltip: context.l10n.more,
+              icon: const Icon(Icons.more_vert),
+              onPressed: () => _showOverflowMenu(const []),
             ),
-          ],
+          ),
         ],
-      ),
+      ],
       body: asyncMedia.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) =>
@@ -742,7 +742,7 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
                 child: items.isEmpty
                     ? Center(
                         child: Text(
-                          'No matches',
+                          context.l10n.noMatches,
                           style: Theme.of(context)
                               .textTheme
                               .bodyLarge

@@ -7,7 +7,7 @@ live under `docs/` are kept local-only and are not part of the published repo.
 
 | Tool | Version | Notes |
 |------|---------|-------|
-| Flutter SDK | latest **stable** (≥ 3.24) | Pinned via [`.fvmrc`](./.fvmrc) → use FVM. |
+| Flutter SDK | **3.44.6** | Pinned via [`.fvmrc`](./.fvmrc) → use FVM. |
 | Dart | bundled with Flutter | — |
 | Java (JDK) | 17+ | Needed for Android Gradle. |
 | Android SDK | platform **36** + build-tools + cmdline-tools | Licenses accepted. |
@@ -48,7 +48,7 @@ dart pub global activate fvm      # or: curl -fsSL https://fvm.app/install.sh | 
 
 # From the repo root — installs the pinned Flutter and links .fvm/flutter_sdk
 fvm install
-fvm use stable
+fvm use 3.44.6
 ```
 
 Prefer a plain global Flutter? Install from
@@ -104,10 +104,9 @@ Without `make`, prefix with `fvm ` (or nothing), e.g. `fvm flutter test`.
 
 ## Code generation
 
-Drift tables and Riverpod providers use `build_runner`. After changing any
-`@DriftDatabase`, table, or `@riverpod` provider, run `make gen` (or keep
-`make watch` running). Generated `*.g.dart` files are git-ignored and rebuilt
-in CI.
+Drift tables use `build_runner`; localization resources use `flutter gen-l10n`.
+After changing an `@DriftDatabase`, Drift table, or ARB resource, run
+`make gen`. Generated `*.g.dart` files are git-ignored and rebuilt in CI.
 
 ## Dependency versions
 
@@ -119,6 +118,18 @@ flutter pub upgrade
 # or major bumps: flutter pub upgrade --major-versions
 git add pubspec.yaml pubspec.lock
 ```
+
+### Flutter SDK upgrades
+
+Keep local, CI, and release builds on the same SDK. A Flutter upgrade changes
+all three pins in one change:
+
+1. Update `.fvmrc`.
+2. Update `flutter-version` in `.github/workflows/ci.yaml` and
+   `.github/workflows/release.yml`.
+3. Run `flutter --version`, code generation, analysis, and the full test suite.
+
+CI prints the resolved Flutter version so drift is visible in build logs.
 
 ## Project layout
 

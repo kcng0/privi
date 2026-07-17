@@ -47,6 +47,7 @@ class VaultBackupService {
     final all = [...rows, ...deleted];
 
     final albums = await _db.getAllAlbums();
+    final memberships = await _db.getAllMemberships();
     final mediaJson = <Map<String, dynamic>>[];
     var copied = 0;
 
@@ -73,6 +74,7 @@ class VaultBackupService {
         'id': r.id,
         'file': destName,
         'thumb': thumbDest,
+        'originalPath': r.originalPath,
         'originalName': r.originalName,
         'mimeType': r.mimeType,
         'isVideo': r.isVideo,
@@ -96,15 +98,27 @@ class VaultBackupService {
             'coverMediaId': a.coverMediaId,
             'createdAt': a.createdAt.toIso8601String(),
             'systemKind': a.systemKind,
+            'pinnedAt': a.pinnedAt?.toIso8601String(),
           },
         )
         .toList();
 
+    final membershipJson = memberships
+        .map(
+          (membership) => {
+            'albumId': membership.albumId,
+            'mediaId': membership.mediaId,
+            'addedAt': membership.addedAt.toIso8601String(),
+          },
+        )
+        .toList(growable: false);
+
     final manifest = {
-      'version': 1,
+      'version': 2,
       'exportedAt': DateTime.now().toUtc().toIso8601String(),
       'media': mediaJson,
       'albums': albumJson,
+      'membership': membershipJson,
     };
 
     final man = File(p.join(destDir, manifestName));
@@ -120,42 +134,52 @@ class VaultBackupService {
       throw StateError('No $manifestName in folder');
     }
     final map = jsonDecode(await man.readAsString()) as Map<String, dynamic>;
+    final version = map['version'] as int? ?? 1;
+    if (version < 1 || version > 2) {
+      throw StateError('Unsupported vault manifest version: $version');
+    }
     final mediaList =
         (map['media'] as List<dynamic>? ?? []).cast<Map<String, dynamic>>();
     final mediaDir = Directory(p.join(srcDir, 'media'));
     var n = 0;
 
+    final albumIdMap =
+        version >= 2 ? await _restoreV2Albums(map) : const <String, String>{};
+
     for (final m in mediaList) {
       final fileName = m['file'] as String?;
       if (fileName == null) continue;
-      final src = File(p.join(mediaDir.path, fileName));
-      if (!await src.exists()) continue;
+      final src = await _backupFile(mediaDir, fileName);
+      if (src == null) continue;
+
+      final id = _validatedId((m['id'] as String?) ?? _uuid.v4(), 'media id');
+      if (await _db.getMediaById(id) != null) continue;
 
       final isVideo = m['isVideo'] as bool? ?? false;
       final originalName = m['originalName'] as String? ?? fileName;
-      // Place restored files under app external-ish thumbs parent then hide-name
-      // Prefer keeping exported relative layout: copy beside export into a
-      // dedicated restore folder under app documents, then mark hidden name.
-      final restoreRoot = await _storage.ensureVault();
-      final restoredDir = Directory(p.join(restoreRoot.path, 'restored'));
-      if (!await restoredDir.exists()) await restoredDir.create();
+      final originalPath = version >= 2
+          ? _validatedOriginalPath(m['originalPath'] as String?)
+          : null;
+      final sourceFolder = _sourceFolder(originalPath);
+      final hiddenPath = await _storage.hiddenDestPath(
+        id: id,
+        originalName: originalName,
+        sourceFolder: sourceFolder,
+      );
+      final hidden = File(hiddenPath);
+      if (!await hidden.exists() || await hidden.length() == 0) {
+        await src.copy(hidden.path);
+      }
+      final restoredSize = await hidden.length();
+      if (restoredSize == 0) {
+        throw StateError('Restored media is empty: $fileName');
+      }
 
-      final baseVisible = HideNaming.displayName(originalName);
-      final destVisible = File(p.join(restoredDir.path, baseVisible));
-      // Avoid clobber
-      final unique = await _uniquePath(destVisible);
-      await src.copy(unique.path);
-
-      final hiddenPath = HideNaming.toHiddenPath(unique.path, isVideo: isVideo);
-      final hidden =
-          unique.path == hiddenPath ? unique : await unique.rename(hiddenPath);
-
-      final id = (m['id'] as String?) ?? _uuid.v4();
       String? thumbPath;
       final thumbName = m['thumb'] as String?;
       if (thumbName != null) {
-        final ts = File(p.join(mediaDir.path, thumbName));
-        if (await ts.exists()) {
+        final ts = await _backupFile(mediaDir, thumbName);
+        if (ts != null) {
           final td = await _storage.thumbFileFor(id);
           await ts.copy(td.path);
           thumbPath = td.path;
@@ -165,6 +189,7 @@ class VaultBackupService {
       final item = MediaItem(
         id: id,
         privatePath: hidden.path,
+        originalPath: originalPath,
         originalName: originalName,
         mimeType:
             m['mimeType'] as String? ?? (isVideo ? 'video/mp4' : 'image/jpeg'),
@@ -176,49 +201,140 @@ class VaultBackupService {
         dateAdded: DateTime.tryParse(m['dateAdded'] as String? ?? '') ??
             DateTime.now().toUtc(),
         dateTaken: DateTime.tryParse(m['dateTaken'] as String? ?? ''),
-        sizeBytes: (m['sizeBytes'] as int?) ?? await hidden.length(),
+        sizeBytes: restoredSize,
         thumbnailPath: thumbPath,
         deletedAt: DateTime.tryParse(m['deletedAt'] as String? ?? ''),
       );
 
-      // Skip if id already exists
-      final existing = await _db.getMediaById(id);
-      if (existing != null) continue;
-
       await _media.insert(item);
-      if (item.deletedAt != null) {
-        await _media.softDelete(item.id);
-      }
       n++;
     }
 
-    // User albums from manifest (optional, best-effort).
-    final albumList =
-        (map['albums'] as List<dynamic>? ?? []).cast<Map<String, dynamic>>();
-    for (final a in albumList) {
-      final isSystem = a['isSystem'] as bool? ?? true;
-      if (isSystem) continue;
-      final name = a['name'] as String?;
-      if (name == null || name.isEmpty) continue;
-      try {
-        await _albums.createUserAlbum(name);
-      } catch (e) {
-        debugPrint('album restore: $e');
-      }
+    if (version >= 2) {
+      await _restoreMemberships(map, albumIdMap);
+    } else {
+      await _restoreV1Albums(map);
     }
 
     return n;
   }
 
-  Future<File> _uniquePath(File desired) async {
-    if (!await desired.exists()) return desired;
-    final dir = p.dirname(desired.path);
-    final base = p.basenameWithoutExtension(desired.path);
-    final ext = p.extension(desired.path);
-    for (var i = 1; i < 1000; i++) {
-      final f = File(p.join(dir, '${base}_$i$ext'));
-      if (!await f.exists()) return f;
+  String _sourceFolder(String? originalPath) {
+    if (originalPath == null || originalPath.trim().isEmpty) return 'Imported';
+    return HideNaming.sanitizeFolder(p.basename(p.dirname(originalPath)));
+  }
+
+  Future<Map<String, String>> _restoreV2Albums(
+    Map<String, dynamic> manifest,
+  ) async {
+    final albumList = (manifest['albums'] as List<dynamic>? ?? [])
+        .cast<Map<String, dynamic>>();
+    final restoredIds = <String, String>{};
+    for (final data in albumList) {
+      if (data['isSystem'] as bool? ?? true) continue;
+      final rawId = data['id'] as String?;
+      final name = data['name'] as String?;
+      if (rawId == null || name == null || name.trim().isEmpty) {
+        throw const FormatException('User album requires id and name');
+      }
+      final id = _validatedId(rawId, 'album id');
+      final existing = await _albums.getById(id);
+      if (existing != null) {
+        if (existing.isSystem) {
+          throw StateError('User album id collides with system album: $id');
+        }
+        if (existing.name.toLowerCase() != name.trim().toLowerCase()) {
+          throw StateError('User album id collides with another album: $id');
+        }
+        restoredIds[id] = existing.id;
+        continue;
+      }
+      final createdAt = DateTime.tryParse(data['createdAt'] as String? ?? '') ??
+          DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
+      final pinnedAt = DateTime.tryParse(data['pinnedAt'] as String? ?? '');
+      final album = await _albums.insertWithId(
+        id: id,
+        name: name,
+        createdAt: createdAt,
+        pinnedAt: pinnedAt,
+        coverMediaId: data['coverMediaId'] as String?,
+      );
+      restoredIds[id] = album.id;
     }
-    return File(p.join(dir, '${base}_${_uuid.v4()}$ext'));
+    return Map<String, String>.unmodifiable(restoredIds);
+  }
+
+  Future<void> _restoreMemberships(
+    Map<String, dynamic> manifest,
+    Map<String, String> albumIdMap,
+  ) async {
+    final memberships = (manifest['membership'] as List<dynamic>? ?? [])
+        .cast<Map<String, dynamic>>();
+    for (final data in memberships) {
+      final manifestAlbumId = data['albumId'] as String?;
+      final mediaId = data['mediaId'] as String?;
+      if (manifestAlbumId == null || mediaId == null) {
+        throw const FormatException('Membership requires albumId and mediaId');
+      }
+      final safeAlbumId = _validatedId(manifestAlbumId, 'album id');
+      final safeMediaId = _validatedId(mediaId, 'media id');
+      final albumId = albumIdMap[safeAlbumId];
+      if (albumId == null || await _db.getMediaById(safeMediaId) == null) {
+        continue;
+      }
+      final addedAt = DateTime.tryParse(data['addedAt'] as String? ?? '') ??
+          DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
+      await _albums.restoreMembership(albumId, safeMediaId, addedAt);
+    }
+  }
+
+  Future<void> _restoreV1Albums(Map<String, dynamic> manifest) async {
+    final albumList = (manifest['albums'] as List<dynamic>? ?? [])
+        .cast<Map<String, dynamic>>();
+    for (final data in albumList) {
+      if (data['isSystem'] as bool? ?? true) continue;
+      final name = data['name'] as String?;
+      if (name == null || name.trim().isEmpty) continue;
+      try {
+        await _albums.getOrCreateUserAlbumByName(name);
+      } catch (e, stackTrace) {
+        debugPrint('album restore: $e\n$stackTrace');
+      }
+    }
+  }
+
+  Future<File?> _backupFile(Directory mediaDirectory, String name) async {
+    if (name.isEmpty ||
+        name == '.' ||
+        name == '..' ||
+        name.contains('/') ||
+        name.contains(r'\')) {
+      throw FormatException('Invalid backup file name: $name');
+    }
+    final file = File(p.join(mediaDirectory.path, name));
+    if (!await file.exists()) return null;
+    final root = await mediaDirectory.resolveSymbolicLinks();
+    final resolved = await file.resolveSymbolicLinks();
+    if (!p.isWithin(root, resolved)) {
+      throw FormatException('Backup file leaves media directory: $name');
+    }
+    return file;
+  }
+
+  static String _validatedId(String value, String label) {
+    final valid = RegExp(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$');
+    if (!valid.hasMatch(value)) throw FormatException('Invalid $label');
+    return value;
+  }
+
+  static String? _validatedOriginalPath(String? value) {
+    if (value == null || value.trim().isEmpty) return null;
+    final normalized = p.normalize(value.trim());
+    final inStorage =
+        p.isWithin('/storage', normalized) || p.isWithin('/sdcard', normalized);
+    if (!p.isAbsolute(normalized) || !inStorage) {
+      throw const FormatException('Invalid original media path');
+    }
+    return normalized;
   }
 }

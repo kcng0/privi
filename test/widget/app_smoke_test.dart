@@ -1,15 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-
 import 'package:privi/app.dart';
 import 'package:privi/application/lock/lock_controller.dart';
 import 'package:privi/application/providers.dart';
+import 'package:privi/application/settings/settings_controller.dart';
+import 'package:privi/data/db/database.dart';
 import 'package:privi/data/services/biometric_service.dart';
 import 'package:privi/data/services/security_service.dart';
 import 'package:privi/domain/enums.dart';
 import 'package:privi/domain/models/album.dart';
 import 'package:privi/domain/models/album_view.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class _FakeSecurity extends SecurityService {
   _FakeSecurity() : super();
@@ -79,13 +81,21 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
+    SharedPreferences.setMockInitialValues({});
+    final preferences = await SharedPreferences.getInstance();
+    final database = AppDatabase.memory();
     final container = ProviderContainer(
       overrides: [
+        sharedPreferencesProvider.overrideWithValue(preferences),
+        databaseProvider.overrideWithValue(database),
         securityServiceProvider.overrideWithValue(_FakeSecurity()),
         biometricServiceProvider.overrideWithValue(_FakeBio()),
       ],
     );
-    addTearDown(container.dispose);
+    addTearDown(() async {
+      container.dispose();
+      await database.close();
+    });
 
     await tester.pumpWidget(
       UncontrolledProviderScope(
@@ -149,15 +159,23 @@ void main() {
       ),
     ];
 
+    SharedPreferences.setMockInitialValues({});
+    final preferences = await SharedPreferences.getInstance();
+    final database = AppDatabase.memory();
     final container = ProviderContainer(
       overrides: [
+        sharedPreferencesProvider.overrideWithValue(preferences),
+        databaseProvider.overrideWithValue(database),
         securityServiceProvider.overrideWithValue(_FakeSecurity()),
         biometricServiceProvider.overrideWithValue(_FakeBio()),
         lockControllerProvider.overrideWith(_UnlockedLock.new),
         albumsProvider.overrideWith((ref) => Stream.value(views)),
       ],
     );
-    addTearDown(container.dispose);
+    addTearDown(() async {
+      container.dispose();
+      await database.close();
+    });
 
     await tester.pumpWidget(
       UncontrolledProviderScope(
@@ -174,6 +192,45 @@ void main() {
     expect(find.text('New album'), findsOneWidget);
     expect(find.text('paris'), findsOneWidget);
     expect(find.text('Recycle Bin'), findsOneWidget);
+  });
+
+  testWidgets('persisted settings are available on the first frame',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({
+      'flag_secure': false,
+      'grid_columns': 5,
+      'locale_code': 'zh_HK',
+    });
+    final preferences = await SharedPreferences.getInstance();
+    final container = ProviderContainer(
+      overrides: [
+        sharedPreferencesProvider.overrideWithValue(preferences),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    final initial = container.read(settingsControllerProvider);
+    expect(initial.flagSecure, isFalse);
+    expect(initial.gridColumns, 5);
+    expect(initial.localeCode, 'zh_HK');
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          home: Consumer(
+            builder: (context, ref, child) {
+              final settings = ref.watch(settingsControllerProvider);
+              return Text(
+                '${settings.flagSecure}|${settings.gridColumns}|${settings.localeCode}',
+              );
+            },
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('false|5|zh_HK'), findsOneWidget);
   });
 }
 

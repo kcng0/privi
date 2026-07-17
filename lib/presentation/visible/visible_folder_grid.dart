@@ -9,8 +9,11 @@ import '../../application/providers.dart';
 import '../../application/settings/settings_controller.dart';
 import '../../core/constants.dart';
 import '../../core/l10n.dart';
+import '../../core/theme/vault_colors.dart';
+import '../../data/services/import/import_models.dart';
 import '../../data/services/media_rename_service.dart';
 import '../../domain/enums.dart';
+import '../common/vault_sheet.dart';
 import '../import/import_progress_sheet.dart';
 import 'folder_cover_cache.dart';
 import 'visible_media_grid.dart';
@@ -51,7 +54,7 @@ class _VisibleFolderGridState extends ConsumerState<VisibleFolderGrid>
   void _refreshPermissionAndFolders() {
     ref.invalidate(galleryPermissionProvider);
     ref.invalidate(galleryFoldersProvider);
-    ref.read(galleryUiEpochProvider.notifier).bump();
+    ref.read(galleryServiceProvider).apply(const VisiblePermissionChanged());
   }
 
   @override
@@ -115,10 +118,7 @@ class _VisibleFolderGridState extends ConsumerState<VisibleFolderGrid>
               onRefresh: () async {
                 FolderCoverCache.clear();
                 final gallery = ref.read(galleryServiceProvider);
-                // Drop session hide deductions so restored folders can reappear
-                // even if MediaStore was slow on the previous invalidate.
-                gallery.clearSessionHideDeductions();
-                gallery.refreshAfterMutation();
+                gallery.apply(const VisibleFilterChanged());
                 try {
                   await PhotoManager.clearFileCache()
                       .timeout(const Duration(seconds: 2));
@@ -128,7 +128,7 @@ class _VisibleFolderGridState extends ConsumerState<VisibleFolderGrid>
                 try {
                   final paths = await ref
                       .read(mediaRepositoryProvider)
-                      .listActivePrivatePaths();
+                      .listActiveOriginalPaths();
                   gallery.hydrateFromVaultPaths(paths);
                 } catch (_) {}
                 final current = list;
@@ -140,7 +140,6 @@ class _VisibleFolderGridState extends ConsumerState<VisibleFolderGrid>
                     );
                   } catch (_) {}
                 }
-                ref.read(galleryUiEpochProvider.notifier).bump();
                 ref.invalidate(galleryFoldersProvider);
                 await ref.read(galleryFoldersProvider.future);
               },
@@ -205,10 +204,9 @@ Future<void> _hideFolder({
   // ignore: unawaited_futures
   HapticFeedback.mediumImpact();
 
-  final choice = await showModalBottomSheet<String>(
-    context: context,
+  final choice = await showVaultSheet<String>(
+    context,
     showDragHandle: true,
-    backgroundColor: const Color(0xFF1B3A36),
     builder: (ctx) => SafeArea(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -302,6 +300,7 @@ Future<void> _hideFolder({
   showImportProgressSheet(context);
 
   var imported = 0;
+  List<ImportSource> resolvedSources = const [];
   try {
     final ids = <String>[];
     var page = 0;
@@ -340,6 +339,7 @@ Future<void> _hideFolder({
       ids,
       sourceFolderName: folder.name,
     );
+    resolvedSources = sources;
     if (import.isCancelRequested) {
       if (context.mounted) {
         messenger.showSnackBar(
@@ -378,7 +378,7 @@ Future<void> _hideFolder({
         msg.write(' · ${context.l10n.cancelled}');
       }
       if (summary.failed > 0) {
-        msg.write(' · ${summary.failed} failed');
+        msg.write(' · ${context.l10n.failedItems(summary.failed)}');
       }
       messenger.showSnackBar(SnackBar(content: Text(msg.toString())));
     }
@@ -395,14 +395,13 @@ Future<void> _hideFolder({
     import.clearSummary();
     // Partial success still refreshes Visible so UI is not stuck stale.
     if (imported > 0) {
-      gallery.noteHidden(
+      await gallery.recordHidden(
         pathId: folder.id,
         hiddenCount: imported,
+        filter: filter,
+        originalPaths: resolvedSources.map((source) => source.path).toList(),
       );
-      gallery.invalidateVaultPathCache();
       FolderCoverCache.clear(pathId: folder.id);
-      gallery.refreshAfterMutation();
-      ref.read(galleryUiEpochProvider.notifier).bump();
       ref.invalidate(galleryFoldersProvider);
       ref.invalidate(albumsProvider);
     }
@@ -425,7 +424,7 @@ class _FolderTile extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return Material(
-      color: const Color(0xFF1B3A36),
+      color: context.vaultColors.chrome,
       child: InkWell(
         onTap: onTap,
         onLongPress: onLongPress,
@@ -448,7 +447,7 @@ class _FolderTile extends ConsumerWidget {
                   gradient: LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
-                    colors: [Colors.transparent, Color(0xCC000000)],
+                    colors: [Colors.transparent, Colors.black87],
                   ),
                 ),
               ),
@@ -565,7 +564,7 @@ class _LazyFolderCoverState extends ConsumerState<_LazyFolderCover> {
       return Image(image: _image!, fit: BoxFit.cover, gaplessPlayback: true);
     }
     return ColoredBox(
-      color: const Color(0xFF244842),
+      color: context.vaultColors.surfaceAlt,
       child: Icon(
         widget.filter == MediaKindFilter.video
             ? Icons.videocam_outlined

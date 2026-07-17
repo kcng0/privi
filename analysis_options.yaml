@@ -11,6 +11,7 @@ analyzer:
     - "**/*.g.dart"
     - "**/*.freezed.dart"
     - "**/*.config.dart"
+    - "test/generated_migrations/**"
     - "build/**"
   language:
     strict-casts: true

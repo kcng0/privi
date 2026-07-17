@@ -11,6 +11,9 @@ class VaultColors extends ThemeExtension<VaultColors> {
     required this.heart,
     required this.heartOutline,
     required this.scrim,
+    required this.chrome,
+    required this.surface,
+    required this.surfaceAlt,
   });
 
   /// Filled heart glyph.
@@ -23,18 +26,40 @@ class VaultColors extends ThemeExtension<VaultColors> {
   /// chrome so content stays readable over any image.
   final Color scrim;
 
+  /// Teal app bars, sheets, and floating chrome.
+  final Color chrome;
+
+  /// Primary dark page surface.
+  final Color surface;
+
+  /// Raised/selected teal surface.
+  final Color surfaceAlt;
+
   static const dark = VaultColors(
     heart: Color(0xFFFF4D6D),
     heartOutline: Color(0xFF8A8A90),
     scrim: Color(0x8C000000), // black @ ~55%
+    chrome: Color(0xFF1B3A36),
+    surface: Color(0xFF101412),
+    surfaceAlt: Color(0xFF244842),
   );
 
   @override
-  VaultColors copyWith({Color? heart, Color? heartOutline, Color? scrim}) {
+  VaultColors copyWith({
+    Color? heart,
+    Color? heartOutline,
+    Color? scrim,
+    Color? chrome,
+    Color? surface,
+    Color? surfaceAlt,
+  }) {
     return VaultColors(
       heart: heart ?? this.heart,
       heartOutline: heartOutline ?? this.heartOutline,
       scrim: scrim ?? this.scrim,
+      chrome: chrome ?? this.chrome,
+      surface: surface ?? this.surface,
+      surfaceAlt: surfaceAlt ?? this.surfaceAlt,
     );
   }
 
@@ -45,6 +70,9 @@ class VaultColors extends ThemeExtension<VaultColors> {
       heart: Color.lerp(heart, other.heart, t)!,
       heartOutline: Color.lerp(heartOutline, other.heartOutline, t)!,
       scrim: Color.lerp(scrim, other.scrim, t)!,
+      chrome: Color.lerp(chrome, other.chrome, t)!,
+      surface: Color.lerp(surface, other.surface, t)!,
+      surfaceAlt: Color.lerp(surfaceAlt, other.surfaceAlt, t)!,
     );
   }
 }

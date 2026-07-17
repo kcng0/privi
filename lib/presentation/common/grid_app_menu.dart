@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../../core/l10n.dart';
-
 import '../../core/utils/media_query_utils.dart';
 import '../../domain/enums.dart';
+import 'vault_sheet.dart';
 
 /// Shared app-bar overflow actions for media grids (Invisible + Visible).
 ///
@@ -35,11 +35,10 @@ abstract final class GridAppMenu {
     final opts = options ?? MediaSort.values;
     final working = List<MediaSort>.of(selected);
 
-    await showModalBottomSheet<void>(
-      context: context,
+    await showVaultSheet<void>(
+      context,
       showDragHandle: true,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFF1B3A36),
       builder: (ctx) {
         final maxH = MediaQuery.sizeOf(ctx).height * 0.55;
         return SafeArea(
@@ -119,11 +118,10 @@ abstract final class GridAppMenu {
     List<int> options = mediaColumnOptions,
     String? title,
   }) {
-    return showModalBottomSheet<int>(
-      context: context,
+    return showVaultSheet<int>(
+      context,
       showDragHandle: true,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFF1B3A36),
       builder: (ctx) {
         final maxH = MediaQuery.sizeOf(ctx).height * 0.45;
         return SafeArea(

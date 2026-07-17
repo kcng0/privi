@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../core/l10n.dart';
+import '../../core/theme/vault_colors.dart';
+import 'vault_sheet.dart';
 
 /// Floating horizontal pill menu (bottom-center).
 class FloatingActionItem {
@@ -35,7 +37,7 @@ class FloatingActionCapsule extends StatelessWidget {
         child: Align(
           alignment: Alignment.bottomCenter,
           child: Material(
-            color: const Color(0xE61B3A36),
+            color: context.vaultColors.chrome.withValues(alpha: 0.9),
             elevation: 12,
             shadowColor: Colors.black54,
             borderRadius: BorderRadius.circular(28),
@@ -86,7 +88,7 @@ class _CapsuleButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = item.destructive
-        ? const Color(0xFFFF8A80)
+        ? Theme.of(context).colorScheme.error
         : Colors.white.withValues(alpha: 0.92);
     return InkWell(
       borderRadius: BorderRadius.circular(20),
@@ -118,9 +120,9 @@ Future<void> showMoreActionsSheet(
   BuildContext context, {
   required List<FloatingActionItem> actions,
 }) {
-  return showModalBottomSheet<void>(
-    context: context,
-    backgroundColor: const Color(0xFF1B3A36),
+  return showVaultSheet<void>(
+    context,
+    showDragHandle: false,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
     ),
@@ -142,12 +144,16 @@ Future<void> showMoreActionsSheet(
             ListTile(
               leading: Icon(
                 a.icon,
-                color: a.destructive ? const Color(0xFFFF8A80) : Colors.white70,
+                color: a.destructive
+                    ? Theme.of(ctx).colorScheme.error
+                    : Colors.white70,
               ),
               title: Text(
                 a.label,
                 style: TextStyle(
-                  color: a.destructive ? const Color(0xFFFF8A80) : Colors.white,
+                  color: a.destructive
+                      ? Theme.of(ctx).colorScheme.error
+                      : Colors.white,
                 ),
               ),
               onTap: () {

@@ -1,6 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
 import '../../domain/enums.dart';
+import '../providers.dart';
 
 /// Non-security prefs (Display / Playback / Security timeout).
 class AppSettings {
@@ -12,7 +14,7 @@ class AppSettings {
     this.slideshowSeconds = 3,
     this.shuffleDefault = false,
     this.recycleRetentionDays = 7,
-    this.flagSecure = false,
+    this.flagSecure = true,
     this.mediaKindFilter = MediaKindFilter.image,
     this.localeCode = '',
   });
@@ -71,22 +73,15 @@ class SettingsController extends Notifier<AppSettings> {
   static const _kMediaKind = 'media_kind_filter'; // image | video
   static const _kLocale = 'locale_code'; // '' | en | zh_CN | zh_HK
 
-  SharedPreferences? _prefs;
+  late final SharedPreferences _prefs;
 
   @override
   AppSettings build() {
-    Future.microtask(_load);
-    return const AppSettings();
-  }
-
-  Future<void> _load() async {
-    _prefs = await SharedPreferences.getInstance();
-    if (!ref.mounted) return;
-    final p = _prefs!;
+    final p = _prefs = ref.watch(sharedPreferencesProvider);
     final kindRaw = p.getString(_kMediaKind);
     final kind =
         kindRaw == 'video' ? MediaKindFilter.video : MediaKindFilter.image;
-    state = AppSettings(
+    return AppSettings(
       gridColumns: p.getInt(_kGrid) ?? 3,
       albumColumns: p.getInt(_kAlbum) ?? 3,
       autoLockSeconds: p.getInt(_kAutoLock) ?? 30,
@@ -94,7 +89,7 @@ class SettingsController extends Notifier<AppSettings> {
       slideshowSeconds: p.getInt(_kSlideshow) ?? 3,
       shuffleDefault: p.getBool(_kShuffle) ?? false,
       recycleRetentionDays: p.getInt(_kRecycle) ?? 7,
-      flagSecure: p.getBool(_kFlagSecure) ?? false,
+      flagSecure: p.getBool(_kFlagSecure) ?? true,
       mediaKindFilter: kind,
       localeCode: p.getString(_kLocale) ?? '',
     );
@@ -102,47 +97,47 @@ class SettingsController extends Notifier<AppSettings> {
 
   Future<void> setGridColumns(int n) async {
     state = state.copyWith(gridColumns: n.clamp(2, 5));
-    await _prefs?.setInt(_kGrid, state.gridColumns);
+    await _prefs.setInt(_kGrid, state.gridColumns);
   }
 
   Future<void> setAlbumColumns(int n) async {
     state = state.copyWith(albumColumns: n.clamp(3, 4));
-    await _prefs?.setInt(_kAlbum, state.albumColumns);
+    await _prefs.setInt(_kAlbum, state.albumColumns);
   }
 
   Future<void> setAutoLockSeconds(int seconds) async {
     state = state.copyWith(autoLockSeconds: seconds);
-    await _prefs?.setInt(_kAutoLock, seconds);
+    await _prefs.setInt(_kAutoLock, seconds);
   }
 
   Future<void> setPlayerExternal(bool v) async {
     state = state.copyWith(playerExternal: v);
-    await _prefs?.setBool(_kPlayer, v);
+    await _prefs.setBool(_kPlayer, v);
   }
 
   Future<void> setSlideshowSeconds(int s) async {
     state = state.copyWith(slideshowSeconds: s);
-    await _prefs?.setInt(_kSlideshow, s);
+    await _prefs.setInt(_kSlideshow, s);
   }
 
   Future<void> setShuffleDefault(bool v) async {
     state = state.copyWith(shuffleDefault: v);
-    await _prefs?.setBool(_kShuffle, v);
+    await _prefs.setBool(_kShuffle, v);
   }
 
   Future<void> setRecycleRetentionDays(int d) async {
     state = state.copyWith(recycleRetentionDays: d);
-    await _prefs?.setInt(_kRecycle, d);
+    await _prefs.setInt(_kRecycle, d);
   }
 
   Future<void> setFlagSecure(bool v) async {
     state = state.copyWith(flagSecure: v);
-    await _prefs?.setBool(_kFlagSecure, v);
+    await _prefs.setBool(_kFlagSecure, v);
   }
 
   Future<void> setMediaKindFilter(MediaKindFilter kind) async {
     state = state.copyWith(mediaKindFilter: kind);
-    await _prefs?.setString(
+    await _prefs.setString(
       _kMediaKind,
       kind == MediaKindFilter.video ? 'video' : 'image',
     );
@@ -155,7 +150,7 @@ class SettingsController extends Notifier<AppSettings> {
       _ => '',
     };
     state = state.copyWith(localeCode: normalized);
-    await _prefs?.setString(_kLocale, normalized);
+    await _prefs.setString(_kLocale, normalized);
   }
 }
 

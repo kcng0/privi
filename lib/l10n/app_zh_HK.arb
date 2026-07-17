@@ -53,6 +53,8 @@
   "errorWithDetails": "錯誤：{error}",
   "hide": "隱藏",
   "hiding": "正在隱藏…",
+  "resolvingMedia": "正在準備媒體…",
+  "unhiding": "正在取消隱藏…",
   "hidingParallel": "正在隱藏（×{workers}）…",
   "hideFolderTitle": "隱藏資料夾？",
   "hideFolderBody": "將「{name}」中的媒體從系統圖庫隱藏（共 {count} 項）。",
@@ -133,6 +135,7 @@
   "sortLowestRating": "評分由低至高",
   "sortsCount": "{count} 項排序",
   "progressOkSkipFail": "成功 {imported} · 略過 {skipped} · 失敗 {failed}",
+  "failedItems": "失敗 {count} 項",
   "drawPattern": "繪製圖案",
   "confirmPattern": "確認圖案",
   "redrawPattern": "重新繪製圖案",
@@ -248,5 +251,14 @@
   "confirmResetPattern": "確認身分以重設 Privi 圖案",
   "wrongPattern": "圖案錯誤",
   "wrongPin": "PIN 錯誤",
-  "systemAuthCancelled": "系統驗證已取消"
+  "noSystemLock": "請先在 Android 設定中啟用螢幕鎖定",
+  "systemAuthCancelled": "系統驗證已取消",
+  "scanFailedShort": "掃描失敗",
+  "screenshotSettingFailed": "無法更新截圖保護",
+  "noOrphanVaultFiles": "未找到保險庫檔案",
+  "recoveryResult": "已恢復 {recovered} · 略過 {skipped} · 失敗 {failed}",
+  "galleryRecoveryResult": "已還原 {restored} · 略過 {skipped} · 失敗 {failed}",
+  "noVaultMediaToRepair": "沒有需要修復的媒體",
+  "captureDateRepairResult": "已修復 {fixed} · 略過 {skipped} · 失敗 {failed}",
+  "unlockLockout": "請在 {seconds} 秒後重試"
 }

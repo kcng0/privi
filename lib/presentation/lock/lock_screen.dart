@@ -12,14 +12,15 @@ import 'pin_pad.dart';
 
 /// Lock / first-run pattern setup + biometric.
 /// Default root credential is **pattern**; legacy PIN installs still unlock via pad.
-String _mapLockError(BuildContext context, String? msg) {
-  if (msg == null || msg.isEmpty) return '';
+String _mapLockError(BuildContext context, VaultLockState lock) {
   final l10n = context.l10n;
-  return switch (msg) {
-    'Wrong pattern' => l10n.wrongPattern,
-    'Wrong PIN' => l10n.wrongPin,
-    'System authentication cancelled' => l10n.systemAuthCancelled,
-    _ => msg,
+  return switch (lock.errorCode) {
+    VaultLockErrorCode.wrongPattern => l10n.wrongPattern,
+    VaultLockErrorCode.wrongPin => l10n.wrongPin,
+    VaultLockErrorCode.noSystemLock => l10n.noSystemLock,
+    VaultLockErrorCode.systemAuthCancelled => l10n.systemAuthCancelled,
+    VaultLockErrorCode.lockout => l10n.unlockLockout(lock.lockoutSeconds ?? 0),
+    null => '',
   };
 }
 
@@ -183,10 +184,11 @@ class _LockScreenState extends ConsumerState<LockScreen> {
                 ),
               );
             }
-          } catch (e) {
+          } catch (e, stackTrace) {
+            debugPrint('biometric setup: $e\n$stackTrace');
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('$e')),
+                SnackBar(content: Text(context.l10n.biometricUpdateFailed)),
               );
             }
           }
@@ -310,7 +312,7 @@ class _LockScreenState extends ConsumerState<LockScreen> {
     final isSetup = lock.status == LockStatus.needsSetup;
     final usePattern = isSetup || lock.usesPattern;
     final theme = Theme.of(context);
-    final hasError = lock.errorMessage != null || _patternError;
+    final hasError = lock.errorCode != null || _patternError;
     final showBio =
         !isSetup && lock.biometricEnabled && lock.biometricAvailable;
 
@@ -405,10 +407,10 @@ class _LockScreenState extends ConsumerState<LockScreen> {
                               ),
                             ),
                           ),
-                        if (hasError && lock.errorMessage != null) ...[
+                        if (hasError && lock.errorCode != null) ...[
                           const SizedBox(height: AppSpacing.sm),
                           Text(
-                            _mapLockError(context, lock.errorMessage),
+                            _mapLockError(context, lock),
                             textAlign: TextAlign.center,
                             style: theme.textTheme.bodySmall?.copyWith(
                               color: theme.colorScheme.error,

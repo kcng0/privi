@@ -91,6 +91,8 @@
   },
   "hide": "Hide",
   "hiding": "Hiding…",
+  "resolvingMedia": "Preparing media…",
+  "unhiding": "Unhiding…",
   "hidingParallel": "Hiding (×{workers})…",
   "@hidingParallel": {
     "placeholders": {
@@ -309,6 +311,12 @@
       }
     }
   },
+  "failedItems": "{count} failed",
+  "@failedItems": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
   "drawPattern": "Draw a pattern",
   "confirmPattern": "Confirm pattern",
   "redrawPattern": "Redraw pattern",
@@ -515,5 +523,42 @@
   "confirmResetPattern": "Confirm it is you to reset Privi pattern",
   "wrongPattern": "Wrong pattern",
   "wrongPin": "Wrong PIN",
-  "systemAuthCancelled": "System authentication cancelled"
+  "noSystemLock": "Set up a screen lock in Android Settings first",
+  "systemAuthCancelled": "System authentication cancelled",
+  "scanFailedShort": "Scan failed",
+  "screenshotSettingFailed": "Could not update screenshot protection",
+  "noOrphanVaultFiles": "No vault files found",
+  "recoveryResult": "Recovered {recovered} · skipped {skipped} · failed {failed}",
+  "@recoveryResult": {
+    "placeholders": {
+      "recovered": { "type": "int" },
+      "skipped": { "type": "int" },
+      "failed": { "type": "int" }
+    }
+  },
+  "galleryRecoveryResult": "Restored {restored} · skipped {skipped} · failed {failed}",
+  "@galleryRecoveryResult": {
+    "placeholders": {
+      "restored": { "type": "int" },
+      "skipped": { "type": "int" },
+      "failed": { "type": "int" }
+    }
+  },
+  "noVaultMediaToRepair": "No vault media to repair",
+  "captureDateRepairResult": "Fixed {fixed} · skipped {skipped} · failed {failed}",
+  "@captureDateRepairResult": {
+    "placeholders": {
+      "fixed": { "type": "int" },
+      "skipped": { "type": "int" },
+      "failed": { "type": "int" }
+    }
+  },
+  "unlockLockout": "Try again in {seconds}s",
+  "@unlockLockout": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  }
 }

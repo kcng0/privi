@@ -53,6 +53,8 @@
   "errorWithDetails": "错误：{error}",
   "hide": "隐藏",
   "hiding": "正在隐藏…",
+  "resolvingMedia": "正在准备媒体…",
+  "unhiding": "正在取消隐藏…",
   "hidingParallel": "正在隐藏（×{workers}）…",
   "hideFolderTitle": "隐藏文件夹？",
   "hideFolderBody": "将“{name}”中的媒体从系统图库隐藏（共 {count} 项）。",
@@ -133,6 +135,7 @@
   "sortLowestRating": "评分从低到高",
   "sortsCount": "{count} 项排序",
   "progressOkSkipFail": "成功 {imported} · 跳过 {skipped} · 失败 {failed}",
+  "failedItems": "失败 {count} 项",
   "drawPattern": "绘制图案",
   "confirmPattern": "确认图案",
   "redrawPattern": "重新绘制图案",
@@ -248,5 +251,14 @@
   "confirmResetPattern": "确认身份以重置 Privi 图案",
   "wrongPattern": "图案错误",
   "wrongPin": "PIN 错误",
-  "systemAuthCancelled": "系统验证已取消"
+  "noSystemLock": "请先在 Android 设置中启用屏幕锁定",
+  "systemAuthCancelled": "系统验证已取消",
+  "scanFailedShort": "扫描失败",
+  "screenshotSettingFailed": "无法更新截屏保护",
+  "noOrphanVaultFiles": "未找到保险库文件",
+  "recoveryResult": "已恢复 {recovered} · 跳过 {skipped} · 失败 {failed}",
+  "galleryRecoveryResult": "已还原 {restored} · 跳过 {skipped} · 失败 {failed}",
+  "noVaultMediaToRepair": "没有需要修复的媒体",
+  "captureDateRepairResult": "已修复 {fixed} · 跳过 {skipped} · 失败 {failed}",
+  "unlockLockout": "请在 {seconds} 秒后重试"
 }
