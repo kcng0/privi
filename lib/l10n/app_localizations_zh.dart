@@ -655,6 +655,36 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String get checkUpdates => '检查更新';
+
+  @override
+  String get updateAvailableTitle => '有可用更新';
+
+  @override
+  String get updateDownloadPrompt => '立即下载？重启后生效。';
+
+  @override
+  String get later => '稍后';
+
+  @override
+  String get updateAction => '更新';
+
+  @override
+  String get upToDate => '已是最新版本';
+
+  @override
+  String get updateReadyRestart => '更新已就绪，请重启 Privi';
+
+  @override
+  String get updatesUnavailable => '此版本不支持更新';
+
+  @override
+  String get updateCheckFailed => '检查失败';
+
+  @override
+  String get updateDownloadFailed => '更新失败';
+
+  @override
   String authorLabel(String author) {
     return '作者：$author';
   }
@@ -1533,6 +1563,36 @@ class AppLocalizationsZhCn extends AppLocalizationsZh {
   }
 
   @override
+  String get checkUpdates => '检查更新';
+
+  @override
+  String get updateAvailableTitle => '有可用更新';
+
+  @override
+  String get updateDownloadPrompt => '立即下载？重启后生效。';
+
+  @override
+  String get later => '稍后';
+
+  @override
+  String get updateAction => '更新';
+
+  @override
+  String get upToDate => '已是最新版本';
+
+  @override
+  String get updateReadyRestart => '更新已就绪，请重启 Privi';
+
+  @override
+  String get updatesUnavailable => '此版本不支持更新';
+
+  @override
+  String get updateCheckFailed => '检查失败';
+
+  @override
+  String get updateDownloadFailed => '更新失败';
+
+  @override
   String authorLabel(String author) {
     return '作者：$author';
   }
@@ -2409,6 +2469,36 @@ class AppLocalizationsZhHk extends AppLocalizationsZh {
   String patchLabel(int number) {
     return '修補 $number';
   }
+
+  @override
+  String get checkUpdates => '檢查更新';
+
+  @override
+  String get updateAvailableTitle => '有可用更新';
+
+  @override
+  String get updateDownloadPrompt => '立即下載？重新啟動後生效。';
+
+  @override
+  String get later => '稍後';
+
+  @override
+  String get updateAction => '更新';
+
+  @override
+  String get upToDate => '已是最新版本';
+
+  @override
+  String get updateReadyRestart => '更新已就緒，請重新啟動 Privi';
+
+  @override
+  String get updatesUnavailable => '此版本不支援更新';
+
+  @override
+  String get updateCheckFailed => '檢查失敗';
+
+  @override
+  String get updateDownloadFailed => '更新失敗';
 
   @override
   String authorLabel(String author) {

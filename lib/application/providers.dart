@@ -17,6 +17,7 @@ import '../domain/enums.dart';
 import '../domain/models/album_view.dart';
 import '../domain/models/media_item.dart';
 import 'gallery/gallery_controller.dart';
+import 'update/app_update_service.dart';
 
 /// Core DI graph. Manual providers for Phase 1 (codegen can replace later).
 
@@ -26,6 +27,10 @@ final sharedPreferencesProvider = Provider<SharedPreferences>((ref) {
 
 final appBuildInfoProvider = Provider<AppBuildInfo>((ref) {
   throw UnimplementedError('appBuildInfoProvider must be overridden');
+});
+
+final appUpdateServiceProvider = Provider<AppUpdateService>((ref) {
+  throw UnimplementedError('appUpdateServiceProvider must be overridden');
 });
 
 final databaseProvider = Provider<AppDatabase>((ref) {

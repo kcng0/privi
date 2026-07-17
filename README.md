@@ -42,15 +42,16 @@ for external video playback. All media stays on-device.
 
 ### Hot updates
 
-Starting with **v1.0.3**, release APKs include Shorebird code push. Install that
-base APK once; compatible signed Dart patches then download in the background
-and take effect after the next app restart. The About dialog shows both the base
-version/build and the applied patch number.
+Starting with **v1.0.4**, updates are fully user-controlled. Open **Settings →
+Check updates** to contact the update service. When a signed Dart patch is
+available, Privi asks before downloading it; the patch takes effect after the
+next app restart. The About dialog shows the base version/build and applied
+patch number.
 
 Android/native code, plugins, permissions, bundled assets, and Flutter engine
-changes still require a new APK. Versions older than v1.0.3 do not contain the
-updater, so they require this one final manual APK upgrade. Network access is
-used for signed update checks and patch downloads; vault media stays on-device.
+changes still require a new APK. v1.0.3 contained the first updater but used its
+automatic mode, so install v1.0.4 once to enable consent-based updates. Network
+access occurs only after the manual check; vault media stays on-device.
 
 ---
 
@@ -62,7 +63,7 @@ used for signed update checks and patch downloads; vault media stays on-device.
 - **Built-in player** + open-in-VLC
 - **Pattern / PIN + biometric** lock, optional `FLAG_SECURE` (block screenshots)
 - **Share-to-Privi** import intents for images and videos
-- On-device media storage; network access is limited to signed code updates
+- On-device media storage; signed update checks are user-triggered
 
 ### Keywords / search terms
 
@@ -176,7 +177,7 @@ git push origin v0.1.1
 Or run **Actions → Release APK → Run workflow**. For Dart-only fixes that do
 not require a new APK, merge the change through a PR without bumping the app
 version, then run **Actions → Shorebird Patch** with the exact base version
-(for example `1.0.3+4`).
+(for example `1.0.4+5`).
 
 ---
 

@@ -10,25 +10,26 @@ import 'app.dart';
 import 'application/providers.dart';
 import 'application/settings/settings_controller.dart';
 import 'core/app_build_info.dart';
+import 'data/services/shorebird_app_update_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   final packageInfo = await PackageInfo.fromPlatform();
-  final shorebirdUpdater = ShorebirdUpdater();
-  final currentPatch = shorebirdUpdater.isAvailable
-      ? await shorebirdUpdater.readCurrentPatch()
-      : null;
+  final appUpdateService = ShorebirdAppUpdateService(
+    updater: ShorebirdUpdater(),
+  );
   final appBuildInfo = AppBuildInfo(
     version: packageInfo.version,
     buildNumber: packageInfo.buildNumber,
-    patchNumber: currentPatch?.number,
+    patchNumber: await appUpdateService.readCurrentPatchNumber(),
   );
   final prefs = await SharedPreferences.getInstance();
   final container = ProviderContainer(
     overrides: [
       sharedPreferencesProvider.overrideWithValue(prefs),
       appBuildInfoProvider.overrideWithValue(appBuildInfo),
+      appUpdateServiceProvider.overrideWithValue(appUpdateService),
     ],
   );
   container.read(databaseProvider);

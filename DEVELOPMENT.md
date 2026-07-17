@@ -178,23 +178,27 @@ git push origin main --tags
 ```
 
 Or **Actions → Release APK → Run workflow** and enter a tag name. The tag must
-match the `pubspec.yaml` version name (`1.0.3+4` uses tag `v1.0.3`), which keeps
+match the `pubspec.yaml` version name (`1.0.4+5` uses tag `v1.0.4`), which keeps
 the GitHub release and About version aligned.
 
 ### Shorebird hot updates
 
-The first Shorebird-capable base is v1.0.3. Its updater checks for signed code
-patches in the background and applies a downloaded patch on the next restart.
-`Settings → About` displays the package version/build plus the active patch
-number. Existing v1.0.2 installations require one normal APK upgrade because
-that binary does not contain the Shorebird engine.
+The first Shorebird-capable base was v1.0.3. v1.0.4 disables Shorebird's
+automatic updater: the app makes no update request until the user selects
+`Settings → Check updates`, then asks again before downloading an available
+patch. A downloaded patch applies on the next restart. `Settings → About`
+displays the package version/build plus the active patch number.
+
+Android's `INTERNET` permission is a normal install-time permission and has no
+runtime system dialog. The manual action and download confirmation are Privi's
+application-level consent boundary.
 
 Use a patch only when the change is Dart code and the base version remains
 unchanged:
 
 1. Make the Dart-only change on a branch and merge it through a PR.
 2. Run **Actions → Shorebird Patch** from `main`.
-3. Enter the exact Shorebird base version, such as `1.0.3+4`.
+3. Enter the exact Shorebird base version, such as `1.0.4+5`.
 4. Publish to `staging` first; after verification, publish the reviewed commit
    to `stable`.
 

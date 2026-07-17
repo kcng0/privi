@@ -1270,6 +1270,66 @@ abstract class AppLocalizations {
   /// **'Patch {number}'**
   String patchLabel(int number);
 
+  /// No description provided for @checkUpdates.
+  ///
+  /// In en, this message translates to:
+  /// **'Check updates'**
+  String get checkUpdates;
+
+  /// No description provided for @updateAvailableTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Update available'**
+  String get updateAvailableTitle;
+
+  /// No description provided for @updateDownloadPrompt.
+  ///
+  /// In en, this message translates to:
+  /// **'Download now? Applies after restart.'**
+  String get updateDownloadPrompt;
+
+  /// No description provided for @later.
+  ///
+  /// In en, this message translates to:
+  /// **'Later'**
+  String get later;
+
+  /// No description provided for @updateAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Update'**
+  String get updateAction;
+
+  /// No description provided for @upToDate.
+  ///
+  /// In en, this message translates to:
+  /// **'Up to date'**
+  String get upToDate;
+
+  /// No description provided for @updateReadyRestart.
+  ///
+  /// In en, this message translates to:
+  /// **'Update ready. Restart Privi.'**
+  String get updateReadyRestart;
+
+  /// No description provided for @updatesUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Updates unavailable'**
+  String get updatesUnavailable;
+
+  /// No description provided for @updateCheckFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Check failed'**
+  String get updateCheckFailed;
+
+  /// No description provided for @updateDownloadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Update failed'**
+  String get updateDownloadFailed;
+
   /// No description provided for @authorLabel.
   ///
   /// In en, this message translates to:
