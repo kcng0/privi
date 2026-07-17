@@ -80,11 +80,17 @@ class MaintenanceService {
     final accessible = await _vaultAccessible();
     final missing = accessible ? await _purgeMissingFiles() : 0;
     final expired = accessible ? await _purgeExpiredRecycle(retentionDays) : 0;
+    final videoThumbnails = accessible && _import != null
+        ? await _import.repairOutdatedVideoThumbnails()
+        : 0;
     final thumbs = await _cleanOrphanThumbs();
     final parts = <String>[];
     if (!accessible) parts.add('skipped (no storage access)');
     if (missing > 0) parts.add('removed $missing missing');
     if (expired > 0) parts.add('purged $expired expired');
+    if (videoThumbnails > 0) {
+      parts.add('upgraded $videoThumbnails video thumbnails');
+    }
     if (thumbs > 0) parts.add('cleared $thumbs orphan thumbs');
     if (parts.isEmpty) return 'ok';
     return parts.join(', ');

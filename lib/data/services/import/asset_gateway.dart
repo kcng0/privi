@@ -26,7 +26,12 @@ abstract class AssetGateway {
 
   Future<File?> originFile(String id);
 
-  Future<Uint8List?> thumbnailBytes(String id, int size);
+  Future<Uint8List?> thumbnailBytes(
+    String id, {
+    required int size,
+    required int quality,
+    required int frameUs,
+  });
 
   Future<int?> createDateSecond(String id);
 
@@ -62,11 +67,17 @@ class PhotoManagerAssetGateway implements AssetGateway {
   }
 
   @override
-  Future<Uint8List?> thumbnailBytes(String id, int size) async {
+  Future<Uint8List?> thumbnailBytes(
+    String id, {
+    required int size,
+    required int quality,
+    required int frameUs,
+  }) async {
     final entity = await AssetEntity.fromId(id);
     return entity?.thumbnailDataWithSize(
       ThumbnailSize.square(size),
-      quality: 70,
+      quality: quality,
+      frame: frameUs,
     );
   }
 

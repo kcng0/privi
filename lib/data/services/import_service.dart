@@ -94,6 +94,9 @@ class ImportService {
   /// single bad video cannot stall the whole batch for minutes.
   static const int nativeBatchChunk = VaultRevealRunner.nativeBatchChunk;
 
+  Future<int> repairOutdatedVideoThumbnails() =>
+      _thumbnailGenerator.repairOutdatedVideos();
+
   Future<ImportProgress> importAll(
     List<ImportSource> sources, {
     void Function(ImportProgress progress)? onProgress,
@@ -229,6 +232,8 @@ class ImportService {
     await _transferRunner.run(
       prepared,
       session: activeSession,
+      beforeChunk: _thumbnailGenerator.captureBeforeHide,
+      collectOutcomes: false,
       onChunk: (outcomes) async {
         for (final outcome in outcomes) {
           final job = outcome.job;
@@ -263,14 +268,37 @@ class ImportService {
         }
         for (final record in recorded) {
           final job = record.outcome.job;
-          thumbJobs.add(
-            ThumbnailJob(
+          final deferredThumbnailJob = ThumbnailJob(
+            id: job.id,
+            privatePath: record.item.privatePath,
+            isVideo: job.isVideo,
+            assetId: job.source.assetId,
+          );
+          final sourceThumbnailBytes = job.thumbnailBytes;
+          if (sourceThumbnailBytes?.isNotEmpty ?? false) {
+            final capturedThumbnailJob = ThumbnailJob(
               id: job.id,
               privatePath: record.item.privatePath,
               isVideo: job.isVideo,
               assetId: job.source.assetId,
-            ),
-          );
+              sourceThumbnailBytes: sourceThumbnailBytes,
+            );
+            try {
+              await _thumbnailGenerator
+                  .generateOne(capturedThumbnailJob)
+                  .timeout(
+                    const Duration(seconds: 3),
+                  );
+              continue;
+            } catch (error, stackTrace) {
+              debugPrint(
+                'captured thumb ${job.id}: $error\n$stackTrace',
+              );
+            }
+          }
+          // Never retain captured bytes beyond this native chunk. A failed
+          // synchronous write retries from the remaining media sources.
+          thumbJobs.add(deferredThumbnailJob);
         }
       },
     );

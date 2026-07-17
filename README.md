@@ -60,6 +60,8 @@ media stays on-device.
 
 - **Visible | Invisible** home — browse system gallery albums or the private vault
 - **Directory hide** — media removed from the system gallery while kept on disk
+- **Consistent HD posters** — the same 768 px video frame before and after Hide
+- **Stable date order** — folders keep original capture chronology after Hide
 - **Hearts (0–3)** + favorites, albums, and playlists
 - **Built-in player** + open-in-VLC
 - **Pattern / PIN + biometric** lock, optional `FLAG_SECURE` (block screenshots)

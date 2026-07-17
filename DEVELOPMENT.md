@@ -103,6 +103,21 @@ make help      # list all targets
 
 Without `make`, prefix with `fvm ` (or nothing), e.g. `fvm flutter test`.
 
+## Media consistency contract
+
+Visible and Invisible grids share `MediaThumbnailSpec`: 768 px, quality 90,
+and the one-second frame for videos. Hide captures that poster before the
+MediaStore source moves, then persists the exact bytes after the media row is
+durable. Keep capture bounded to the current native transfer chunk; do not
+prefetch a whole folder into memory. Versioned thumbnail paths let launch
+maintenance upgrade old low-resolution video posters once and retry explicit
+failures on a later launch.
+
+Date sorting also crosses the Hide boundary unchanged. Visible MediaStore
+pagination must query `createDate`, while vault queries use
+`dateTaken ?? dateAdded` and the exact source filename as their deterministic
+tie-breaker. Modified time and Hide time are not valid chronology inputs.
+
 ## Code generation
 
 Drift tables use `build_runner`; localization resources use `flutter gen-l10n`.

@@ -25,6 +25,7 @@ class PreparedHide {
     required this.folderName,
     required this.albumId,
     this.dateTaken,
+    this.thumbnailBytes,
   });
 
   final String id;
@@ -37,6 +38,21 @@ class PreparedHide {
   final String folderName;
   final String? albumId;
   final DateTime? dateTaken;
+  final Uint8List? thumbnailBytes;
+
+  PreparedHide withThumbnailBytes(Uint8List bytes) => PreparedHide(
+        id: id,
+        source: source,
+        originalPath: originalPath,
+        originalName: originalName,
+        mimeType: mimeType,
+        isVideo: isVideo,
+        destinationPath: destinationPath,
+        folderName: folderName,
+        albumId: albumId,
+        dateTaken: dateTaken,
+        thumbnailBytes: bytes,
+      );
 }
 
 class HidePreparer {

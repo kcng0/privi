@@ -90,6 +90,11 @@ class AppDatabase extends _$AppDatabase {
       'ON media_items (deleted_at, date_added)',
     );
     await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_media_items_original_date '
+      'ON media_items '
+      '(deleted_at, COALESCE(date_taken, date_added) DESC, original_name ASC)',
+    );
+    await customStatement(
       'CREATE INDEX IF NOT EXISTS idx_media_items_rating_active '
       'ON media_items (rating) WHERE deleted_at IS NULL',
     );
@@ -102,6 +107,13 @@ class AppDatabase extends _$AppDatabase {
       'ON album_media (album_id)',
     );
   }
+
+  OrderingTerm get _originalMediaDateDesc => OrderingTerm.desc(
+        coalesce<DateTime>([mediaItems.dateTaken, mediaItems.dateAdded]),
+      );
+
+  OrderingTerm get _originalMediaNameAsc =>
+      OrderingTerm.asc(mediaItems.originalName);
 
   Future<void> seedSystemAlbums() async {
     final now = DateTime.now().toUtc();
@@ -253,7 +265,10 @@ class AppDatabase extends _$AppDatabase {
   Stream<List<MediaItemRow>> watchActiveMedia() {
     return (select(mediaItems)
           ..where((t) => t.deletedAt.isNull())
-          ..orderBy([(t) => OrderingTerm.desc(t.dateAdded)]))
+          ..orderBy([
+            (_) => _originalMediaDateDesc,
+            (_) => _originalMediaNameAsc,
+          ]))
         .watch();
   }
 
@@ -262,7 +277,10 @@ class AppDatabase extends _$AppDatabase {
           ..where(
             (t) => t.deletedAt.isNull() & t.rating.isBiggerOrEqualValue(1),
           )
-          ..orderBy([(t) => OrderingTerm.desc(t.dateAdded)]))
+          ..orderBy([
+            (_) => _originalMediaDateDesc,
+            (_) => _originalMediaNameAsc,
+          ]))
         .watch();
   }
 
@@ -283,7 +301,10 @@ class AppDatabase extends _$AppDatabase {
       ..where(
         albumMedia.albumId.equals(albumId) & mediaItems.deletedAt.isNull(),
       )
-      ..orderBy([OrderingTerm.desc(mediaItems.dateAdded)]);
+      ..orderBy([
+        _originalMediaDateDesc,
+        _originalMediaNameAsc,
+      ]);
 
     return query.watch().map(
           (rows) => rows.map((r) => r.readTable(mediaItems)).toList(),
@@ -385,7 +406,10 @@ class AppDatabase extends _$AppDatabase {
             if (isVideo != null) p = p & t.isVideo.equals(isVideo);
             return p;
           })
-          ..orderBy([(t) => OrderingTerm.desc(t.dateAdded)])
+          ..orderBy([
+            (_) => _originalMediaDateDesc,
+            (_) => _originalMediaNameAsc,
+          ])
           ..limit(1))
         .getSingleOrNull();
   }
@@ -397,7 +421,10 @@ class AppDatabase extends _$AppDatabase {
             if (isVideo != null) p = p & t.isVideo.equals(isVideo);
             return p;
           })
-          ..orderBy([(t) => OrderingTerm.desc(t.dateAdded)])
+          ..orderBy([
+            (_) => _originalMediaDateDesc,
+            (_) => _originalMediaNameAsc,
+          ])
           ..limit(1))
         .getSingleOrNull();
   }
@@ -473,7 +500,10 @@ class AppDatabase extends _$AppDatabase {
       ),
     ])
       ..where(pred)
-      ..orderBy([OrderingTerm.desc(mediaItems.dateAdded)])
+      ..orderBy([
+        _originalMediaDateDesc,
+        _originalMediaNameAsc,
+      ])
       ..limit(1);
     final rows = await query.get();
     if (rows.isEmpty) return null;
@@ -510,7 +540,10 @@ class AppDatabase extends _$AppDatabase {
       ..where(
         albumMedia.albumId.equals(albumId) & mediaItems.deletedAt.isNull(),
       )
-      ..orderBy([OrderingTerm.desc(mediaItems.dateAdded)]);
+      ..orderBy([
+        _originalMediaDateDesc,
+        _originalMediaNameAsc,
+      ]);
     final rows = await query.get();
     return rows.map((r) => r.readTable(mediaItems)).toList(growable: false);
   }
@@ -518,7 +551,10 @@ class AppDatabase extends _$AppDatabase {
   Future<List<MediaItemRow>> listActiveMedia() {
     return (select(mediaItems)
           ..where((t) => t.deletedAt.isNull())
-          ..orderBy([(t) => OrderingTerm.desc(t.dateAdded)]))
+          ..orderBy([
+            (_) => _originalMediaDateDesc,
+            (_) => _originalMediaNameAsc,
+          ]))
         .get();
   }
 
@@ -527,7 +563,10 @@ class AppDatabase extends _$AppDatabase {
           ..where(
             (t) => t.deletedAt.isNull() & t.rating.isBiggerOrEqualValue(1),
           )
-          ..orderBy([(t) => OrderingTerm.desc(t.dateAdded)]))
+          ..orderBy([
+            (_) => _originalMediaDateDesc,
+            (_) => _originalMediaNameAsc,
+          ]))
         .get();
   }
 

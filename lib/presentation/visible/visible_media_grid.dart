@@ -13,6 +13,7 @@ import '../../application/settings/settings_controller.dart';
 import '../../core/constants.dart';
 import '../../core/l10n.dart';
 import '../../core/theme/vault_colors.dart';
+import '../../core/utils/media_chronology.dart';
 import '../../core/utils/media_query_utils.dart';
 import '../../data/services/import_service.dart';
 import '../../data/services/intent_service.dart';
@@ -227,10 +228,20 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
     list.sort((a, b) {
       for (final s in sorts) {
         final c = switch (s) {
-          MediaSort.dateAddedDesc =>
-            (b.createDateMs ?? 0).compareTo(a.createDateMs ?? 0),
-          MediaSort.dateAddedAsc =>
-            (a.createDateMs ?? 0).compareTo(b.createDateMs ?? 0),
+          MediaSort.dateAddedDesc => MediaChronology.compare(
+              leftDate: MediaChronology.fromEpochMs(a.createDateMs),
+              leftName: a.title,
+              rightDate: MediaChronology.fromEpochMs(b.createDateMs),
+              rightName: b.title,
+              ascending: false,
+            ),
+          MediaSort.dateAddedAsc => MediaChronology.compare(
+              leftDate: MediaChronology.fromEpochMs(a.createDateMs),
+              leftName: a.title,
+              rightDate: MediaChronology.fromEpochMs(b.createDateMs),
+              rightName: b.title,
+              ascending: true,
+            ),
           MediaSort.nameAsc =>
             a.title.toLowerCase().compareTo(b.title.toLowerCase()),
           MediaSort.nameDesc =>
@@ -239,7 +250,13 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
         };
         if (c != 0) return c;
       }
-      return (b.createDateMs ?? 0).compareTo(a.createDateMs ?? 0);
+      return MediaChronology.compare(
+        leftDate: MediaChronology.fromEpochMs(a.createDateMs),
+        leftName: a.title,
+        rightDate: MediaChronology.fromEpochMs(b.createDateMs),
+        rightName: b.title,
+        ascending: false,
+      );
     });
     return list;
   }
@@ -779,7 +796,7 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
   }
 }
 
-class _LazyThumbTile extends StatefulWidget {
+class _LazyThumbTile extends ConsumerStatefulWidget {
   const _LazyThumbTile({
     required this.asset,
     required this.selected,
@@ -795,11 +812,10 @@ class _LazyThumbTile extends StatefulWidget {
   final VoidCallback onLongPress;
 
   @override
-  State<_LazyThumbTile> createState() => _LazyThumbTileState();
+  ConsumerState<_LazyThumbTile> createState() => _LazyThumbTileState();
 }
 
-class _LazyThumbTileState extends State<_LazyThumbTile> {
-  static final _cache = <String, ImageProvider>{};
+class _LazyThumbTileState extends ConsumerState<_LazyThumbTile> {
   ImageProvider? _provider;
   bool _loading = true;
 
@@ -821,32 +837,22 @@ class _LazyThumbTileState extends State<_LazyThumbTile> {
 
   Future<void> _load() async {
     final id = widget.asset.id;
-    final cached = _cache[id];
-    if (cached != null) {
-      if (mounted) {
-        setState(() {
-          _provider = cached;
-          _loading = false;
-        });
-      }
-      return;
-    }
     try {
-      final entity = await AssetEntity.fromId(id);
-      final bytes = await entity?.thumbnailDataWithSize(
-        const ThumbnailSize.square(200),
-        quality: 70,
-      );
-      if (bytes == null || !mounted) return;
+      final bytes = await ref.read(galleryServiceProvider).mediaThumbnail(id);
+      if (!mounted || id != widget.asset.id) return;
+      if (bytes == null) {
+        setState(() => _loading = false);
+        return;
+      }
       final provider = MemoryImage(bytes);
-      _cache[id] = provider;
-      if (_cache.length > 400) _cache.remove(_cache.keys.first);
       setState(() {
         _provider = provider;
         _loading = false;
       });
     } catch (_) {
-      if (mounted) setState(() => _loading = false);
+      if (mounted && id == widget.asset.id) {
+        setState(() => _loading = false);
+      }
     }
   }
 

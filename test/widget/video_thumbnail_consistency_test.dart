@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -14,6 +16,9 @@ import 'package:privi/presentation/visible/visible_media_grid.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class _GalleryWithOneVideo extends GalleryService {
+  @override
+  Future<Uint8List?> mediaThumbnail(String assetId) async => null;
+
   @override
   Future<void> ensureVaultHydrated(
     Future<List<String>> Function() loadPaths,

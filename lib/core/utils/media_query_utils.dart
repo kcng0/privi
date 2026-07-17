@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../domain/enums.dart';
 import '../../domain/models/media_item.dart';
 import '../../l10n/app_localizations.dart';
+import 'media_chronology.dart';
 
 /// Client-side search / multi-criteria sort / rating filter for album grids.
 abstract final class MediaQueryUtils {
@@ -70,7 +71,13 @@ abstract final class MediaQueryUtils {
         final c = _compareOne(a, b, s);
         if (c != 0) return c;
       }
-      return _sortDate(b).compareTo(_sortDate(a));
+      return MediaChronology.compare(
+        leftDate: MediaChronology.forVaultItem(a),
+        leftName: a.originalName,
+        rightDate: MediaChronology.forVaultItem(b),
+        rightName: b.originalName,
+        ascending: false,
+      );
     });
     return list;
   }
@@ -79,9 +86,21 @@ abstract final class MediaQueryUtils {
     switch (s) {
       case MediaSort.dateAddedDesc:
         // Prefer original capture time so hide/unhide doesn't reshuffle.
-        return _sortDate(b).compareTo(_sortDate(a));
+        return MediaChronology.compare(
+          leftDate: MediaChronology.forVaultItem(a),
+          leftName: a.originalName,
+          rightDate: MediaChronology.forVaultItem(b),
+          rightName: b.originalName,
+          ascending: false,
+        );
       case MediaSort.dateAddedAsc:
-        return _sortDate(a).compareTo(_sortDate(b));
+        return MediaChronology.compare(
+          leftDate: MediaChronology.forVaultItem(a),
+          leftName: a.originalName,
+          rightDate: MediaChronology.forVaultItem(b),
+          rightName: b.originalName,
+          ascending: true,
+        );
       case MediaSort.nameAsc:
         return a.originalName
             .toLowerCase()
@@ -96,9 +115,6 @@ abstract final class MediaQueryUtils {
         return a.rating.compareTo(b.rating);
     }
   }
-
-  /// Capture/create time when known; otherwise vault insert time.
-  static DateTime _sortDate(MediaItem m) => m.dateTaken ?? m.dateAdded;
 
   static String sortLabel(MediaSort s) => switch (s) {
         MediaSort.dateAddedDesc => 'Newest first',

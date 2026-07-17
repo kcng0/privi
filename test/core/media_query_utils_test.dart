@@ -116,5 +116,26 @@ void main() {
       );
       expect(out.map((e) => e.id).toList(), ['new', 'old']);
     });
+
+    test('equal capture dates use the original name deterministically', () {
+      final sameDate = DateTime.utc(2025, 1, 1);
+      final zeta = item(
+        id: 'zeta',
+        name: 'Zeta.mp4',
+        dateTaken: sameDate,
+      );
+      final alpha = item(
+        id: 'alpha',
+        name: 'alpha.mp4',
+        dateTaken: sameDate,
+      );
+
+      final out = MediaQueryUtils.apply(
+        items: [zeta, alpha],
+        sorts: const [MediaSort.dateAddedDesc],
+      );
+
+      expect(out.map((e) => e.id), ['zeta', 'alpha']);
+    });
   });
 }

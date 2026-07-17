@@ -246,6 +246,26 @@ void main() {
       expect(chunks, 1);
       expect(outcomes, hasLength(VaultTransferRunner.nativeBatchChunk));
     });
+
+    test('chunk posters can be released after durable callback processing',
+        () async {
+      Uint8List? processedPoster;
+
+      final outcomes = await runner.run(
+        [_job(0)],
+        session: ImportSession(),
+        beforeChunk: (jobs) async => [
+          jobs.single.withThumbnailBytes(Uint8List.fromList([4, 2])),
+        ],
+        collectOutcomes: false,
+        onChunk: (chunk) async {
+          processedPoster = chunk.single.job.thumbnailBytes;
+        },
+      );
+
+      expect(processedPoster, [4, 2]);
+      expect(outcomes, isEmpty);
+    });
   });
 
   test('mime sniffing handles supported image and video extensions', () {

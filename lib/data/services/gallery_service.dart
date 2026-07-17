@@ -1,8 +1,11 @@
 import 'dart:async';
 import 'dart:math' as math;
+
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:photo_manager/photo_manager.dart';
+
+import '../../core/media_thumbnail_spec.dart';
 import '../../domain/enums.dart';
 import 'hide_naming.dart';
 import 'import/asset_gateway.dart';
@@ -279,12 +282,18 @@ class GalleryService {
   final FileSystemGateway _files;
   final MediaStoreService _mediaStore;
   final VisibleLibraryState _visibleState;
+  final Map<String, Uint8List> _thumbnailCache = {};
+  final Map<String, Future<Uint8List?>> _thumbnailLoads = {};
 
   static const _cacheTtl = Duration(seconds: 45);
 
   Stream<int> get changes => _visibleState.changes;
 
-  void dispose() => _visibleState.dispose();
+  void dispose() {
+    _thumbnailCache.clear();
+    _thumbnailLoads.clear();
+    _visibleState.dispose();
+  }
 
   RequestType _requestType(MediaKindFilter filter) {
     return switch (filter) {
@@ -301,9 +310,39 @@ class GalleryService {
           sizeConstraint: SizeConstraint(ignoreSize: true),
         ),
         orders: [
-          const OrderOption(type: OrderOptionType.updateDate, asc: false),
+          const OrderOption(type: OrderOptionType.createDate, asc: false),
         ],
       );
+
+  /// Loads the canonical poster used before and after a hide operation.
+  Future<Uint8List?> mediaThumbnail(String assetId) {
+    final cached = _thumbnailCache[assetId];
+    if (cached != null) return Future.value(cached);
+
+    return _thumbnailLoads.putIfAbsent(assetId, () async {
+      try {
+        final bytes = await _assets
+            .thumbnailBytes(
+              assetId,
+              size: MediaThumbnailSpec.dimension,
+              quality: MediaThumbnailSpec.quality,
+              frameUs: MediaThumbnailSpec.videoFrameUs,
+            )
+            .timeout(const Duration(seconds: 6));
+        if (bytes == null || bytes.isEmpty) return null;
+        _thumbnailCache[assetId] = bytes;
+        if (_thumbnailCache.length > MediaThumbnailSpec.memoryCacheEntries) {
+          _thumbnailCache.remove(_thumbnailCache.keys.first);
+        }
+        return bytes;
+      } catch (error, stackTrace) {
+        debugPrint('media thumbnail $assetId: $error\n$stackTrace');
+        return null;
+      } finally {
+        final _ = _thumbnailLoads.remove(assetId);
+      }
+    });
+  }
 
   Future<PermissionState> requestPermission() {
     return PhotoManager.requestPermissionExtend();
@@ -358,6 +397,9 @@ class GalleryService {
       ),
     );
     _visibleState.invalidatePaths();
+    for (final assetId in assetIds) {
+      _thumbnailCache.remove(assetId);
+    }
     final count = await recountVisible(pathId: pathId, filter: filter);
     _visibleState.reconcileCount(pathId, count);
   }
@@ -534,10 +576,8 @@ class GalleryService {
         if (assets.isEmpty) return null;
         for (final a in assets) {
           if (_isExcluded(a)) continue;
-          return a.thumbnailDataWithSize(
-            const ThumbnailSize.square(160),
-            quality: 70,
-          );
+          final bytes = await mediaThumbnail(a.id);
+          if (bytes != null) return bytes;
         }
         if (assets.length < pageSize) break;
       }
