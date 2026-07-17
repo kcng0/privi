@@ -44,6 +44,25 @@ class MediaHideRequest {
   final bool isVideo;
 }
 
+/// One item for [MediaRenameService.unhideFromVaultBatch].
+class MediaUnhideRequest {
+  const MediaUnhideRequest({
+    required this.clientId,
+    required this.path,
+    required this.newPath,
+    this.mimeType,
+    this.dateTakenSec,
+    this.dateAddedSec,
+  });
+
+  final String clientId;
+  final String path;
+  final String newPath;
+  final String? mimeType;
+  final int? dateTakenSec;
+  final int? dateAddedSec;
+}
+
 /// Android MediaStore / filesystem hide helpers.
 class MediaRenameService {
   static const _channel = MethodChannel('com.privateheart.vault/mediastore');
@@ -175,6 +194,79 @@ class MediaRenameService {
       clientId: map['clientId'] as String?,
       method: map['method'] as String?,
     );
+  }
+
+  /// One item for [unhideFromVaultBatch].
+  ///
+  /// [path] is the vault private path; [newPath] is the public restore target.
+  Future<MediaRenameResult> unhideFromVault({
+    required String path,
+    required String newPath,
+    String? mimeType,
+    int? dateTakenSec,
+    int? dateAddedSec,
+  }) async {
+    try {
+      final raw = await _channel.invokeMethod<dynamic>('unhideFromVault', {
+        'path': path,
+        'newPath': newPath,
+        'mimeType': mimeType,
+        if (dateTakenSec != null) 'dateTakenSec': dateTakenSec,
+        if (dateAddedSec != null) 'dateAddedSec': dateAddedSec,
+      });
+      if (raw is! Map) {
+        return const MediaRenameResult(ok: false, error: 'bad_response');
+      }
+      return _parseResult(Map<String, dynamic>.from(raw));
+    } catch (e) {
+      debugPrint('unhideFromVault: $e');
+      return MediaRenameResult(ok: false, error: '$e');
+    }
+  }
+
+  /// One IPC for many unhides. Keep chunks modest so Cancel can stop between.
+  Future<List<MediaRenameResult>> unhideFromVaultBatch(
+    List<MediaUnhideRequest> items,
+  ) async {
+    if (items.isEmpty) return const [];
+    try {
+      final raw = await _channel.invokeMethod<dynamic>('unhideFromVaultBatch', {
+        'items': [
+          for (final i in items)
+            {
+              'clientId': i.clientId,
+              'path': i.path,
+              'newPath': i.newPath,
+              'mimeType': i.mimeType,
+              if (i.dateTakenSec != null) 'dateTakenSec': i.dateTakenSec,
+              if (i.dateAddedSec != null) 'dateAddedSec': i.dateAddedSec,
+            },
+        ],
+      });
+      if (raw is! List) {
+        return [
+          for (final i in items)
+            MediaRenameResult(
+              ok: false,
+              error: 'bad_response',
+              clientId: i.clientId,
+            ),
+        ];
+      }
+      return [
+        for (final entry in raw)
+          if (entry is Map)
+            _parseResult(Map<String, dynamic>.from(entry))
+          else
+            const MediaRenameResult(ok: false, error: 'bad_item'),
+      ];
+    } catch (e) {
+      debugPrint('unhideFromVaultBatch: $e');
+      return [
+        for (final i in items)
+          MediaRenameResult(ok: false, error: '$e', clientId: i.clientId),
+      ];
+    }
   }
 
   /// Extract a JPEG still from a local video path into [destPath].

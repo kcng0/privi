@@ -164,6 +164,36 @@ class MainActivity : FlutterFragmentActivity() {
                             hideToVaultBatch(rawItems)
                         }
                     }
+                    "unhideFromVault" -> {
+                        val path = call.argument<String>("path")
+                        val newPath = call.argument<String>("newPath")
+                        val mime = call.argument<String>("mimeType")
+                        val dateTakenSec = call.argument<Number>("dateTakenSec")?.toLong()
+                        val dateAddedSec = call.argument<Number>("dateAddedSec")?.toLong()
+                        if (path.isNullOrEmpty() || newPath.isNullOrEmpty()) {
+                            result.success(mapOf("ok" to false, "error" to "bad_args"))
+                            return@setMethodCallHandler
+                        }
+                        runIo(result) {
+                            unhideFromVault(
+                                sourcePath = path,
+                                destPath = newPath,
+                                mimeType = mime,
+                                dateTakenSec = dateTakenSec,
+                                dateAddedSec = dateAddedSec,
+                            )
+                        }
+                    }
+                    "unhideFromVaultBatch" -> {
+                        val rawItems = call.argument<List<*>>("items")
+                        if (rawItems.isNullOrEmpty()) {
+                            result.success(emptyList<Map<String, Any?>>())
+                            return@setMethodCallHandler
+                        }
+                        runIo(result) {
+                            unhideFromVaultBatch(rawItems)
+                        }
+                    }
                     "videoThumbnail" -> {
                         val path = call.argument<String>("path")
                         val destPath = call.argument<String>("destPath")
@@ -524,6 +554,170 @@ class MainActivity : FlutterFragmentActivity() {
                 mediaId = mediaId,
                 destPath = destPath,
                 isVideo = isVideo,
+            )
+            if (clientId != null) {
+                val withId = result.toMutableMap()
+                withId["clientId"] = clientId
+                out.add(withId)
+            } else {
+                out.add(result)
+            }
+        }
+        return out
+    }
+
+    /**
+     * Unhide one vault file: atomic move out of .privateheart_vault + MediaStore
+     * re-index with optional original DATE_TAKEN / DATE_ADDED.
+     */
+    private fun unhideFromVault(
+        sourcePath: String,
+        destPath: String,
+        mimeType: String?,
+        dateTakenSec: Long?,
+        dateAddedSec: Long?,
+    ): Map<String, Any?> {
+        android.util.Log.i(
+            "PrivateHeart",
+            "unhideFromVault src=$sourcePath dest=$destPath taken=$dateTakenSec",
+        )
+        try {
+            val src = File(sourcePath)
+            val dest = File(destPath)
+            if (!src.exists() || src.length() <= 0L) {
+                return mapOf("ok" to false, "error" to "missing_src")
+            }
+            dest.parentFile?.mkdirs()
+            if (dest.exists() && dest.absolutePath != src.absolutePath) {
+                // Caller should have uniquified; refuse clobber.
+                return mapOf("ok" to false, "error" to "exists")
+            }
+
+            var moved = false
+            var method = "none"
+            if (src.absolutePath == dest.absolutePath) {
+                moved = true
+                method = "same_path"
+            } else {
+                try {
+                    Files.move(
+                        src.toPath(),
+                        dest.toPath(),
+                        StandardCopyOption.REPLACE_EXISTING,
+                    )
+                    if (dest.exists() && dest.length() > 0L) {
+                        moved = true
+                        method = "Files.move"
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.w("PrivateHeart", "unhide Files.move: $e")
+                }
+                if (!moved) {
+                    try {
+                        if (src.renameTo(dest) && dest.exists() && dest.length() > 0L) {
+                            moved = true
+                            method = "renameTo"
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.w("PrivateHeart", "unhide renameTo: $e")
+                    }
+                }
+                if (!moved) {
+                    try {
+                        src.inputStream().use { input ->
+                            dest.outputStream().use { output -> input.copyTo(output) }
+                        }
+                        if (dest.exists() && dest.length() > 0L) {
+                            moved = true
+                            method = "fs-copy"
+                            try {
+                                src.delete()
+                            } catch (_: Exception) {
+                            }
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.w("PrivateHeart", "unhide fs-copy: $e")
+                    }
+                }
+            }
+
+            if (!moved || !dest.exists() || dest.length() <= 0L) {
+                if (dest.exists() && dest.absolutePath != src.absolutePath) {
+                    try {
+                        dest.delete()
+                    } catch (_: Exception) {
+                    }
+                }
+                return mapOf(
+                    "ok" to false,
+                    "error" to "transfer_failed",
+                    "needManageStorage" to !isAllFilesAccess(),
+                )
+            }
+
+            // Re-index into MediaStore (capture dates when known).
+            scanMediaPath(
+                dest.absolutePath,
+                mimeType,
+                dateTakenSec = dateTakenSec,
+                dateAddedSec = dateAddedSec ?: dateTakenSec,
+            )
+
+            android.util.Log.i(
+                "PrivateHeart",
+                "unhideFromVault OK method=$method dest=${dest.absolutePath} len=${dest.length()}",
+            )
+            return mapOf(
+                "ok" to true,
+                "newPath" to dest.absolutePath,
+                "size" to dest.length(),
+                "method" to method,
+            )
+        } catch (e: Exception) {
+            android.util.Log.e("PrivateHeart", "unhideFromVault fatal: $e")
+            return mapOf("ok" to false, "error" to (e.message ?: "fatal"))
+        }
+    }
+
+    private fun unhideFromVaultBatch(rawItems: List<*>): List<Map<String, Any?>> {
+        val out = ArrayList<Map<String, Any?>>(rawItems.size)
+        for (entry in rawItems) {
+            val map = entry as? Map<*, *>
+            if (map == null) {
+                out.add(mapOf("ok" to false, "error" to "bad_item"))
+                continue
+            }
+            fun str(key: String): String? {
+                val v = map[key] ?: return null
+                val s = v.toString()
+                return s.ifEmpty { null }
+            }
+            fun longOrNull(key: String): Long? {
+                val v = map[key] ?: return null
+                return when (v) {
+                    is Number -> v.toLong()
+                    else -> v.toString().toLongOrNull()
+                }
+            }
+            val clientId = str("clientId")
+            val path = str("path")
+            val newPath = str("newPath")
+            if (path.isNullOrEmpty() || newPath.isNullOrEmpty()) {
+                out.add(
+                    buildMap {
+                        put("ok", false)
+                        put("error", "bad_args")
+                        if (clientId != null) put("clientId", clientId)
+                    },
+                )
+                continue
+            }
+            val result = unhideFromVault(
+                sourcePath = path,
+                destPath = newPath,
+                mimeType = str("mimeType"),
+                dateTakenSec = longOrNull("dateTakenSec"),
+                dateAddedSec = longOrNull("dateAddedSec"),
             )
             if (clientId != null) {
                 val withId = result.toMutableMap()
