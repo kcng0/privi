@@ -177,13 +177,18 @@ class _PrivateHeartAppState extends ConsumerState<PrivateHeartApp> {
       },
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
-      home: const _RootGate(),
+      builder: (context, child) => _RootGate(
+        child: child ?? const SizedBox.shrink(),
+      ),
+      home: const HomeShell(),
     );
   }
 }
 
 class _RootGate extends ConsumerWidget {
-  const _RootGate();
+  const _RootGate({required this.child});
+
+  final Widget child;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -191,12 +196,33 @@ class _RootGate extends ConsumerWidget {
     ref.watch(databaseProvider);
 
     final lock = ref.watch(lockControllerProvider);
-    switch (lock.status) {
-      case LockStatus.unlocked:
-        return const HomeShell();
-      case LockStatus.locked:
-      case LockStatus.needsSetup:
-        return const LockScreen();
-    }
+    final requiresUnlock = lock.status != LockStatus.unlocked;
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        ExcludeFocus(
+          excluding: requiresUnlock,
+          child: ExcludeSemantics(
+            excluding: requiresUnlock,
+            child: IgnorePointer(
+              key: const ValueKey('vault-content-interaction'),
+              ignoring: requiresUnlock,
+              child: child,
+            ),
+          ),
+        ),
+        if (requiresUnlock)
+          HeroControllerScope.none(
+            child: Navigator(
+              key: const ValueKey('vault-lock-overlay'),
+              onGenerateRoute: (_) => MaterialPageRoute<void>(
+                settings: const RouteSettings(name: 'vault-lock'),
+                builder: (_) => const LockScreen(),
+              ),
+            ),
+          ),
+      ],
+    );
   }
 }

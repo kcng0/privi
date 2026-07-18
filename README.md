@@ -68,7 +68,7 @@ media stays on-device.
 - **Hearts (0–3)** + favorites, albums, and playlists
 - **Built-in viewer/player** + result-tracked external media apps
 - **Pattern / PIN + biometric** lock, optional `FLAG_SECURE` (block screenshots)
-- **Exclusive resume lock** — only tracked media-app Back bypasses re-authentication
+- **Root resume lock** — covers every tab/route; only tracked media-app Back bypasses it
 - **Share-to-Privi** import intents for images and videos
 - On-device media storage; signed update checks are user-triggered
 

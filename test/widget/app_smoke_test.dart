@@ -194,6 +194,77 @@ void main() {
     expect(find.text('Recycle Bin'), findsOneWidget);
   });
 
+  testWidgets('root lock covers pushed routes and preserves the selected tab',
+      (tester) async {
+    tester.view.physicalSize = const Size(420, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    SharedPreferences.setMockInitialValues({});
+    final preferences = await SharedPreferences.getInstance();
+    final database = AppDatabase.memory();
+    final container = ProviderContainer(
+      overrides: [
+        sharedPreferencesProvider.overrideWithValue(preferences),
+        databaseProvider.overrideWithValue(database),
+        securityServiceProvider.overrideWithValue(_FakeSecurity()),
+        biometricServiceProvider.overrideWithValue(_FakeBio()),
+        lockControllerProvider.overrideWith(_UnlockedLock.new),
+        albumsProvider.overrideWith((ref) => Stream.value(const [])),
+      ],
+    );
+    addTearDown(() async {
+      container.dispose();
+      await database.close();
+    });
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const PrivateHeartApp(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Visible'));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(tester.widget<TabBar>(find.byType(TabBar)).controller!.index, 0);
+
+    final routeClosed = Navigator.of(tester.element(find.byType(TabBar))).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const Scaffold(
+          body: Center(child: Text('Private route')),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Private route'), findsOneWidget);
+
+    container.read(lockControllerProvider.notifier).lock();
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('vault-lock-overlay')), findsOneWidget);
+    expect(
+      tester
+          .widget<IgnorePointer>(
+            find.byKey(const ValueKey('vault-content-interaction')),
+          )
+          .ignoring,
+      isTrue,
+    );
+
+    await container.read(lockControllerProvider.notifier).enterAppAfterSetup();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('vault-lock-overlay')), findsNothing);
+    expect(find.text('Private route'), findsOneWidget);
+
+    Navigator.of(tester.element(find.text('Private route'))).pop();
+    await routeClosed;
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(tester.widget<TabBar>(find.byType(TabBar)).controller!.index, 0);
+  });
+
   testWidgets('persisted settings are available on the first frame',
       (tester) async {
     SharedPreferences.setMockInitialValues({

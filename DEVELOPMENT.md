@@ -120,6 +120,23 @@ pagination must query `createDate`, while vault queries use
 `dateTaken ?? dateAdded` and the exact source filename as their deterministic
 tie-breaker. Modified time and Hide time are not valid chronology inputs.
 
+## Lock lifecycle and navigation contract
+
+The credential UI is a root overlay above the app Navigator. Locking must keep
+the app Navigator and `HomeShell` mounted so pushed media routes and the selected
+Visible/Invisible tab retain their state. While locked, the underlying app is
+excluded from pointer input, focus, and accessibility semantics.
+
+Lifecycle events decide only whether the vault is locked; they must not select a
+tab or replace the navigation stack. A tracked VLC or external picture-viewer
+Activity Result may bypass re-authentication. Home/task switching and screen
+off/on must show the root credential overlay immediately on resume. Biometric
+`inactive -> resumed` transitions must preserve a successful authentication.
+
+`test/widget/app_smoke_test.dart` verifies the root overlay and navigation-state
+retention. `test/application/lock_controller_lifecycle_test.dart` verifies the
+resume and biometric state machine.
+
 ## Code generation
 
 Drift tables use `build_runner`; localization resources use `flutter gen-l10n`.
