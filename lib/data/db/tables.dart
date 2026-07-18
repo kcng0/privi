@@ -37,6 +37,26 @@ class Albums extends Table {
   /// When set, album is pinned to the top of the Invisible mosaic.
   DateTimeColumn get pinnedAt => dateTime().nullable()();
 
+  /// 0-3 hearts for user albums. System albums keep the default value.
+  IntColumn get rating => integer().withDefault(const Constant(0))();
+
+  /// User-defined position within the top level or an album group.
+  IntColumn get sortIndex => integer().nullable()();
+
+  /// Owning group, or null when the album is shown at the top level.
+  TextColumn get groupId => text().nullable()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id};
+}
+
+@DataClassName('AlbumGroupRow')
+class AlbumGroups extends Table {
+  TextColumn get id => text()();
+  TextColumn get name => text()();
+  DateTimeColumn get createdAt => dateTime()();
+  IntColumn get sortIndex => integer().nullable()();
+
   @override
   Set<Column<Object>> get primaryKey => {id};
 }

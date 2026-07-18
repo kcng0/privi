@@ -10,6 +10,9 @@ class Album {
     this.coverMediaId,
     this.systemKind,
     this.pinnedAt,
+    this.rating = 0,
+    this.sortIndex,
+    this.groupId,
   });
 
   final String id;
@@ -21,6 +24,9 @@ class Album {
 
   /// Non-null when pinned to the top of the Invisible mosaic.
   final DateTime? pinnedAt;
+  final int rating;
+  final int? sortIndex;
+  final String? groupId;
 
   bool get isPinned => pinnedAt != null;
 }

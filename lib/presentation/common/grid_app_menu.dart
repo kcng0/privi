@@ -1,12 +1,18 @@
 import 'package:flutter/material.dart';
 
 import '../../core/l10n.dart';
+import '../../core/utils/album_query_utils.dart';
 import '../../core/utils/media_query_utils.dart';
 import '../../domain/enums.dart';
 import 'vault_sheet.dart';
 
 typedef SortPickerChanged = void Function(
   List<MediaSort> sorts,
+  bool multiSortEnabled,
+);
+
+typedef AlbumSortPickerChanged = void Function(
+  List<AlbumSort> sorts,
   bool multiSortEnabled,
 );
 
@@ -38,8 +44,61 @@ abstract final class GridAppMenu {
     required SortPickerChanged onChanged,
     List<MediaSort>? options,
   }) async {
-    final opts = options ?? MediaSort.values;
-    var working = List<MediaSort>.of(selected);
+    await _showSortPickerCore<MediaSort>(
+      context,
+      selected: selected,
+      multiSortEnabled: multiSortEnabled,
+      options: options ?? MediaSort.values,
+      label: (l10n, sort) => _sortLabel(l10n, sort),
+      icon: MediaQueryUtils.sortIcon,
+      update: MediaQueryUtils.updateSortSelection,
+      onChanged: onChanged,
+    );
+  }
+
+  static Future<void> showAlbumSortPicker(
+    BuildContext context, {
+    required List<AlbumSort> selected,
+    required bool multiSortEnabled,
+    required AlbumSortPickerChanged onChanged,
+    List<AlbumSort>? options,
+  }) async {
+    await _showSortPickerCore<AlbumSort>(
+      context,
+      selected: selected,
+      multiSortEnabled: multiSortEnabled,
+      options: options ?? AlbumSort.values,
+      label: AlbumQueryUtils.sortLabelL10n,
+      icon: AlbumQueryUtils.sortIcon,
+      update: ({
+        required current,
+        required selected,
+        required multiSortEnabled,
+      }) =>
+          AlbumQueryUtils.updateSortSelection(
+        current: current,
+        selected: selected,
+        multiSortEnabled: multiSortEnabled,
+      ),
+      onChanged: onChanged,
+    );
+  }
+
+  static Future<void> _showSortPickerCore<T>(
+    BuildContext context, {
+    required List<T> selected,
+    required bool multiSortEnabled,
+    required List<T> options,
+    required String Function(AppLocalizations, T) label,
+    required IconData Function(T) icon,
+    required List<T> Function({
+      required List<T> current,
+      required T selected,
+      required bool multiSortEnabled,
+    }) update,
+    required void Function(List<T>, bool) onChanged,
+  }) async {
+    var working = List<T>.of(selected);
     var multiSort = multiSortEnabled;
 
     await showVaultSheet<void>(
@@ -51,13 +110,16 @@ abstract final class GridAppMenu {
         return SafeArea(
           child: StatefulBuilder(
             builder: (ctx, setLocal) {
-              void select(MediaSort sort) {
+              void select(T sort) {
                 setLocal(() {
-                  working = MediaQueryUtils.updateSortSelection(
+                  working = update(
                     current: working,
                     selected: sort,
                     multiSortEnabled: multiSort,
                   );
+                  if (sort is AlbumSort && sort == AlbumSort.custom) {
+                    multiSort = false;
+                  }
                 });
                 onChanged(List.unmodifiable(working), multiSort);
               }
@@ -100,7 +162,13 @@ abstract final class GridAppMenu {
                           ),
                           Switch(
                             value: multiSort,
-                            onChanged: setMultiSort,
+                            onChanged: working.any(
+                              (value) =>
+                                  value is AlbumSort &&
+                                  value == AlbumSort.custom,
+                            )
+                                ? null
+                                : setMultiSort,
                             materialTapTargetSize:
                                 MaterialTapTargetSize.shrinkWrap,
                           ),
@@ -110,9 +178,9 @@ abstract final class GridAppMenu {
                     Flexible(
                       child: ListView.builder(
                         shrinkWrap: true,
-                        itemCount: opts.length,
+                        itemCount: options.length,
                         itemBuilder: (ctx, i) {
-                          final s = opts[i];
+                          final s = options[i];
                           final on = working.contains(s);
                           final priority = working.indexOf(s) + 1;
                           final primary = Theme.of(ctx).colorScheme.primary;
@@ -120,11 +188,11 @@ abstract final class GridAppMenu {
                             dense: true,
                             visualDensity: VisualDensity.compact,
                             leading: Icon(
-                              MediaQueryUtils.sortIcon(s),
+                              icon(s),
                               color: on ? primary : Colors.white70,
                             ),
                             title: Text(
-                              _sortLabel(ctx.l10n, s),
+                              label(ctx.l10n, s),
                               style: TextStyle(
                                 color: on ? primary : Colors.white,
                               ),

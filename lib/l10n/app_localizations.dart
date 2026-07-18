@@ -904,6 +904,120 @@ abstract class AppLocalizations {
   /// **'Lowest rating'**
   String get sortLowestRating;
 
+  /// No description provided for @albumSortNewest.
+  ///
+  /// In en, this message translates to:
+  /// **'Newest albums'**
+  String get albumSortNewest;
+
+  /// No description provided for @albumSortOldest.
+  ///
+  /// In en, this message translates to:
+  /// **'Oldest albums'**
+  String get albumSortOldest;
+
+  /// No description provided for @albumSortCustom.
+  ///
+  /// In en, this message translates to:
+  /// **'Custom order'**
+  String get albumSortCustom;
+
+  /// No description provided for @arrangeOrder.
+  ///
+  /// In en, this message translates to:
+  /// **'Arrange order'**
+  String get arrangeOrder;
+
+  /// No description provided for @listView.
+  ///
+  /// In en, this message translates to:
+  /// **'List'**
+  String get listView;
+
+  /// No description provided for @mosaicView.
+  ///
+  /// In en, this message translates to:
+  /// **'Mosaic'**
+  String get mosaicView;
+
+  /// No description provided for @unsavedChanges.
+  ///
+  /// In en, this message translates to:
+  /// **'Unsaved changes'**
+  String get unsavedChanges;
+
+  /// No description provided for @discardChanges.
+  ///
+  /// In en, this message translates to:
+  /// **'Discard'**
+  String get discardChanges;
+
+  /// No description provided for @unsavedChangesBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Discard the new order?'**
+  String get unsavedChangesBody;
+
+  /// No description provided for @orderSaved.
+  ///
+  /// In en, this message translates to:
+  /// **'Order saved'**
+  String get orderSaved;
+
+  /// No description provided for @addToGroup.
+  ///
+  /// In en, this message translates to:
+  /// **'Add to collection'**
+  String get addToGroup;
+
+  /// No description provided for @newGroup.
+  ///
+  /// In en, this message translates to:
+  /// **'New collection'**
+  String get newGroup;
+
+  /// No description provided for @groupNameHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Collection name'**
+  String get groupNameHint;
+
+  /// No description provided for @renameGroup.
+  ///
+  /// In en, this message translates to:
+  /// **'Rename collection'**
+  String get renameGroup;
+
+  /// No description provided for @dissolveGroup.
+  ///
+  /// In en, this message translates to:
+  /// **'Dissolve collection'**
+  String get dissolveGroup;
+
+  /// No description provided for @dissolveGroupBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Albums return to the home screen. No content will be deleted.'**
+  String get dissolveGroupBody;
+
+  /// No description provided for @removeFromGroup.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove from collection'**
+  String get removeFromGroup;
+
+  /// No description provided for @emptyGroup.
+  ///
+  /// In en, this message translates to:
+  /// **'No albums'**
+  String get emptyGroup;
+
+  /// No description provided for @albumsCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} albums'**
+  String albumsCount(int count);
+
   /// No description provided for @sortsCount.
   ///
   /// In en, this message translates to:

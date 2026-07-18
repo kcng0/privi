@@ -46,6 +46,19 @@ enum MediaSort {
   ratingAsc,
 }
 
+/// Sort criteria for the Invisible home album shelf.
+enum AlbumSort {
+  createdAtDesc,
+  createdAtAsc,
+  nameAsc,
+  nameDesc,
+  ratingDesc,
+  ratingAsc,
+  custom,
+}
+
+enum AlbumViewMode { mosaic, list }
+
 /// Rating filter for Invisible grids (`null` / all = no filter).
 enum RatingFilter {
   all,

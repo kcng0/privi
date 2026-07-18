@@ -9,7 +9,7 @@ import 'tables.dart';
 
 part 'database.g.dart';
 
-@DriftDatabase(tables: [MediaItems, Albums, AlbumMedia])
+@DriftDatabase(tables: [MediaItems, Albums, AlbumMedia, AlbumGroups])
 class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? executor])
       : super(executor ?? driftDatabase(name: 'privi'));
@@ -18,7 +18,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.memory() : super(NativeDatabase.memory());
 
   @override
-  int get schemaVersion => 5;
+  int get schemaVersion => 6;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -42,6 +42,9 @@ class AppDatabase extends _$AppDatabase {
             await _ensureOriginalPathColumn();
             await _ensureAlbumPinnedAtColumn();
           }
+          if (from < 6) {
+            await _ensureAlbumOrganizerSchema();
+          }
         },
         beforeOpen: (details) async {
           await customStatement('PRAGMA foreign_keys = ON');
@@ -50,10 +53,12 @@ class AppDatabase extends _$AppDatabase {
           // advanced by an older build without applying the ALTER TABLE.
           final repairedOriginalPath = await _ensureOriginalPathColumn();
           final repairedPinnedAt = await _ensureAlbumPinnedAtColumn();
-          if (repairedOriginalPath || repairedPinnedAt) {
+          final repairedOrganizer = await _ensureAlbumOrganizerSchema();
+          if (repairedOriginalPath || repairedPinnedAt || repairedOrganizer) {
             debugPrint(
-              'Database v5 safety repair applied: '
-              'original_path=$repairedOriginalPath, pinned_at=$repairedPinnedAt',
+              'Database v6 safety repair applied: '
+              'original_path=$repairedOriginalPath, pinned_at=$repairedPinnedAt, '
+              'organizer=$repairedOrganizer',
             );
           }
           await _createPerfIndexes();
@@ -76,6 +81,38 @@ class AppDatabase extends _$AppDatabase {
       'ALTER TABLE albums ADD COLUMN pinned_at INTEGER NULL',
     );
     return true;
+  }
+
+  Future<bool> _ensureAlbumOrganizerSchema() async {
+    var changed = false;
+    final names = await _columnNames('albums');
+    if (!names.contains('rating')) {
+      await customStatement(
+        'ALTER TABLE albums ADD COLUMN rating INTEGER NOT NULL DEFAULT 0',
+      );
+      changed = true;
+    }
+    if (!names.contains('sort_index')) {
+      await customStatement(
+        'ALTER TABLE albums ADD COLUMN sort_index INTEGER NULL',
+      );
+      changed = true;
+    }
+    if (!names.contains('group_id')) {
+      await customStatement(
+        'ALTER TABLE albums ADD COLUMN group_id TEXT NULL',
+      );
+      changed = true;
+    }
+    await customStatement(
+      'CREATE TABLE IF NOT EXISTS album_groups ('
+      'id TEXT NOT NULL, '
+      'name TEXT NOT NULL, '
+      'created_at INTEGER NOT NULL, '
+      'sort_index INTEGER NULL, '
+      'PRIMARY KEY(id))',
+    );
+    return changed;
   }
 
   Future<Set<String>> _columnNames(String table) async {
@@ -576,6 +613,143 @@ class AppDatabase extends _$AppDatabase {
     );
   }
 
+  Future<void> updateAlbumRating(String albumId, int rating) async {
+    final row = await getAlbumById(albumId);
+    if (row == null || row.isSystem) return;
+    await (update(albums)..where((t) => t.id.equals(albumId))).write(
+      AlbumsCompanion(rating: Value(rating.clamp(0, 3))),
+    );
+  }
+
+  Future<void> setAlbumSortIndexes(Map<String, int> indexes) async {
+    if (indexes.isEmpty) return;
+    await transaction(() async {
+      for (final entry in indexes.entries) {
+        await (update(albums)
+              ..where(
+                (t) => t.id.equals(entry.key) & t.isSystem.equals(false),
+              ))
+            .write(AlbumsCompanion(sortIndex: Value(entry.value)));
+      }
+    });
+  }
+
+  Future<void> setShelfSortIndexes({
+    required Map<String, int> albumIndexes,
+    required Map<String, int> groupIndexes,
+  }) async {
+    if (albumIndexes.isEmpty && groupIndexes.isEmpty) return;
+    await transaction(() async {
+      for (final entry in albumIndexes.entries) {
+        await (update(albums)
+              ..where(
+                (t) => t.id.equals(entry.key) & t.isSystem.equals(false),
+              ))
+            .write(AlbumsCompanion(sortIndex: Value(entry.value)));
+      }
+      for (final entry in groupIndexes.entries) {
+        await (update(albumGroups)..where((t) => t.id.equals(entry.key))).write(
+          AlbumGroupsCompanion(sortIndex: Value(entry.value)),
+        );
+      }
+    });
+  }
+
+  Future<void> setAlbumsGroup(
+    List<String> albumIds,
+    String? groupId, {
+    int startSortIndex = 0,
+  }) async {
+    if (albumIds.isEmpty) return;
+    await transaction(() async {
+      if (groupId != null) {
+        final group = await (select(albumGroups)
+              ..where((table) => table.id.equals(groupId)))
+            .getSingleOrNull();
+        if (group == null) {
+          throw StateError('Album group does not exist: $groupId');
+        }
+      }
+      for (var i = 0; i < albumIds.length; i++) {
+        await (update(albums)
+              ..where(
+                (t) => t.id.equals(albumIds[i]) & t.isSystem.equals(false),
+              ))
+            .write(
+          AlbumsCompanion(
+            groupId: Value(groupId),
+            sortIndex: Value(groupId == null ? null : startSortIndex + i),
+          ),
+        );
+      }
+    });
+  }
+
+  Future<void> addAlbumToGroup(String albumId, String groupId) async {
+    await transaction(() async {
+      final group = await (select(albumGroups)
+            ..where((table) => table.id.equals(groupId)))
+          .getSingleOrNull();
+      if (group == null) {
+        throw StateError('Album group does not exist: $groupId');
+      }
+
+      final maxIndex = albums.sortIndex.max();
+      final query = selectOnly(albums)
+        ..addColumns([maxIndex])
+        ..where(albums.groupId.equals(groupId));
+      final row = await query.getSingle();
+      final nextIndex = (row.read(maxIndex) ?? -1) + 1;
+      final updated = await (update(albums)
+            ..where(
+              (table) =>
+                  table.id.equals(albumId) & table.isSystem.equals(false),
+            ))
+          .write(
+        AlbumsCompanion(
+          groupId: Value(groupId),
+          sortIndex: Value(nextIndex),
+        ),
+      );
+      if (updated != 1) throw StateError('User album does not exist: $albumId');
+    });
+  }
+
+  Future<List<AlbumGroupRow>> getAllAlbumGroups() => (select(albumGroups)
+        ..orderBy([
+          (t) => OrderingTerm.asc(t.sortIndex),
+          (t) => OrderingTerm.asc(t.name),
+        ]))
+      .get();
+
+  Future<void> insertAlbumGroup(AlbumGroupsCompanion row) =>
+      into(albumGroups).insert(row);
+
+  Future<void> renameAlbumGroup(String id, String name) =>
+      (update(albumGroups)..where((t) => t.id.equals(id))).write(
+        AlbumGroupsCompanion(name: Value(name)),
+      );
+
+  Future<void> setGroupSortIndexes(Map<String, int> indexes) async {
+    if (indexes.isEmpty) return;
+    await transaction(() async {
+      for (final entry in indexes.entries) {
+        await (update(albumGroups)..where((t) => t.id.equals(entry.key))).write(
+          AlbumGroupsCompanion(sortIndex: Value(entry.value)),
+        );
+      }
+    });
+  }
+
+  Future<void> dissolveAlbumGroup(String id) async {
+    await transaction(() async {
+      await (update(albums)..where((t) => t.groupId.equals(id))).write(
+        const AlbumsCompanion(groupId: Value(null), sortIndex: Value(null)),
+      );
+      await (delete(albumGroups)..where((t) => t.id.equals(id))).go();
+    });
+  }
+
   /// One-shot list of active media in a user album (for shuffle / restore).
   Future<List<MediaItemRow>> listInUserAlbum(String albumId) async {
     final query = select(mediaItems).join([
@@ -618,10 +792,12 @@ class AppDatabase extends _$AppDatabase {
   }
 
   Future<void> deleteUserAlbum(String id) async {
-    await (delete(albumMedia)..where((t) => t.albumId.equals(id))).go();
-    await (delete(albums)
-          ..where((t) => t.id.equals(id) & t.isSystem.equals(false)))
-        .go();
+    await transaction(() async {
+      await (delete(albumMedia)..where((t) => t.albumId.equals(id))).go();
+      await (delete(albums)
+            ..where((t) => t.id.equals(id) & t.isSystem.equals(false)))
+          .go();
+    });
   }
 
   Future<List<AlbumRow>> getUserAlbums() {

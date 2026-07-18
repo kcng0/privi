@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
@@ -47,6 +48,7 @@ class VaultBackupService {
     final all = [...rows, ...deleted];
 
     final albums = await _db.getAllAlbums();
+    final groups = await _db.getAllAlbumGroups();
     final memberships = await _db.getAllMemberships();
     final mediaJson = <Map<String, dynamic>>[];
     var copied = 0;
@@ -99,9 +101,23 @@ class VaultBackupService {
             'createdAt': a.createdAt.toIso8601String(),
             'systemKind': a.systemKind,
             'pinnedAt': a.pinnedAt?.toIso8601String(),
+            'rating': a.rating,
+            'sortIndex': a.sortIndex,
+            'groupId': a.groupId,
           },
         )
         .toList();
+
+    final groupJson = groups
+        .map(
+          (group) => {
+            'id': group.id,
+            'name': group.name,
+            'createdAt': group.createdAt.toIso8601String(),
+            'sortIndex': group.sortIndex,
+          },
+        )
+        .toList(growable: false);
 
     final membershipJson = memberships
         .map(
@@ -114,10 +130,11 @@ class VaultBackupService {
         .toList(growable: false);
 
     final manifest = {
-      'version': 2,
+      'version': 3,
       'exportedAt': DateTime.now().toUtc().toIso8601String(),
       'media': mediaJson,
       'albums': albumJson,
+      'albumGroups': groupJson,
       'membership': membershipJson,
     };
 
@@ -135,7 +152,7 @@ class VaultBackupService {
     }
     final map = jsonDecode(await man.readAsString()) as Map<String, dynamic>;
     final version = map['version'] as int? ?? 1;
-    if (version < 1 || version > 2) {
+    if (version < 1 || version > 3) {
       throw StateError('Unsupported vault manifest version: $version');
     }
     final mediaList =
@@ -143,8 +160,15 @@ class VaultBackupService {
     final mediaDir = Directory(p.join(srcDir, 'media'));
     var n = 0;
 
-    final albumIdMap =
-        version >= 2 ? await _restoreV2Albums(map) : const <String, String>{};
+    final groupIdMap =
+        version >= 3 ? await _restoreV3Groups(map) : const <String, String>{};
+    final albumIdMap = version >= 2
+        ? await _restoreV2Albums(
+            map,
+            groupIdMap: groupIdMap,
+            restoreOrganizer: version >= 3,
+          )
+        : const <String, String>{};
 
     for (final m in mediaList) {
       final fileName = m['file'] as String?;
@@ -225,8 +249,10 @@ class VaultBackupService {
   }
 
   Future<Map<String, String>> _restoreV2Albums(
-    Map<String, dynamic> manifest,
-  ) async {
+    Map<String, dynamic> manifest, {
+    Map<String, String> groupIdMap = const {},
+    bool restoreOrganizer = false,
+  }) async {
     final albumList = (manifest['albums'] as List<dynamic>? ?? [])
         .cast<Map<String, dynamic>>();
     final restoredIds = <String, String>{};
@@ -252,14 +278,60 @@ class VaultBackupService {
       final createdAt = DateTime.tryParse(data['createdAt'] as String? ?? '') ??
           DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
       final pinnedAt = DateTime.tryParse(data['pinnedAt'] as String? ?? '');
+      final rawGroupId = restoreOrganizer ? data['groupId'] as String? : null;
+      final safeGroupId = rawGroupId == null
+          ? null
+          : groupIdMap[_validatedId(rawGroupId, 'group id')];
       final album = await _albums.insertWithId(
         id: id,
         name: name,
         createdAt: createdAt,
         pinnedAt: pinnedAt,
         coverMediaId: data['coverMediaId'] as String?,
+        rating: restoreOrganizer ? (data['rating'] as int? ?? 0) : 0,
+        sortIndex: restoreOrganizer ? data['sortIndex'] as int? : null,
+        groupId: safeGroupId,
       );
       restoredIds[id] = album.id;
+    }
+    return Map<String, String>.unmodifiable(restoredIds);
+  }
+
+  Future<Map<String, String>> _restoreV3Groups(
+    Map<String, dynamic> manifest,
+  ) async {
+    final groupList = (manifest['albumGroups'] as List<dynamic>? ?? [])
+        .cast<Map<String, dynamic>>();
+    final restoredIds = <String, String>{};
+    final existingGroups = {
+      for (final group in await _albums.listGroups()) group.id: group,
+    };
+    for (final data in groupList) {
+      final rawId = data['id'] as String?;
+      final name = data['name'] as String?;
+      if (rawId == null || name == null || name.trim().isEmpty) {
+        throw const FormatException('Album group requires id and name');
+      }
+      final id = _validatedId(rawId, 'group id');
+      final existing = existingGroups[id];
+      if (existing != null) {
+        if (existing.name.toLowerCase() != name.trim().toLowerCase()) {
+          throw StateError('Album group id collides with another group: $id');
+        }
+        restoredIds[id] = existing.id;
+        continue;
+      }
+      final createdAt = DateTime.tryParse(data['createdAt'] as String? ?? '') ??
+          DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
+      await _db.insertAlbumGroup(
+        AlbumGroupsCompanion.insert(
+          id: id,
+          name: name.trim(),
+          createdAt: createdAt,
+          sortIndex: Value(data['sortIndex'] as int?),
+        ),
+      );
+      restoredIds[id] = id;
     }
     return Map<String, String>.unmodifiable(restoredIds);
   }

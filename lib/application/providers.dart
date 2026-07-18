@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/app_build_info.dart';
+import '../core/utils/album_query_utils.dart';
 import '../data/db/database.dart';
 import '../data/repositories/album_repository.dart';
 import '../data/repositories/media_repository.dart';
@@ -24,8 +25,11 @@ import '../data/services/vault_backup_service.dart';
 import '../data/services/vault_storage_service.dart';
 import '../domain/enums.dart';
 import '../domain/models/album_view.dart';
+import '../domain/models/group_view.dart';
 import '../domain/models/media_item.dart';
+import '../domain/models/shelf_entry.dart';
 import 'gallery/gallery_controller.dart';
+import 'media/album_list_preferences.dart';
 import 'player/external_player_gateway.dart';
 import 'update/app_restart_service.dart';
 import 'update/app_update_service.dart';
@@ -174,6 +178,73 @@ final albumsProvider = StreamProvider<List<AlbumView>>((ref) {
   return ref
       .watch(albumRepositoryProvider)
       .watchAlbumViewsReactive(isVideo: isVideo);
+});
+
+/// Home shelf derived from album facts and global album-list preferences.
+final albumShelfProvider = Provider<AsyncValue<AlbumShelf>>((ref) {
+  final albums = ref.watch(albumsProvider);
+  final preferences = ref.watch(albumListPreferencesProvider);
+  final repository = ref.watch(albumRepositoryProvider);
+  return albums.whenData((views) {
+    final groups = repository.groupSnapshot;
+    final byGroup = <String, List<AlbumView>>{};
+    for (final view in views) {
+      final groupId = view.album.groupId;
+      if (groupId != null) (byGroup[groupId] ??= []).add(view);
+    }
+    final groupViews = <GroupView>[];
+    for (final group in groups) {
+      final members = List<AlbumView>.of(byGroup[group.id] ?? const [])
+        ..sort(
+          (left, right) => AlbumQueryUtils.compare(
+            left.album,
+            right.album,
+            sorts: const [AlbumSort.custom],
+          ),
+        );
+      final totalCount =
+          members.fold<int>(0, (sum, member) => sum + member.count);
+      if (members.isNotEmpty && totalCount == 0) continue;
+      final cover = members.cast<AlbumView?>().firstWhere(
+            (member) => member?.cover != null,
+            orElse: () => null,
+          );
+      groupViews.add(
+        GroupView(
+          group: group,
+          members: List.unmodifiable(members),
+          totalCount: totalCount,
+          maxRating: members.fold<int>(
+            0,
+            (max, member) =>
+                member.album.rating > max ? member.album.rating : max,
+          ),
+          cover: cover,
+        ),
+      );
+    }
+    final entries = <ShelfEntry>[];
+    for (final view in views) {
+      if (!view.album.isSystem &&
+          view.album.groupId == null &&
+          view.count > 0) {
+        entries.add(AlbumEntry(view));
+      }
+    }
+    entries.addAll(groupViews.map(GroupEntry.new));
+    entries.sort(
+      (left, right) => AlbumQueryUtils.compareEntries(
+        left,
+        right,
+        sorts: preferences.sorts,
+      ),
+    );
+    final systemViews = views.where((view) => view.album.isSystem).toList();
+    return AlbumShelf(
+      systemViews: List.unmodifiable(systemViews),
+      entries: List.unmodifiable(entries),
+    );
+  });
 });
 
 /// Media stream for a given album id (system virtual or user).

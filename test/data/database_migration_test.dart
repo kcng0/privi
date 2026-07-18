@@ -25,8 +25,8 @@ void main() {
     verifier = SchemaVerifier(GeneratedHelper());
   });
 
-  for (final fromVersion in [2, 3, 4]) {
-    test('v$fromVersion to v5 preserves rows and validates schema', () async {
+  for (final fromVersion in [2, 3, 4, 5]) {
+    test('v$fromVersion to v6 preserves rows and validates schema', () async {
       final schema = await verifier.schemaAt(fromVersion);
       final raw = schema.rawDatabase;
       raw.execute(
@@ -59,7 +59,7 @@ void main() {
       );
 
       final db = AppDatabase(schema.newConnection());
-      await verifier.migrateAndValidate(db, 5);
+      await verifier.migrateAndValidate(db, 6);
 
       final media = await db.getMediaById('legacy-media');
       expect(media, isNotNull);
@@ -70,6 +70,9 @@ void main() {
       final album = await db.getAlbumById('legacy-album');
       expect(album, isNotNull);
       expect(album!.pinnedAt, isNull);
+      expect(album.rating, 0);
+      expect(album.sortIndex, isNull);
+      expect(album.groupId, isNull);
 
       final foreignKeys =
           await db.customSelect('PRAGMA foreign_keys').getSingle();

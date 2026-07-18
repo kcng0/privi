@@ -6,23 +6,31 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/gallery/gallery_controller.dart';
 import '../../application/import/import_controller.dart';
+import '../../application/media/album_list_preferences.dart';
 import '../../application/providers.dart';
 import '../../application/settings/settings_controller.dart';
 import '../../core/constants.dart';
 import '../../core/l10n.dart';
 import '../../core/theme/vault_colors.dart';
+import '../../core/utils/album_query_utils.dart';
 import '../../data/services/import/import_models.dart';
 import '../../domain/enums.dart';
 import '../../domain/models/album.dart';
+import '../../domain/models/album_group.dart';
 import '../../domain/models/album_view.dart';
+import '../../domain/models/group_view.dart';
 import '../../domain/models/media_item.dart';
+import '../../domain/models/shelf_entry.dart';
 import '../common/grid_app_menu.dart';
+import '../common/quick_rating_sheet.dart';
 import '../common/vault_sheet.dart';
 import '../grid/media_grid_screen.dart';
 import '../import/import_progress_sheet.dart';
 import '../player/player_screen.dart';
 import '../settings/settings_screen.dart';
 import '../visible/visible_folder_grid.dart';
+import 'arrange_albums_screen.dart';
+import 'group_screen.dart';
 
 /// Home: safe top chrome + Visible (gallery folders) | Invisible (vault).
 class HomeShell extends ConsumerStatefulWidget {
@@ -103,9 +111,10 @@ class _HomeShellState extends ConsumerState<HomeShell>
     );
   }
 
-  /// Shared top-right ⋮ for Visible + Invisible home (same items on both tabs).
+  /// Home actions. Album organization actions are only available on Invisible.
   Future<void> _menu() async {
     final cols = ref.read(settingsControllerProvider).albumColumns;
+    final invisible = _tabs.index == 1;
     final choice = await showVaultSheet<String>(
       context,
       showDragHandle: true,
@@ -114,6 +123,31 @@ class _HomeShellState extends ConsumerState<HomeShell>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (invisible)
+              ListTile(
+                leading: const Icon(Icons.sort, color: Colors.white70),
+                title: Text(
+                  context.l10n.sort,
+                  style: const TextStyle(color: Colors.white),
+                ),
+                subtitle: Text(
+                  AlbumQueryUtils.sortsSummaryL10n(
+                    context.l10n,
+                    ref.read(albumListPreferencesProvider).sorts,
+                  ),
+                  style: const TextStyle(color: Colors.white54, fontSize: 12),
+                ),
+                onTap: () => Navigator.pop(ctx, 'album_sort'),
+              ),
+            if (invisible)
+              ListTile(
+                leading: const Icon(Icons.drag_handle, color: Colors.white70),
+                title: Text(
+                  context.l10n.arrangeOrder,
+                  style: const TextStyle(color: Colors.white),
+                ),
+                onTap: () => Navigator.pop(ctx, 'arrange'),
+              ),
             ListTile(
               leading: const Icon(Icons.grid_view, color: Colors.white70),
               title: Text(
@@ -155,6 +189,10 @@ class _HomeShellState extends ConsumerState<HomeShell>
     switch (choice) {
       case 'style':
         await _pickHomeStyle();
+      case 'album_sort':
+        await _pickAlbumSort();
+      case 'arrange':
+        await _openArrange();
       case 'new_album':
         await _newAlbum();
       case 'settings':
@@ -162,7 +200,28 @@ class _HomeShellState extends ConsumerState<HomeShell>
     }
   }
 
+  Future<void> _pickAlbumSort() async {
+    final preferences = ref.read(albumListPreferencesProvider);
+    await GridAppMenu.showAlbumSortPicker(
+      context,
+      selected: preferences.sorts,
+      multiSortEnabled: preferences.multiSortEnabled,
+      options: AlbumSort.values,
+      onChanged: (sorts, multiSortEnabled) {
+        // The sheet reports changes immediately, while the controller keeps
+        // writes serialized in the same manner as media preferences.
+        ref
+            .read(albumListPreferencesProvider.notifier)
+            .setSorting(sorts, multiSortEnabled: multiSortEnabled);
+      },
+    );
+  }
+
   Future<void> _pickHomeStyle() async {
+    if (_tabs.index == 1) {
+      await _pickInvisibleStyle();
+      return;
+    }
     final current = ref.read(settingsControllerProvider).albumColumns;
     final next = await GridAppMenu.showStylePicker(
       context,
@@ -174,6 +233,67 @@ class _HomeShellState extends ConsumerState<HomeShell>
     await ref.read(settingsControllerProvider.notifier).setAlbumColumns(next);
     // ignore: unawaited_futures
     HapticFeedback.selectionClick();
+  }
+
+  Future<void> _pickInvisibleStyle() async {
+    final preferences = ref.read(albumListPreferencesProvider);
+    final choice = await showVaultSheet<String>(
+      context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final columns in GridAppMenu.albumColumnOptions)
+              ListTile(
+                leading: const Icon(Icons.grid_view, color: Colors.white70),
+                title: Text(context.l10n.columnsCount(columns)),
+                trailing: preferences.viewMode == AlbumViewMode.mosaic &&
+                        ref.read(settingsControllerProvider).albumColumns ==
+                            columns
+                    ? const Icon(Icons.check)
+                    : null,
+                onTap: () => Navigator.pop(ctx, 'mosaic-$columns'),
+              ),
+            ListTile(
+              leading: const Icon(Icons.view_list, color: Colors.white70),
+              title: Text(context.l10n.listView),
+              trailing: preferences.viewMode == AlbumViewMode.list
+                  ? const Icon(Icons.check)
+                  : null,
+              onTap: () => Navigator.pop(ctx, 'list'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || choice == null) return;
+    if (choice.startsWith('mosaic-')) {
+      final columns = int.parse(choice.substring('mosaic-'.length));
+      await ref
+          .read(settingsControllerProvider.notifier)
+          .setAlbumColumns(columns);
+    }
+    await ref.read(albumListPreferencesProvider.notifier).setViewMode(
+          choice == 'list' ? AlbumViewMode.list : AlbumViewMode.mosaic,
+        );
+  }
+
+  Future<void> _openArrange() async {
+    final shelf = ref.read(albumShelfProvider);
+    if (!shelf.hasValue) return;
+    final views = shelf.requireValue.entries
+        .whereType<AlbumEntry>()
+        .map((entry) => entry.view)
+        .toList(growable: false);
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ArrangeAlbumsScreen(
+          initialViews: views,
+          initialEntries: shelf.requireValue.entries,
+        ),
+      ),
+    );
   }
 
   void _toggleMediaFilter() {
@@ -322,14 +442,16 @@ class _InvisibleTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final albumsAsync = ref.watch(albumsProvider);
+    final shelfAsync = ref.watch(albumShelfProvider);
     final cols = ref.watch(settingsControllerProvider).albumColumns;
+    final preferences = ref.watch(albumListPreferencesProvider);
     final kind = ref.watch(mediaKindFilterProvider);
 
-    return albumsAsync.when(
+    return shelfAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (e, _) => Center(child: Text(context.l10n.errorWithDetails('$e'))),
-      data: (views) {
+      data: (shelf) {
+        final views = shelf.systemViews;
         AlbumView? favorites;
         AlbumView? allMedia;
         AlbumView? recycle;
@@ -363,7 +485,12 @@ class _InvisibleTab extends ConsumerWidget {
               preferCover: true,
             ),
           // User albums first; "+ New" sits just above Recycle Bin (second last).
-          ...user.map(_Cell.album),
+          ...shelf.entries.map(
+            (entry) => switch (entry) {
+              AlbumEntry(:final view) => _Cell.album(view),
+              GroupEntry(:final view) => _Cell.group(view),
+            },
+          ),
           _Cell.action(
             label: context.l10n.newAlbum,
             icon: Icons.add,
@@ -373,6 +500,95 @@ class _InvisibleTab extends ConsumerWidget {
             _Cell.special(view: recycle, icon: Icons.delete_outline),
         ];
 
+        final content = preferences.viewMode == AlbumViewMode.list
+            ? ListView.builder(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: EdgeInsets.fromLTRB(
+                  GridDefaults.gutter,
+                  GridDefaults.gutter,
+                  GridDefaults.gutter,
+                  GridDefaults.bottomClearance +
+                      MediaQuery.paddingOf(context).bottom,
+                ),
+                itemCount: cells.length,
+                itemBuilder: (context, i) {
+                  final c = cells[i];
+                  final v = c.view;
+                  return _ShelfListTile(
+                    key: ValueKey('list-${c.id}'),
+                    cell: c,
+                    onTap: () {
+                      if (c.onTap != null) {
+                        c.onTap!();
+                      } else if (v != null) {
+                        onOpenAlbum(
+                          v.album.id,
+                          v.album.name,
+                          systemKind: v.album.systemKind,
+                        );
+                      } else if (c.group != null) {
+                        _openGroup(context, c.group!.group.id);
+                      }
+                    },
+                    onLongPress: c.group != null
+                        ? () => _groupMenu(context, ref, c.group!)
+                        : v != null
+                            ? () => _albumMenu(context, ref, v)
+                            : null,
+                  );
+                },
+              )
+            : GridView.builder(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: EdgeInsets.fromLTRB(
+                  GridDefaults.gutter,
+                  GridDefaults.gutter,
+                  GridDefaults.gutter,
+                  GridDefaults.bottomClearance +
+                      MediaQuery.paddingOf(context).bottom,
+                ),
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: cols,
+                  mainAxisSpacing: GridDefaults.gutter,
+                  crossAxisSpacing: GridDefaults.gutter,
+                  childAspectRatio: 1,
+                ),
+                itemCount: cells.length,
+                itemBuilder: (context, i) {
+                  final c = cells[i];
+                  final v = c.view;
+                  final tileKey = v == null && c.group == null
+                      ? ValueKey('action-${c.label}')
+                      : ValueKey(
+                          '${c.id}-${kind.name}-${v?.album.isPinned}-${v?.album.rating}-${v?.count}-${c.group?.totalCount}-${v?.cover?.displayPath ?? c.group?.cover?.cover?.displayPath ?? ''}',
+                        );
+                  return _MosaicTile(
+                    key: tileKey,
+                    cell: c,
+                    onTap: () {
+                      if (c.onTap != null) {
+                        c.onTap!();
+                        return;
+                      }
+                      if (v != null) {
+                        onOpenAlbum(
+                          v.album.id,
+                          v.album.name,
+                          systemKind: v.album.systemKind,
+                        );
+                      } else if (c.group != null) {
+                        _openGroup(context, c.group!.group.id);
+                      }
+                    },
+                    onLongPress: c.group != null
+                        ? () => _groupMenu(context, ref, c.group!)
+                        : v != null
+                            ? () => _albumMenu(context, ref, v)
+                            : null,
+                  );
+                },
+              );
+
         return RefreshIndicator(
           color: Theme.of(context).colorScheme.primary,
           onRefresh: () async {
@@ -380,52 +596,7 @@ class _InvisibleTab extends ConsumerWidget {
             ref.invalidate(albumsProvider);
             await ref.read(albumsProvider.future);
           },
-          child: GridView.builder(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: EdgeInsets.fromLTRB(
-              GridDefaults.gutter,
-              GridDefaults.gutter,
-              GridDefaults.gutter,
-              GridDefaults.bottomClearance +
-                  MediaQuery.paddingOf(context).bottom,
-            ),
-            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: cols,
-              mainAxisSpacing: GridDefaults.gutter,
-              crossAxisSpacing: GridDefaults.gutter,
-              childAspectRatio: 1,
-            ),
-            itemCount: cells.length,
-            itemBuilder: (context, i) {
-              final c = cells[i];
-              final v = c.view;
-              // Key includes count + cover path so Image.file rebuilds after hide.
-              final tileKey = v == null
-                  ? ValueKey('action-${c.label}')
-                  : ValueKey(
-                      '${v.album.id}-${kind.name}-${v.album.isPinned}-${v.count}-${v.cover?.displayPath ?? ''}-${v.cover?.id ?? ''}',
-                    );
-              return _MosaicTile(
-                key: tileKey,
-                cell: c,
-                onTap: () {
-                  if (c.onTap != null) {
-                    c.onTap!();
-                    return;
-                  }
-                  if (v != null) {
-                    onOpenAlbum(
-                      v.album.id,
-                      v.album.name,
-                      systemKind: v.album.systemKind,
-                    );
-                  }
-                },
-                onLongPress:
-                    v != null ? () => _albumMenu(context, ref, v) : null,
-              );
-            },
-          ),
+          child: content,
         );
       },
     );
@@ -529,6 +700,38 @@ class _InvisibleTab extends ConsumerWidget {
                           dense: true,
                           visualDensity: VisualDensity.compact,
                           leading: const Icon(
+                            Icons.favorite_border,
+                            color: Colors.white70,
+                          ),
+                          title: Text(
+                            context.l10n.rate,
+                            style: const TextStyle(color: Colors.white),
+                          ),
+                          subtitle: Text(
+                            List.filled(album.rating, '♥').join(),
+                            style: const TextStyle(color: Colors.redAccent),
+                          ),
+                          onTap: () => Navigator.pop(ctx, 'rate'),
+                        ),
+                      if (isUser)
+                        ListTile(
+                          dense: true,
+                          visualDensity: VisualDensity.compact,
+                          leading: const Icon(
+                            Icons.layers_outlined,
+                            color: Colors.white70,
+                          ),
+                          title: Text(
+                            context.l10n.addToGroup,
+                            style: const TextStyle(color: Colors.white),
+                          ),
+                          onTap: () => Navigator.pop(ctx, 'add_group'),
+                        ),
+                      if (isUser)
+                        ListTile(
+                          dense: true,
+                          visualDensity: VisualDensity.compact,
+                          leading: const Icon(
                             Icons.drive_file_rename_outline,
                             color: Colors.white70,
                           ),
@@ -591,6 +794,16 @@ class _InvisibleTab extends ConsumerWidget {
         await _shuffleAlbum(context, ref, album);
       case 'restore':
         await _restoreAlbum(context, ref, album);
+      case 'rate':
+        final rating = await showQuickRatingSheet(
+          context,
+          currentRating: album.rating,
+        );
+        if (rating != null) {
+          await ref.read(albumRepositoryProvider).setRating(album.id, rating);
+        }
+      case 'add_group':
+        await _addAlbumToGroup(context, ref, album.id);
       case 'rename':
         await _renameAlbum(context, ref, album);
       case 'pin':
@@ -613,6 +826,166 @@ class _InvisibleTab extends ConsumerWidget {
         }
       case 'delete':
         await ref.read(albumRepositoryProvider).deleteUserAlbum(album.id);
+    }
+  }
+
+  Future<void> _addAlbumToGroup(
+    BuildContext context,
+    WidgetRef ref,
+    String albumId,
+  ) async {
+    final groups = await ref.read(albumRepositoryProvider).listGroups();
+    if (!context.mounted) return;
+    final choice = await showVaultSheet<String>(
+      context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final group in groups)
+              ListTile(
+                leading: const Icon(Icons.layers_outlined),
+                title: Text(group.name),
+                onTap: () => Navigator.pop(ctx, group.id),
+              ),
+            ListTile(
+              leading: const Icon(Icons.add),
+              title: Text(context.l10n.newGroup),
+              onTap: () => Navigator.pop(ctx, '__new__'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (choice == null || !context.mounted) return;
+    AlbumGroup group;
+    if (choice == '__new__') {
+      final controller = TextEditingController();
+      final name = await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(context.l10n.newGroup),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            decoration: InputDecoration(hintText: context.l10n.groupNameHint),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text(context.l10n.cancel),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, controller.text),
+              child: Text(context.l10n.create),
+            ),
+          ],
+        ),
+      );
+      if (name == null || name.trim().isEmpty) return;
+      group = await ref.read(albumRepositoryProvider).createGroup(name);
+    } else {
+      group = groups.firstWhere((item) => item.id == choice);
+    }
+    await ref.read(albumRepositoryProvider).addToGroup(albumId, group.id);
+  }
+
+  void _openGroup(BuildContext context, String groupId) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => GroupScreen(groupId: groupId),
+      ),
+    );
+  }
+
+  Future<void> _groupMenu(
+    BuildContext context,
+    WidgetRef ref,
+    GroupView group,
+  ) async {
+    final action = await showVaultSheet<String>(
+      context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.drive_file_rename_outline),
+              title: Text(context.l10n.renameGroup),
+              onTap: () => Navigator.pop(ctx, 'rename'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.drag_handle),
+              title: Text(context.l10n.arrangeOrder),
+              onTap: () => Navigator.pop(ctx, 'arrange'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_sweep_outlined),
+              title: Text(context.l10n.dissolveGroup),
+              onTap: () => Navigator.pop(ctx, 'dissolve'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (action == null || !context.mounted) return;
+    switch (action) {
+      case 'rename':
+        final controller = TextEditingController(text: group.group.name);
+        final name = await showDialog<String>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: Text(context.l10n.renameGroup),
+            content: TextField(controller: controller, autofocus: true),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: Text(context.l10n.cancel),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, controller.text),
+                child: Text(context.l10n.save),
+              ),
+            ],
+          ),
+        );
+        if (name != null && name.trim().isNotEmpty) {
+          await ref.read(albumRepositoryProvider).renameGroup(
+                group.group.id,
+                name,
+              );
+        }
+      case 'arrange':
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => ArrangeAlbumsScreen(
+              initialViews: group.members,
+              groupId: group.group.id,
+            ),
+          ),
+        );
+      case 'dissolve':
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: Text(context.l10n.dissolveGroup),
+            content: Text(context.l10n.dissolveGroupBody),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: Text(context.l10n.cancel),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: Text(context.l10n.dissolveGroup),
+              ),
+            ],
+          ),
+        );
+        if (confirmed == true) {
+          await ref.read(albumRepositoryProvider).dissolveGroup(group.group.id);
+        }
     }
   }
 
@@ -770,6 +1143,7 @@ class _InvisibleTab extends ConsumerWidget {
 class _Cell {
   _Cell._({
     this.view,
+    this.group,
     this.icon,
     this.accent = false,
     this.preferCover = false,
@@ -779,6 +1153,8 @@ class _Cell {
   });
 
   factory _Cell.album(AlbumView view) => _Cell._(view: view);
+
+  factory _Cell.group(GroupView group) => _Cell._(group: group);
 
   factory _Cell.special({
     required AlbumView view,
@@ -801,12 +1177,15 @@ class _Cell {
       _Cell._(action: true, label: label, icon: icon, onTap: onTap);
 
   final AlbumView? view;
+  final GroupView? group;
   final IconData? icon;
   final bool accent;
   final bool preferCover;
   final bool action;
   final String? label;
   final VoidCallback? onTap;
+
+  String get id => view?.album.id ?? group?.group.id ?? 'action-$label';
 }
 
 class _MosaicTile extends StatelessWidget {
@@ -825,10 +1204,12 @@ class _MosaicTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final heart = context.vaultColors.heart;
     final view = cell.view;
-    final coverPath = view?.cover?.displayPath;
+    final group = cell.group;
+    final coverPath =
+        view?.cover?.displayPath ?? group?.cover?.cover?.displayPath;
     final useCover = coverPath != null &&
         coverPath.isNotEmpty &&
-        (cell.preferCover || cell.icon == null);
+        (cell.preferCover || cell.icon == null || group != null);
 
     return Material(
       color: context.vaultColors.chrome,
@@ -848,12 +1229,12 @@ class _MosaicTile extends StatelessWidget {
                 errorBuilder: (_, __, ___) =>
                     ColoredBox(color: context.vaultColors.chrome),
               )
-            else if (cell.action || cell.icon != null)
+            else if (cell.action || cell.icon != null || group != null)
               ColoredBox(
                 color: context.vaultColors.chrome,
                 child: Center(
                   child: Icon(
-                    cell.icon,
+                    group != null ? Icons.layers_outlined : cell.icon,
                     size: 40,
                     color: cell.accent
                         ? heart
@@ -897,12 +1278,30 @@ class _MosaicTile extends StatelessWidget {
                   color: Colors.white70,
                 ),
               ),
-            if (view != null)
+            if (view != null || group != null)
               Positioned(
                 top: (cell.icon != null && !useCover) ? 6 : null,
                 right: 6,
                 bottom: (cell.icon != null && !useCover) ? null : 6,
-                child: _Badge('${view.count}'),
+                child: _Badge('${group?.members.length ?? view?.count ?? 0}'),
+              ),
+            if (view != null && view.album.rating > 0)
+              Positioned(
+                left: 6,
+                right: 36,
+                bottom: 22,
+                child: Text(
+                  List.filled(view.album.rating, '♥').join(),
+                  maxLines: 1,
+                  style: TextStyle(
+                    color: heart,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    shadows: const [
+                      Shadow(blurRadius: 6, color: Colors.black87),
+                    ],
+                  ),
+                ),
               ),
             Positioned(
               left: 6,
@@ -911,14 +1310,16 @@ class _MosaicTile extends StatelessWidget {
               child: Text(
                 cell.action
                     ? (cell.label ?? '')
-                    : (view == null
+                    : (view == null && group == null
                         ? (cell.label ?? '')
-                        : localizedAlbumTitle(
-                            context.l10n,
-                            name: view.album.name,
-                            systemKind: view.album.systemKind,
-                            albumId: view.album.id,
-                          )),
+                        : group != null
+                            ? group.group.name
+                            : localizedAlbumTitle(
+                                context.l10n,
+                                name: view!.album.name,
+                                systemKind: view.album.systemKind,
+                                albumId: view.album.id,
+                              )),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
@@ -931,6 +1332,114 @@ class _MosaicTile extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _ShelfListTile extends StatelessWidget {
+  const _ShelfListTile({
+    super.key,
+    required this.cell,
+    required this.onTap,
+    this.onLongPress,
+  });
+
+  final _Cell cell;
+  final VoidCallback onTap;
+  final VoidCallback? onLongPress;
+
+  @override
+  Widget build(BuildContext context) {
+    final view = cell.view;
+    final group = cell.group;
+    final coverPath =
+        view?.cover?.displayPath ?? group?.cover?.cover?.displayPath;
+    final title = cell.action
+        ? cell.label ?? ''
+        : view == null && group == null
+            ? cell.label ?? ''
+            : group != null
+                ? group.group.name
+                : localizedAlbumTitle(
+                    context.l10n,
+                    name: view!.album.name,
+                    systemKind: view.album.systemKind,
+                    albumId: view.album.id,
+                  );
+    final hearts = view == null || view.album.rating == 0
+        ? ''
+        : List.filled(view.album.rating, '♥').join();
+    return Material(
+      color: Colors.transparent,
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+        leading: SizedBox.square(
+          dimension: 52,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: coverPath != null && coverPath.isNotEmpty
+                ? Image.file(
+                    File(coverPath),
+                    fit: BoxFit.cover,
+                    cacheWidth: 192,
+                    errorBuilder: (_, __, ___) => _ListIcon(cell: cell),
+                  )
+                : _ListIcon(cell: cell),
+          ),
+        ),
+        title: Text(
+          title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(color: Colors.white),
+        ),
+        subtitle: Text(
+          group != null
+              ? context.l10n.albumsCount(group.members.length)
+              : hearts.isEmpty
+                  ? context.l10n.itemsCount(view?.count ?? 0)
+                  : '$hearts  ${context.l10n.itemsCount(view?.count ?? 0)}',
+          style: TextStyle(color: context.vaultColors.heart),
+        ),
+        trailing: view == null && group == null
+            ? null
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (view?.album.isPinned == true)
+                    const Padding(
+                      padding: EdgeInsets.only(right: 8),
+                      child: Icon(Icons.push_pin, size: 16),
+                    ),
+                  Text('${group?.members.length ?? view?.count ?? 0}'),
+                  const SizedBox(width: 4),
+                  const Icon(Icons.chevron_right),
+                ],
+              ),
+        onTap: onTap,
+        onLongPress: onLongPress,
+      ),
+    );
+  }
+}
+
+class _ListIcon extends StatelessWidget {
+  const _ListIcon({required this.cell});
+
+  final _Cell cell;
+
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: context.vaultColors.chrome,
+      child: Icon(
+        cell.group != null
+            ? Icons.layers_outlined
+            : cell.icon ?? Icons.photo_album_outlined,
+        color: cell.accent
+            ? context.vaultColors.heart
+            : Colors.white.withValues(alpha: 0.75),
       ),
     );
   }

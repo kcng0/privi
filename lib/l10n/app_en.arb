@@ -290,6 +290,32 @@
   "sortNameDesc": "Name Z–A",
   "sortHighestRating": "Highest rating",
   "sortLowestRating": "Lowest rating",
+  "albumSortNewest": "Newest albums",
+  "albumSortOldest": "Oldest albums",
+  "albumSortCustom": "Custom order",
+  "arrangeOrder": "Arrange order",
+  "listView": "List",
+  "mosaicView": "Mosaic",
+  "unsavedChanges": "Unsaved changes",
+  "discardChanges": "Discard",
+  "unsavedChangesBody": "Discard the new order?",
+  "orderSaved": "Order saved",
+  "addToGroup": "Add to collection",
+  "newGroup": "New collection",
+  "groupNameHint": "Collection name",
+  "renameGroup": "Rename collection",
+  "dissolveGroup": "Dissolve collection",
+  "dissolveGroupBody": "Albums return to the home screen. No content will be deleted.",
+  "removeFromGroup": "Remove from collection",
+  "emptyGroup": "No albums",
+  "albumsCount": "{count} albums",
+  "@albumsCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "sortsCount": "{count} sorts",
   "@sortsCount": {
     "placeholders": {

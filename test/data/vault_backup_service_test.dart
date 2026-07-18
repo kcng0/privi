@@ -78,7 +78,7 @@ void main() {
     );
   }
 
-  test('manifest v2 round-trip preserves vault layout and organization',
+  test('manifest v3 round-trip preserves vault layout and organization',
       () async {
     final sourceDb = newDatabase();
     final sourceMedia = MediaRepository(sourceDb, storage);
@@ -89,7 +89,11 @@ void main() {
       name: 'Camera',
       createdAt: DateTime.utc(2026, 1, 1),
       pinnedAt: pinnedAt,
+      rating: 2,
+      sortIndex: 4,
     );
+    final group = await sourceAlbums.createGroup('Trips');
+    await sourceAlbums.addToGroup('album-camera', group.id);
 
     const mediaId = '12345678-media-id';
     final privatePath = await storage.hiddenDestPath(
@@ -118,7 +122,8 @@ void main() {
       await File(p.join(exportDir, VaultBackupService.manifestName))
           .readAsString(),
     ) as Map<String, dynamic>;
-    expect(manifest['version'], 2);
+    expect(manifest['version'], 3);
+    expect((manifest['albumGroups'] as List<dynamic>), hasLength(1));
     expect((manifest['membership'] as List<dynamic>), hasLength(1));
 
     await sourceDb.close();
@@ -142,6 +147,9 @@ void main() {
     final album = await restoredDb.getAlbumById('album-camera');
     expect(album, isNotNull);
     expect(album!.pinnedAt!.toUtc(), pinnedAt);
+    expect(album.rating, 2);
+    expect(album.groupId, group.id);
+    expect((await restoredDb.getAllAlbumGroups()).single.name, 'Trips');
   });
 
   test('v1 fixture remains importable into the shared hidden root', () async {

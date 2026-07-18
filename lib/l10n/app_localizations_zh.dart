@@ -453,6 +453,65 @@ class AppLocalizationsZh extends AppLocalizations {
   String get sortLowestRating => '评分从低到高';
 
   @override
+  String get albumSortNewest => '相册从新到旧';
+
+  @override
+  String get albumSortOldest => '相册从旧到新';
+
+  @override
+  String get albumSortCustom => '自定义顺序';
+
+  @override
+  String get arrangeOrder => '整理顺序';
+
+  @override
+  String get listView => '列表';
+
+  @override
+  String get mosaicView => '马赛克';
+
+  @override
+  String get unsavedChanges => '尚未保存';
+
+  @override
+  String get discardChanges => '放弃';
+
+  @override
+  String get unsavedChangesBody => '放弃新的顺序？';
+
+  @override
+  String get orderSaved => '顺序已保存';
+
+  @override
+  String get addToGroup => '加入合集';
+
+  @override
+  String get newGroup => '新建合集';
+
+  @override
+  String get groupNameHint => '合集名称';
+
+  @override
+  String get renameGroup => '重命名合集';
+
+  @override
+  String get dissolveGroup => '解散合集';
+
+  @override
+  String get dissolveGroupBody => '相册将回到主页，不会删除任何内容。';
+
+  @override
+  String get removeFromGroup => '移出合集';
+
+  @override
+  String get emptyGroup => '暂无相册';
+
+  @override
+  String albumsCount(int count) {
+    return '$count 个相册';
+  }
+
+  @override
   String sortsCount(int count) {
     return '$count 项排序';
   }
@@ -1372,6 +1431,65 @@ class AppLocalizationsZhCn extends AppLocalizationsZh {
   String get sortLowestRating => '评分从低到高';
 
   @override
+  String get albumSortNewest => '相册从新到旧';
+
+  @override
+  String get albumSortOldest => '相册从旧到新';
+
+  @override
+  String get albumSortCustom => '自定义顺序';
+
+  @override
+  String get arrangeOrder => '整理顺序';
+
+  @override
+  String get listView => '列表';
+
+  @override
+  String get mosaicView => '马赛克';
+
+  @override
+  String get unsavedChanges => '尚未保存';
+
+  @override
+  String get discardChanges => '放弃';
+
+  @override
+  String get unsavedChangesBody => '放弃新的顺序？';
+
+  @override
+  String get orderSaved => '顺序已保存';
+
+  @override
+  String get addToGroup => '加入合集';
+
+  @override
+  String get newGroup => '新建合集';
+
+  @override
+  String get groupNameHint => '合集名称';
+
+  @override
+  String get renameGroup => '重命名合集';
+
+  @override
+  String get dissolveGroup => '解散合集';
+
+  @override
+  String get dissolveGroupBody => '相册将回到主页，不会删除任何内容。';
+
+  @override
+  String get removeFromGroup => '移出合集';
+
+  @override
+  String get emptyGroup => '暂无相册';
+
+  @override
+  String albumsCount(int count) {
+    return '$count 个相册';
+  }
+
+  @override
   String sortsCount(int count) {
     return '$count 项排序';
   }
@@ -2289,6 +2407,65 @@ class AppLocalizationsZhHk extends AppLocalizationsZh {
 
   @override
   String get sortLowestRating => '評分由低至高';
+
+  @override
+  String get albumSortNewest => '相簿從新到舊';
+
+  @override
+  String get albumSortOldest => '相簿從舊到新';
+
+  @override
+  String get albumSortCustom => '自訂順序';
+
+  @override
+  String get arrangeOrder => '整理順序';
+
+  @override
+  String get listView => '列表';
+
+  @override
+  String get mosaicView => '馬賽克';
+
+  @override
+  String get unsavedChanges => '尚未儲存';
+
+  @override
+  String get discardChanges => '放棄';
+
+  @override
+  String get unsavedChangesBody => '放棄新的順序？';
+
+  @override
+  String get orderSaved => '順序已儲存';
+
+  @override
+  String get addToGroup => '加入合集';
+
+  @override
+  String get newGroup => '新增合集';
+
+  @override
+  String get groupNameHint => '合集名稱';
+
+  @override
+  String get renameGroup => '重新命名合集';
+
+  @override
+  String get dissolveGroup => '解散合集';
+
+  @override
+  String get dissolveGroupBody => '相簿將回到主頁，不會刪除任何內容。';
+
+  @override
+  String get removeFromGroup => '移出合集';
+
+  @override
+  String get emptyGroup => '暫無相簿';
+
+  @override
+  String albumsCount(int count) {
+    return '$count 個相簿';
+  }
 
   @override
   String sortsCount(int count) {

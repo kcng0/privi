@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../domain/enums.dart';
 import '../../domain/models/album.dart';
+import '../../domain/models/album_group.dart';
 import '../../domain/models/album_view.dart';
 import '../../domain/models/media_item.dart';
 import '../db/database.dart';
@@ -15,6 +16,9 @@ class AlbumRepository {
 
   final AppDatabase _db;
   final Uuid _uuid;
+  List<AlbumGroup> _groupSnapshot = const [];
+
+  List<AlbumGroup> get groupSnapshot => _groupSnapshot;
 
   /// Re-emit when albums OR media (counts/covers) change.
   ///
@@ -50,6 +54,7 @@ class AlbumRepository {
               _db.mediaItems,
               _db.albumMedia,
               _db.albums,
+              _db.albumGroups,
             ]),
           )
           .listen((_) => schedule());
@@ -66,6 +71,7 @@ class AlbumRepository {
 
   Future<List<AlbumView>> _buildViews({bool? isVideo}) async {
     final albums = await _db.getAllAlbums();
+    _groupSnapshot = List.unmodifiable(await listGroups());
     final views = await Future.wait(
       albums.map((row) async {
         final album = _mapAlbum(row);
@@ -81,28 +87,6 @@ class AlbumRepository {
       }),
     );
 
-    int rank(Album a) {
-      if (a.systemKind == SystemAlbumKind.all) return 0;
-      if (a.systemKind == SystemAlbumKind.favorites) return 1;
-      if (a.systemKind == SystemAlbumKind.recycle) return 1000;
-      // Pinned user albums sit above other user albums.
-      if (a.isPinned) return 50;
-      return 100;
-    }
-
-    views.sort((a, b) {
-      final ra = rank(a.album);
-      final rb = rank(b.album);
-      if (ra != rb) return ra.compareTo(rb);
-      // Among pinned: most recently pinned first.
-      if (a.album.isPinned && b.album.isPinned) {
-        final pa = a.album.pinnedAt!;
-        final pb = b.album.pinnedAt!;
-        final c = pb.compareTo(pa);
-        if (c != 0) return c;
-      }
-      return a.album.name.toLowerCase().compareTo(b.album.name.toLowerCase());
-    });
     return views;
   }
 
@@ -175,6 +159,9 @@ class AlbumRepository {
     required DateTime createdAt,
     DateTime? pinnedAt,
     String? coverMediaId,
+    int rating = 0,
+    int? sortIndex,
+    String? groupId,
   }) async {
     final trimmed = name.trim();
     await _db.insertAlbum(
@@ -185,6 +172,9 @@ class AlbumRepository {
         createdAt: createdAt,
         pinnedAt: Value(pinnedAt),
         coverMediaId: Value(coverMediaId),
+        rating: Value(rating.clamp(0, 3)),
+        sortIndex: Value(sortIndex),
+        groupId: Value(groupId),
       ),
     );
     return Album(
@@ -194,6 +184,9 @@ class AlbumRepository {
       createdAt: createdAt,
       pinnedAt: pinnedAt,
       coverMediaId: coverMediaId,
+      rating: rating.clamp(0, 3),
+      sortIndex: sortIndex,
+      groupId: groupId,
     );
   }
 
@@ -222,6 +215,67 @@ class AlbumRepository {
         albumId,
         pinned ? DateTime.now().toUtc() : null,
       );
+
+  Future<void> setRating(String albumId, int rating) =>
+      _db.updateAlbumRating(albumId, rating);
+
+  Future<void> setSortIndexes(Map<String, int> indexes) =>
+      _db.setAlbumSortIndexes(indexes);
+
+  Future<void> setShelfSortIndexes({
+    required Map<String, int> albumIndexes,
+    required Map<String, int> groupIndexes,
+  }) =>
+      _db.setShelfSortIndexes(
+        albumIndexes: albumIndexes,
+        groupIndexes: groupIndexes,
+      );
+
+  Future<void> addToGroup(String albumId, String groupId) =>
+      _db.addAlbumToGroup(albumId, groupId);
+
+  Future<void> removeFromGroup(String albumId) =>
+      _db.setAlbumsGroup([albumId], null);
+
+  Future<AlbumGroup> createGroup(String name) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) {
+      throw const FormatException('Album group name is empty');
+    }
+    final id = _uuid.v4();
+    final now = DateTime.now().toUtc();
+    await _db.insertAlbumGroup(
+      AlbumGroupsCompanion.insert(id: id, name: trimmed, createdAt: now),
+    );
+    return AlbumGroup(id: id, name: trimmed, createdAt: now);
+  }
+
+  Future<void> renameGroup(String id, String name) {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) {
+      throw const FormatException('Album group name is empty');
+    }
+    return _db.renameAlbumGroup(id, trimmed);
+  }
+
+  Future<void> dissolveGroup(String id) => _db.dissolveAlbumGroup(id);
+
+  Future<List<AlbumGroup>> listGroups() async {
+    final rows = await _db.getAllAlbumGroups();
+    return rows
+        .map(
+          (r) => AlbumGroup(
+            id: r.id,
+            name: r.name,
+            createdAt: r.createdAt,
+            sortIndex: r.sortIndex,
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  Future<void> setGroupSortIndexes(Map<String, int> indexes) =>
+      _db.setGroupSortIndexes(indexes);
 
   Future<void> addMediaToUserAlbum(String albumId, String mediaId) =>
       _db.addMembership(albumId, mediaId, DateTime.now().toUtc());
@@ -277,6 +331,9 @@ class AlbumRepository {
         createdAt: r.createdAt,
         systemKind: SystemAlbumKind.fromStorage(r.systemKind),
         pinnedAt: r.pinnedAt,
+        rating: r.rating,
+        sortIndex: r.sortIndex,
+        groupId: r.groupId,
       );
 
   MediaItem _mapMedia(MediaItemRow r) => MediaItem(

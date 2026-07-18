@@ -1,0 +1,30 @@
+import 'album_view.dart';
+import 'group_view.dart';
+
+sealed class ShelfEntry {
+  const ShelfEntry();
+  String get id;
+}
+
+class AlbumEntry extends ShelfEntry {
+  const AlbumEntry(this.view);
+  final AlbumView view;
+
+  @override
+  String get id => view.album.id;
+}
+
+class GroupEntry extends ShelfEntry {
+  const GroupEntry(this.view);
+  final GroupView view;
+
+  @override
+  String get id => view.group.id;
+}
+
+class AlbumShelf {
+  const AlbumShelf({required this.systemViews, required this.entries});
+
+  final List<AlbumView> systemViews;
+  final List<ShelfEntry> entries;
+}

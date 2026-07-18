@@ -458,6 +458,66 @@ class AppLocalizationsEn extends AppLocalizations {
   String get sortLowestRating => 'Lowest rating';
 
   @override
+  String get albumSortNewest => 'Newest albums';
+
+  @override
+  String get albumSortOldest => 'Oldest albums';
+
+  @override
+  String get albumSortCustom => 'Custom order';
+
+  @override
+  String get arrangeOrder => 'Arrange order';
+
+  @override
+  String get listView => 'List';
+
+  @override
+  String get mosaicView => 'Mosaic';
+
+  @override
+  String get unsavedChanges => 'Unsaved changes';
+
+  @override
+  String get discardChanges => 'Discard';
+
+  @override
+  String get unsavedChangesBody => 'Discard the new order?';
+
+  @override
+  String get orderSaved => 'Order saved';
+
+  @override
+  String get addToGroup => 'Add to collection';
+
+  @override
+  String get newGroup => 'New collection';
+
+  @override
+  String get groupNameHint => 'Collection name';
+
+  @override
+  String get renameGroup => 'Rename collection';
+
+  @override
+  String get dissolveGroup => 'Dissolve collection';
+
+  @override
+  String get dissolveGroupBody =>
+      'Albums return to the home screen. No content will be deleted.';
+
+  @override
+  String get removeFromGroup => 'Remove from collection';
+
+  @override
+  String get emptyGroup => 'No albums';
+
+  @override
+  String albumsCount(int count) {
+    return '$count albums';
+  }
+
+  @override
   String sortsCount(int count) {
     return '$count sorts';
   }
