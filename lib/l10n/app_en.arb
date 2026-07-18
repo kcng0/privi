@@ -260,7 +260,7 @@
     }
   },
   "createUserAlbumFirst": "Create a user album first",
-  "openUserAlbumToSetCover": "Open a user album to set its cover",
+  "createAnotherAlbumFirst": "Create another album first",
   "noMediaYet": "No media yet",
   "noFavoritesYet": "No favorites yet",
   "recycleBinEmpty": "Recycle Bin is empty",

@@ -386,7 +386,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get createUserAlbumFirst => 'Create a user album first';
 
   @override
-  String get openUserAlbumToSetCover => 'Open a user album to set its cover';
+  String get createAnotherAlbumFirst => 'Create another album first';
 
   @override
   String get noMediaYet => 'No media yet';

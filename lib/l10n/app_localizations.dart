@@ -766,11 +766,11 @@ abstract class AppLocalizations {
   /// **'Create a user album first'**
   String get createUserAlbumFirst;
 
-  /// No description provided for @openUserAlbumToSetCover.
+  /// No description provided for @createAnotherAlbumFirst.
   ///
   /// In en, this message translates to:
-  /// **'Open a user album to set its cover'**
-  String get openUserAlbumToSetCover;
+  /// **'Create another album first'**
+  String get createAnotherAlbumFirst;
 
   /// No description provided for @noMediaYet.
   ///

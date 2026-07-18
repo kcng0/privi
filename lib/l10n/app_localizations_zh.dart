@@ -382,7 +382,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get createUserAlbumFirst => '请先创建用户相册';
 
   @override
-  String get openUserAlbumToSetCover => '打开用户相册以设置封面';
+  String get createAnotherAlbumFirst => '请先创建另一个相册';
 
   @override
   String get noMediaYet => '暂无媒体';
@@ -1301,7 +1301,7 @@ class AppLocalizationsZhCn extends AppLocalizationsZh {
   String get createUserAlbumFirst => '请先创建用户相册';
 
   @override
-  String get openUserAlbumToSetCover => '打开用户相册以设置封面';
+  String get createAnotherAlbumFirst => '请先创建另一个相册';
 
   @override
   String get noMediaYet => '暂无媒体';
@@ -2220,7 +2220,7 @@ class AppLocalizationsZhHk extends AppLocalizationsZh {
   String get createUserAlbumFirst => '請先建立使用者相簿';
 
   @override
-  String get openUserAlbumToSetCover => '開啟使用者相簿以設定封面';
+  String get createAnotherAlbumFirst => '請先建立另一個相簿';
 
   @override
   String get noMediaYet => '暫無媒體';

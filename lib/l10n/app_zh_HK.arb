@@ -111,7 +111,7 @@
   "deletedForeverCount": "已永久刪除 {count} 項",
   "movedToAlbumCount": "已將 {count} 項移至相簿",
   "createUserAlbumFirst": "請先建立使用者相簿",
-  "openUserAlbumToSetCover": "開啟使用者相簿以設定封面",
+  "createAnotherAlbumFirst": "請先建立另一個相簿",
   "noMediaYet": "暫無媒體",
   "noFavoritesYet": "暫無收藏",
   "recycleBinEmpty": "回收站是空的",

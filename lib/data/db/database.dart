@@ -463,7 +463,54 @@ class AppDatabase extends _$AppDatabase {
     );
   }
 
+  Future<void> moveMemberships({
+    required String sourceAlbumId,
+    required String targetAlbumId,
+    required List<String> mediaIds,
+    required DateTime movedAt,
+  }) async {
+    if (mediaIds.isEmpty || sourceAlbumId == targetAlbumId) return;
+    await transaction(() async {
+      for (final mediaId in mediaIds) {
+        await into(albumMedia).insert(
+          AlbumMediaCompanion.insert(
+            albumId: targetAlbumId,
+            mediaId: mediaId,
+            addedAt: movedAt,
+          ),
+          mode: InsertMode.insertOrIgnore,
+        );
+      }
+      await (delete(albumMedia)
+            ..where(
+              (membership) =>
+                  membership.albumId.equals(sourceAlbumId) &
+                  membership.mediaId.isIn(mediaIds),
+            ))
+          .go();
+      await (update(albums)
+            ..where(
+              (album) =>
+                  album.id.equals(sourceAlbumId) &
+                  album.coverMediaId.isIn(mediaIds),
+            ))
+          .write(const AlbumsCompanion(coverMediaId: Value(null)));
+    });
+  }
+
   Future<List<AlbumMediaRow>> getAllMemberships() => select(albumMedia).get();
+
+  Future<bool> hasMembership(String albumId, String mediaId) async {
+    final row = await (select(albumMedia)
+          ..where(
+            (membership) =>
+                membership.albumId.equals(albumId) &
+                membership.mediaId.equals(mediaId),
+          )
+          ..limit(1))
+        .getSingleOrNull();
+    return row != null;
+  }
 
   Future<int> countMembership(String albumId, {bool? isVideo}) async {
     final c = countAll();

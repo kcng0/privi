@@ -57,6 +57,11 @@ class MediaGridScreen extends ConsumerStatefulWidget {
 class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
   bool get _isRecycle => widget.albumId == SystemAlbumIds.recycle;
   bool get _isFavorites => widget.albumId == SystemAlbumIds.favorites;
+  bool get _isUserAlbum =>
+      widget.albumId != SystemAlbumIds.all &&
+      widget.albumId != SystemAlbumIds.favorites &&
+      widget.albumId != SystemAlbumIds.recycle;
+  bool get _canSetCover => _isUserAlbum || _isFavorites;
   MediaViewScope get _viewScope => MediaViewScope.vaultAlbum(widget.albumId);
 
   bool _searchOpen = false;
@@ -192,7 +197,35 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
 
   Future<void> _purgeSelected() async {
     final ids = ref.read(selectionControllerProvider).toList();
-    await ref.read(mediaRepositoryProvider).purgeMany(ids);
+    if (ids.isEmpty) return;
+    final navigator = Navigator.of(context);
+    unawaited(
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => PopScope(
+          canPop: false,
+          child: AlertDialog(
+            content: Row(
+              children: [
+                const SizedBox.square(
+                  dimension: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+                const SizedBox(width: 16),
+                Text(context.l10n.deleteForever),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    await WidgetsBinding.instance.endOfFrame;
+    try {
+      await ref.read(mediaRepositoryProvider).purgeMany(ids);
+    } finally {
+      if (navigator.canPop()) navigator.pop();
+    }
     ref.read(selectionControllerProvider.notifier).clear();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -203,15 +236,6 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
   Future<void> _setAsCover() async {
     final ids = ref.read(selectionControllerProvider).toList();
     if (ids.isEmpty) return;
-    if (widget.albumId == SystemAlbumIds.all ||
-        widget.albumId == SystemAlbumIds.favorites ||
-        widget.albumId == SystemAlbumIds.recycle) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(context.l10n.openUserAlbumToSetCover)),
-      );
-      return;
-    }
     await ref.read(albumRepositoryProvider).setCover(widget.albumId, ids.first);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -222,11 +246,22 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
   Future<void> _moveToAlbum() async {
     final ids = ref.read(selectionControllerProvider).toList();
     if (ids.isEmpty) return;
-    final albums = await ref.read(albumRepositoryProvider).listUserAlbums();
+    final allAlbums = await ref.read(albumRepositoryProvider).listUserAlbums();
+    final albums = _isUserAlbum
+        ? allAlbums
+            .where((album) => album.id != widget.albumId)
+            .toList(growable: false)
+        : allAlbums;
     if (!mounted) return;
     if (albums.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(context.l10n.createUserAlbumFirst)),
+        SnackBar(
+          content: Text(
+            _isUserAlbum
+                ? context.l10n.createAnotherAlbumFirst
+                : context.l10n.createUserAlbumFirst,
+          ),
+        ),
       );
       return;
     }
@@ -259,9 +294,18 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
     );
     if (target == null) return;
     final repo = ref.read(albumRepositoryProvider);
-    for (final id in ids) {
-      await repo.addMediaToUserAlbum(target, id);
+    if (_isUserAlbum) {
+      await repo.moveMediaToUserAlbum(
+        sourceAlbumId: widget.albumId,
+        targetAlbumId: target,
+        mediaIds: ids,
+      );
+    } else {
+      for (final id in ids) {
+        await repo.addMediaToUserAlbum(target, id);
+      }
     }
+    ref.read(selectionControllerProvider.notifier).clear();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(context.l10n.movedToAlbumCount(ids.length))),
@@ -286,11 +330,12 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
     showMoreActionsSheet(
       context,
       actions: [
-        FloatingActionItem(
-          icon: Icons.image_outlined,
-          label: context.l10n.setAsCover,
-          onTap: _setAsCover,
-        ),
+        if (_canSetCover)
+          FloatingActionItem(
+            icon: Icons.image_outlined,
+            label: context.l10n.setAsCover,
+            onTap: _setAsCover,
+          ),
         FloatingActionItem(
           icon: Icons.drive_file_move_outline,
           label: context.l10n.moveToAlbum,

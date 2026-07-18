@@ -127,12 +127,10 @@ class AlbumRepository {
     MediaItemRow? row;
     if (coverMediaId != null) {
       final pinned = await _db.getMediaById(coverMediaId);
-      // Respect photo/video filter for pinned covers too.
-      if (pinned != null &&
-          (isVideo == null || pinned.isVideo == isVideo) &&
-          // Recycle cover may be deleted; others should be active.
-          (album.systemKind == SystemAlbumKind.recycle ||
-              pinned.deletedAt == null)) {
+      final valid = pinned != null && await _isAlbumMember(album, pinned);
+      if (!valid) {
+        await _db.setAlbumCover(album.id, null);
+      } else if (isVideo == null || pinned.isVideo == isVideo) {
         row = pinned;
       }
     }
@@ -143,6 +141,18 @@ class AlbumRepository {
       null => await _db.latestInUserAlbum(album.id, isVideo: isVideo),
     };
     return row == null ? null : _mapMedia(row);
+  }
+
+  Future<bool> _isAlbumMember(Album album, MediaItemRow media) {
+    return switch (album.systemKind) {
+      SystemAlbumKind.all => Future.value(media.deletedAt == null),
+      SystemAlbumKind.favorites =>
+        Future.value(media.deletedAt == null && media.rating >= 1),
+      SystemAlbumKind.recycle => Future.value(media.deletedAt != null),
+      null => media.deletedAt != null
+          ? Future.value(false)
+          : _db.hasMembership(album.id, media.id),
+    };
   }
 
   Future<Album> createUserAlbum(String name) async {
@@ -215,6 +225,19 @@ class AlbumRepository {
 
   Future<void> addMediaToUserAlbum(String albumId, String mediaId) =>
       _db.addMembership(albumId, mediaId, DateTime.now().toUtc());
+
+  Future<void> moveMediaToUserAlbum({
+    required String sourceAlbumId,
+    required String targetAlbumId,
+    required List<String> mediaIds,
+  }) {
+    return _db.moveMemberships(
+      sourceAlbumId: sourceAlbumId,
+      targetAlbumId: targetAlbumId,
+      mediaIds: mediaIds,
+      movedAt: DateTime.now().toUtc(),
+    );
+  }
 
   Future<void> restoreMembership(
     String albumId,
