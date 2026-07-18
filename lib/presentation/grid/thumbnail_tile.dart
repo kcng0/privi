@@ -1,7 +1,7 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../application/providers.dart';
 import '../../core/constants.dart';
 import '../../core/media_thumbnail_spec.dart';
 import '../../core/theme/vault_colors.dart';
@@ -10,7 +10,11 @@ import '../common/heart_rating_bar.dart';
 import '../common/video_duration_badge.dart';
 
 /// Dense media cell + 0–3 heart bar.
-class ThumbnailTile extends StatelessWidget {
+///
+/// Loads its poster through the shared [gridThumbnailServiceProvider] so the
+/// Invisible grid uses the same cache, size, and representative frame as the
+/// Visible grid.
+class ThumbnailTile extends ConsumerStatefulWidget {
   const ThumbnailTile({
     super.key,
     required this.item,
@@ -29,31 +33,77 @@ class ThumbnailTile extends StatelessWidget {
   final ValueChanged<int>? onRate;
 
   @override
+  ConsumerState<ThumbnailTile> createState() => _ThumbnailTileState();
+}
+
+class _ThumbnailTileState extends ConsumerState<ThumbnailTile> {
+  ImageProvider? _provider;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant ThumbnailTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.item.id != widget.item.id ||
+        oldWidget.item.thumbnailPath != widget.item.thumbnailPath) {
+      _provider = null;
+      _loading = true;
+      _load();
+    }
+  }
+
+  Future<void> _load() async {
+    final item = widget.item;
+    try {
+      final bytes = await ref
+          .read(gridThumbnailServiceProvider)
+          .forVaultItem(item, size: MediaThumbnailSpec.gridDimension);
+      if (!mounted || item.id != widget.item.id) return;
+      setState(() {
+        _provider = bytes == null
+            ? null
+            : ResizeImage(
+                MemoryImage(bytes),
+                width: MediaThumbnailSpec.gridDimension,
+              );
+        _loading = false;
+      });
+    } catch (_) {
+      if (mounted && item.id == widget.item.id) {
+        setState(() => _loading = false);
+      }
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final item = widget.item;
     return Material(
       color: context.vaultColors.chrome,
       child: InkWell(
-        onTap: onTap,
-        onLongPress: onLongPress,
+        onTap: widget.onTap,
+        onLongPress: widget.onLongPress,
         child: Stack(
           fit: StackFit.expand,
           children: [
             Hero(
               tag: 'media-hero-${item.id}',
-              // Videos without a still can't be decoded by Image.file (mp4).
-              child: item.isVideo && !item.hasThumbnail
-                  ? const _VideoPlaceholder()
-                  : Image.file(
-                      File(item.displayPath),
+              child: _provider != null
+                  ? Image(
+                      image: _provider!,
                       fit: BoxFit.cover,
                       gaplessPlayback: true,
-                      // Decode the canonical HD poster at its full width. With
-                      // no target height, Flutter preserves the source ratio.
-                      cacheWidth: MediaThumbnailSpec.dimension,
-                      errorBuilder: (_, __, ___) => item.isVideo
+                    )
+                  : _loading
+                      ? ColoredBox(color: context.vaultColors.surfaceAlt)
+                      : (item.isVideo
                           ? const _VideoPlaceholder()
-                          : const _Broken(),
-                    ),
+                          : const _Broken()),
             ),
             if (item.isVideo)
               Positioned(
@@ -62,19 +112,19 @@ class ThumbnailTile extends StatelessWidget {
                 child: VideoDurationBadge(durationMs: item.durationMs),
               ),
             // Selection overlay
-            if (selecting)
+            if (widget.selecting)
               Positioned(
                 top: 4,
                 right: 4,
                 child: Icon(
-                  selected ? Icons.check_circle : Icons.circle_outlined,
-                  color: selected
+                  widget.selected ? Icons.check_circle : Icons.circle_outlined,
+                  color: widget.selected
                       ? Theme.of(context).colorScheme.primary
                       : Colors.white70,
                   size: 22,
                 ),
               ),
-            if (selected)
+            if (widget.selected)
               Container(
                 decoration: BoxDecoration(
                   border: Border.all(
@@ -92,8 +142,8 @@ class ThumbnailTile extends StatelessWidget {
                 size: 13,
                 height: GridDefaults.ratingBarHeight,
                 // Enhancement: tap hearts to rate without sheet (when not selecting).
-                interactive: !selecting && onRate != null,
-                onRate: onRate,
+                interactive: !widget.selecting && widget.onRate != null,
+                onRate: widget.onRate,
               ),
             ),
           ],

@@ -4,6 +4,11 @@ abstract final class MediaThumbnailSpec {
   /// retaining full-resolution video frames in memory.
   static const int dimension = 768;
 
+  /// Unified decode size for grid tiles in both the Visible and Invisible
+  /// tabs. Smaller than [dimension] so on-demand video decoding is cheaper,
+  /// while [dimension] stays the persisted poster / viewer resolution.
+  static const int gridDimension = 512;
+
   static const int quality = 90;
 
   /// Video poster frame selector passed to photo_manager/Glide.

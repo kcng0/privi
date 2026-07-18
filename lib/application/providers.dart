@@ -1,4 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/app_build_info.dart';
@@ -6,6 +10,7 @@ import '../data/db/database.dart';
 import '../data/repositories/album_repository.dart';
 import '../data/repositories/media_repository.dart';
 import '../data/services/biometric_service.dart';
+import '../data/services/grid_thumbnail_service.dart';
 import '../data/services/import/asset_gateway.dart';
 import '../data/services/import_service.dart';
 import '../data/services/maintenance_service.dart';
@@ -13,6 +18,7 @@ import '../data/services/media_store_service.dart';
 import '../data/services/media_thumbnail_service.dart';
 import '../data/services/secure_window_service.dart';
 import '../data/services/security_service.dart';
+import '../data/services/thumbnail_cache.dart';
 import '../data/services/vault_backup_service.dart';
 import '../data/services/vault_storage_service.dart';
 import '../domain/enums.dart';
@@ -81,6 +87,30 @@ final mediaThumbnailCacheProvider = Provider<MediaThumbnailCache>((ref) {
   );
   ref.onDispose(cache.clear);
   return cache;
+});
+
+/// Unified mem+disk cache fronting both grids' thumbnail rendering.
+final thumbnailCacheProvider = Provider<ThumbnailCache>((ref) {
+  final cache = ThumbnailCache(
+    cacheDir: () async {
+      final tmp = await getTemporaryDirectory();
+      return Directory(p.join(tmp.path, 'grid_thumbs'));
+    },
+  );
+  ref.onDispose(cache.clearMemory);
+  return cache;
+});
+
+/// Single producer both grids call — same cache, size, and representative
+/// frame; only the byte source differs (asset vs. vault poster).
+final gridThumbnailServiceProvider = Provider<GridThumbnailService>((ref) {
+  return GridThumbnailService(
+    cache: ref.watch(thumbnailCacheProvider),
+    decodeAsset: (assetId, size) =>
+        ref.read(galleryServiceProvider).decodeThumbnail(assetId, size),
+    ensureVaultPoster: (item) =>
+        ref.read(importServiceProvider).ensureThumbnail(item),
+  );
 });
 
 final mediaRepositoryProvider = Provider<MediaRepository>((ref) {

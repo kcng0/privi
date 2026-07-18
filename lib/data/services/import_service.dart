@@ -100,6 +100,17 @@ class ImportService {
   Future<int> repairOutdatedVideoThumbnails() =>
       _thumbnailGenerator.repairOutdatedVideos();
 
+  /// Generates and persists [item]'s poster on demand, returning its path.
+  /// Used by the Invisible grid to fill videos hidden before generation ran.
+  Future<String?> ensureThumbnail(MediaItem item) =>
+      _thumbnailGenerator.generateOne(
+        ThumbnailJob(
+          id: item.id,
+          privatePath: item.privatePath,
+          isVideo: item.isVideo,
+        ),
+      );
+
   Future<ImportProgress> importAll(
     List<ImportSource> sources, {
     void Function(ImportProgress progress)? onProgress,
@@ -311,16 +322,11 @@ class ImportService {
       return cancelledProgress();
     }
 
-    // One cache clear for the whole batch (per-item clear was a major slowdown).
-    if (imported > 0) {
-      try {
-        await _assetGateway
-            .clearFileCache()
-            .timeout(const Duration(seconds: 2));
-      } catch (error, stackTrace) {
-        debugPrint('clear gallery cache after hide: $error\n$stackTrace');
-      }
-    }
+    // Note: we intentionally do NOT clear photo_manager's file cache here.
+    // PhotoManager.clearFileCache() wipes Glide's entire thumbnail disk cache,
+    // forcing every Visible video poster to re-decode on the next browse. Hidden
+    // assets are already excluded from Visible by id/path, so stale thumbnails
+    // for them are never shown.
 
     // ── Phase 3: deferred thumbs (non-blocking for UI completion) ───
     // Fire-and-forget after progress reports Done so the sheet can dismiss.

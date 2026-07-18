@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../application/gallery/gallery_controller.dart';
@@ -752,6 +753,9 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
                     : Stack(
                         children: [
                           GridView.builder(
+                            // Prefetch posters just beyond the viewport.
+                            scrollCacheExtent:
+                                const ScrollCacheExtent.pixels(1200),
                             padding: EdgeInsets.fromLTRB(0, 0, 0, bottomPad),
                             gridDelegate:
                                 SliverGridDelegateWithFixedCrossAxisCount(

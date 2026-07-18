@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:photo_manager/photo_manager.dart';
 
+import '../../core/media_thumbnail_spec.dart';
 import '../../domain/enums.dart';
 import 'hide_naming.dart';
 import 'import/asset_gateway.dart';
@@ -322,6 +323,16 @@ class GalleryService {
   /// Loads the canonical poster used before and after a hide operation.
   Future<Uint8List?> mediaThumbnail(String assetId) =>
       _thumbnails.load(assetId);
+
+  /// Decodes a fresh Visible poster at [size] (representative frame), bypassing
+  /// the 768 hide-reuse cache. The unified grid cache owns caching.
+  Future<Uint8List?> decodeThumbnail(String assetId, int size) =>
+      _assets.thumbnailBytes(
+        assetId,
+        size: size,
+        quality: MediaThumbnailSpec.quality,
+        frameUs: MediaThumbnailSpec.videoFrameUs,
+      );
 
   Future<PermissionState> requestPermission() {
     return PhotoManager.requestPermissionExtend();

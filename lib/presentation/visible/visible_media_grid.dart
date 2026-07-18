@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:photo_manager/photo_manager.dart';
@@ -12,6 +13,7 @@ import '../../application/providers.dart';
 import '../../application/settings/settings_controller.dart';
 import '../../core/constants.dart';
 import '../../core/l10n.dart';
+import '../../core/media_thumbnail_spec.dart';
 import '../../core/theme/vault_colors.dart';
 import '../../core/utils/media_chronology.dart';
 import '../../core/utils/media_query_utils.dart';
@@ -727,6 +729,10 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
                           children: [
                             GridView.builder(
                               controller: _scroll,
+                              // Build ahead of the viewport so posters prefetch
+                              // and decode before they scroll into view.
+                              scrollCacheExtent:
+                                  const ScrollCacheExtent.pixels(1200),
                               padding: EdgeInsets.fromLTRB(0, 0, 0, bottomPad),
                               gridDelegate:
                                   SliverGridDelegateWithFixedCrossAxisCount(
@@ -838,13 +844,18 @@ class _LazyThumbTileState extends ConsumerState<_LazyThumbTile> {
   Future<void> _load() async {
     final id = widget.asset.id;
     try {
-      final bytes = await ref.read(galleryServiceProvider).mediaThumbnail(id);
+      final bytes = await ref
+          .read(gridThumbnailServiceProvider)
+          .forAsset(id, size: MediaThumbnailSpec.gridDimension);
       if (!mounted || id != widget.asset.id) return;
       if (bytes == null) {
         setState(() => _loading = false);
         return;
       }
-      final provider = MemoryImage(bytes);
+      final provider = ResizeImage(
+        MemoryImage(bytes),
+        width: MediaThumbnailSpec.gridDimension,
+      );
       setState(() {
         _provider = provider;
         _loading = false;
