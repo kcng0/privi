@@ -74,7 +74,7 @@ class LockController extends Notifier<VaultLockState> {
   /// Nested counter used by in-app viewer/player routes.
   int _suppressAutoLockDepth = 0;
 
-  /// True only between a native external-player launch and its next resume.
+  /// True only between a native external-media launch and its next resume.
   bool _externalPlayerHandoffExpected = false;
 
   @override
@@ -460,11 +460,11 @@ class LockController extends Notifier<VaultLockState> {
   /// - On paused/hidden/detached: stamp wall-clock time and arm a best-effort
   ///   [Timer]. Android often suspends Dart timers in the background, so the
   ///   stamp is the source of truth.
-  /// - On resumed: bypass the lock only when the native external-player result
-  ///   matches an expected hand-off. Every other background return locks before
-  ///   vault content is shown.
-  /// - While an external player is active, defer the configured background
-  ///   timer until its result distinguishes Back from Home/app switching.
+  /// - On resumed: VLC/external picture viewers bypass the lock only when their
+  ///   native activity result matches an expected hand-off.
+  /// - An expected external-media resume without a result locks immediately.
+  /// - Other resumes lock only after hidden/paused. Inactive-only transitions
+  ///   are system UI (including biometric prompts), not background hand-offs.
   void onAppLifecycle(
     AppLifecycleState lifecycle, {
     bool externalPlayerReturnedCleanly = false,
@@ -473,6 +473,7 @@ class LockController extends Notifier<VaultLockState> {
 
     switch (lifecycle) {
       case AppLifecycleState.resumed:
+        final leftAt = _backgroundedAt;
         final expectedExternalReturn = _externalPlayerHandoffExpected;
         _autoLockTimer?.cancel();
         _autoLockTimer = null;
@@ -480,8 +481,12 @@ class LockController extends Notifier<VaultLockState> {
         _externalPlayerHandoffExpected = false;
 
         if (state.status != LockStatus.unlocked) return;
-        if (expectedExternalReturn && externalPlayerReturnedCleanly) return;
-        lock();
+        if (expectedExternalReturn) {
+          if (externalPlayerReturnedCleanly) return;
+          lock();
+          return;
+        }
+        if (leftAt != null) lock();
         return;
       case AppLifecycleState.inactive:
         // Ignore: system UI overlays / focus loss without leaving the app.

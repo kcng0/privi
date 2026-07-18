@@ -292,7 +292,7 @@ users cannot update without uninstalling. Never commit keystores.
 | `flutter: command not found` | Install Flutter / FVM; reopen shell / `source ~/.bashrc`. |
 | Analyzer errors on `*.g.dart` | Run `make gen`; generated files are excluded from lints. |
 | `flutter doctor` Android license issues | `flutter doctor --android-licenses`. |
-| External player test fails | Ensure VLC is installed on the test device. Verify VLC Back returns unlocked, while Home → Privi and screen-off → unlock both show the credential screen. |
+| External media test fails | Ensure VLC and a picture viewer are installed. Their Back action returns unlocked; Home → Privi and screen-off → unlock both show the credential screen. |
 | bootstrap overwrote a file | It restores owned files from git — commit first. |
 | Device not listed under WSL2 | Share adb from Windows or use wireless `adb connect`. |
 | Release workflow failed on permissions | Repo needs `contents: write` for the `GITHUB_TOKEN` (set in the workflow). |

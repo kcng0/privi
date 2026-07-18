@@ -37,6 +37,27 @@ void main() {
     });
   });
 
+  test('external picture viewer uses the tracked media channel', () async {
+    MethodCall? receivedCall;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      receivedCall = call;
+      return true;
+    });
+    final gateway = MethodChannelExternalPlayerGateway(channel: channel);
+    addTearDown(gateway.dispose);
+
+    final launched = await gateway.open(
+      filePath: '/vault/photo.jpg',
+      mimeType: 'image/jpeg',
+    );
+
+    expect(launched, isTrue);
+    expect(receivedCall?.arguments, {
+      'path': '/vault/photo.jpg',
+      'mimeType': 'image/jpeg',
+    });
+  });
+
   test('clean return signal can only be consumed once', () async {
     final gateway = MethodChannelExternalPlayerGateway(channel: channel);
     addTearDown(gateway.dispose);

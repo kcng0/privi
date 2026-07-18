@@ -9,6 +9,10 @@ import 'package:privi/domain/enums.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 final class _CredentialSecurity extends SecurityService {
+  _CredentialSecurity({this.biometricEnabled = false});
+
+  final bool biometricEnabled;
+
   @override
   Future<bool> hasCredential() async => true;
 
@@ -16,7 +20,7 @@ final class _CredentialSecurity extends SecurityService {
   Future<String> lockKind() async => SecurityService.kindPattern;
 
   @override
-  Future<bool> isBiometricEnabled() async => false;
+  Future<bool> isBiometricEnabled() async => biometricEnabled;
 
   @override
   Future<bool> verifyPattern(String pattern) async => true;
@@ -27,8 +31,26 @@ final class _UnavailableBiometrics extends BiometricService {
   Future<bool> isHardwareAvailable() async => false;
 }
 
-Future<ProviderContainer> createUnlockedContainer({
+final class _SuccessfulBiometrics extends BiometricService {
+  @override
+  Future<bool> isHardwareAvailable() async => true;
+
+  @override
+  Future<bool> authenticate({
+    String reason = 'Unlock Privi',
+    bool biometricOnly = true,
+    String signInTitle = 'Privi',
+    String biometricHint = 'Verify identity',
+    String cancelButton = 'Cancel',
+  }) async =>
+      true;
+}
+
+Future<ProviderContainer> createLockContainer({
   int autoLockSeconds = 30,
+  bool unlock = true,
+  bool biometricEnabled = false,
+  BiometricService? biometrics,
 }) async {
   SharedPreferences.setMockInitialValues({
     'auto_lock_seconds': autoLockSeconds,
@@ -37,19 +59,23 @@ Future<ProviderContainer> createUnlockedContainer({
   final container = ProviderContainer(
     overrides: [
       sharedPreferencesProvider.overrideWithValue(preferences),
-      securityServiceProvider.overrideWithValue(_CredentialSecurity()),
-      biometricServiceProvider.overrideWithValue(_UnavailableBiometrics()),
+      securityServiceProvider.overrideWithValue(
+        _CredentialSecurity(biometricEnabled: biometricEnabled),
+      ),
+      biometricServiceProvider.overrideWithValue(
+        biometrics ?? _UnavailableBiometrics(),
+      ),
     ],
   );
   final controller = container.read(lockControllerProvider.notifier);
   await pumpEventQueue();
-  await controller.unlockWithPattern('0-1-2-3');
+  if (unlock) await controller.unlockWithPattern('0-1-2-3');
   return container;
 }
 
 void main() {
-  test('clean external-player result bypasses resume lock', () async {
-    final container = await createUnlockedContainer(autoLockSeconds: 0);
+  test('clean external-media result bypasses resume lock', () async {
+    final container = await createLockContainer(autoLockSeconds: 0);
     addTearDown(container.dispose);
     final controller = container.read(lockControllerProvider.notifier);
 
@@ -64,8 +90,8 @@ void main() {
     expect(container.read(lockControllerProvider).status, LockStatus.unlocked);
   });
 
-  test('external-player resume without result locks immediately', () async {
-    final container = await createUnlockedContainer();
+  test('external-media resume without result locks immediately', () async {
+    final container = await createLockContainer();
     addTearDown(container.dispose);
     final controller = container.read(lockControllerProvider.notifier);
 
@@ -76,19 +102,19 @@ void main() {
     expect(container.read(lockControllerProvider).status, LockStatus.locked);
   });
 
-  test('screen-off inactive-to-resumed transition locks immediately', () async {
-    final container = await createUnlockedContainer();
+  test('screen-off hidden-to-resumed transition locks immediately', () async {
+    final container = await createLockContainer();
     addTearDown(container.dispose);
     final controller = container.read(lockControllerProvider.notifier);
 
-    controller.onAppLifecycle(AppLifecycleState.inactive);
+    controller.onAppLifecycle(AppLifecycleState.hidden);
     controller.onAppLifecycle(AppLifecycleState.resumed);
 
     expect(container.read(lockControllerProvider).status, LockStatus.locked);
   });
 
   test('clean result without a matching hand-off cannot bypass lock', () async {
-    final container = await createUnlockedContainer();
+    final container = await createLockContainer();
     addTearDown(container.dispose);
     final controller = container.read(lockControllerProvider.notifier);
 
@@ -99,5 +125,21 @@ void main() {
     );
 
     expect(container.read(lockControllerProvider).status, LockStatus.locked);
+  });
+
+  test('biometric inactive-to-resumed keeps a successful unlock', () async {
+    final container = await createLockContainer(
+      unlock: false,
+      biometricEnabled: true,
+      biometrics: _SuccessfulBiometrics(),
+    );
+    addTearDown(container.dispose);
+    final controller = container.read(lockControllerProvider.notifier);
+
+    controller.onAppLifecycle(AppLifecycleState.inactive);
+    expect(await controller.unlockWithBiometric(), isTrue);
+    controller.onAppLifecycle(AppLifecycleState.resumed);
+
+    expect(container.read(lockControllerProvider).status, LockStatus.unlocked);
   });
 }
