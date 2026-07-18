@@ -21,6 +21,7 @@ import java.util.concurrent.Executors
 class MainActivity : FlutterFragmentActivity() {
     private val ioExecutor = Executors.newFixedThreadPool(3)
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var externalPlayer: ExternalPlayerHandler? = null
 
     private fun <T> runIo(result: MethodChannel.Result, block: () -> T) {
         ioExecutor.execute {
@@ -41,6 +42,7 @@ class MainActivity : FlutterFragmentActivity() {
         val metadata = MediaMetadataHandler(contentResolver, mediaStore)
         val thumbnails = ThumbnailHandler()
         val messenger = flutterEngine.dartExecutor.binaryMessenger
+        externalPlayer = ExternalPlayerHandler(this, messenger, vaultFiles)
 
         MethodChannel(messenger, "com.privi.app/mediastore")
             .setMethodCallHandler { call, result ->
@@ -171,30 +173,6 @@ class MainActivity : FlutterFragmentActivity() {
                 }
             }
 
-        MethodChannel(messenger, "com.privi.app/files")
-            .setMethodCallHandler { call, result ->
-                val path = call.argument<String>("path")
-                when (call.method) {
-                    "contentUriForPath" -> result.success(
-                        if (path.isNullOrEmpty()) null else vaultFiles.contentUriForPath(path),
-                    )
-                    "openWithChooser" -> {
-                        if (path.isNullOrEmpty()) {
-                            result.success(false)
-                        } else {
-                            result.success(
-                                vaultFiles.openWithChooser(
-                                    path,
-                                    call.argument<String>("mimeType") ?: "*/*",
-                                    call.argument<String>("title") ?: "Open with",
-                                ),
-                            )
-                        }
-                    }
-                    else -> result.notImplemented()
-                }
-            }
-
         MethodChannel(messenger, "com.privi.app/window")
             .setMethodCallHandler { call, result ->
                 when (call.method) {
@@ -215,6 +193,8 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     override fun onDestroy() {
+        externalPlayer?.dispose()
+        externalPlayer = null
         ioExecutor.shutdown()
         super.onDestroy()
     }

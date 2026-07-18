@@ -2,11 +2,10 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../data/services/intent_service.dart';
 import '../../domain/models/media_item.dart';
 import '../../domain/models/playlist.dart';
-import '../lock/lock_controller.dart';
 import '../settings/settings_controller.dart';
+import 'external_player_coordinator.dart';
 
 class PlayerUiState {
   const PlayerUiState({
@@ -36,7 +35,6 @@ class PlayerUiState {
 
 class PlayerController extends Notifier<PlayerUiState> {
   Timer? _slideTimer;
-  final _intent = IntentService();
 
   @override
   PlayerUiState build() {
@@ -118,12 +116,10 @@ class PlayerController extends Notifier<PlayerUiState> {
     final settings = ref.read(settingsControllerProvider);
 
     if (item.isVideo && settings.playerExternal) {
-      // Stay unlocked while VLC/system player is open; release on resume.
-      ref.read(lockControllerProvider.notifier).suppressAutoLockUntilResumed();
-      final ok = await _intent.openExternal(
-        filePath: item.privatePath,
-        mimeType: item.mimeType,
-      );
+      final ok = await ref.read(externalPlayerCoordinatorProvider).open(
+            filePath: item.privatePath,
+            mimeType: item.mimeType,
+          );
       state = state.copyWith(playing: false, externalHandedOff: ok);
       return;
     }

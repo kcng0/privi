@@ -66,8 +66,9 @@ media stays on-device.
 - **Consistent HD posters** — the same 768 px video frame before and after Hide
 - **Stable date order** — folders keep original capture chronology after Hide
 - **Hearts (0–3)** + favorites, albums, and playlists
-- **Built-in player** + open-in-VLC
+- **Built-in player** + result-tracked open-in-VLC
 - **Pattern / PIN + biometric** lock, optional `FLAG_SECURE` (block screenshots)
+- **Exclusive resume lock** — only VLC Back bypasses re-authentication
 - **Share-to-Privi** import intents for images and videos
 - On-device media storage; signed update checks are user-triggered
 

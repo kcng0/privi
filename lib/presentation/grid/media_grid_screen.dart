@@ -4,9 +4,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../application/gallery/gallery_controller.dart';
 import '../../application/import/import_controller.dart';
-import '../../application/lock/lock_controller.dart';
 import '../../application/media/rating_controller.dart';
 import '../../application/media/selection_controller.dart';
+import '../../application/player/external_player_coordinator.dart';
 import '../../application/providers.dart';
 import '../../application/settings/settings_controller.dart';
 import '../../core/constants.dart';
@@ -14,7 +14,6 @@ import '../../core/l10n.dart';
 import '../../core/theme/vault_colors.dart';
 import '../../core/utils/media_query_utils.dart';
 import '../../data/services/import/import_models.dart';
-import '../../data/services/intent_service.dart';
 import '../../domain/enums.dart';
 import '../../domain/models/album.dart';
 import '../../domain/models/media_item.dart';
@@ -102,12 +101,10 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
 
     // Videos: prefer system app chooser when setting is on (default true).
     if (item.isVideo && preferExternal) {
-      ref.read(lockControllerProvider.notifier).suppressAutoLockUntilResumed();
-      final ok = await IntentService().openExternal(
-        filePath: item.privatePath,
-        mimeType: item.mimeType,
-        chooserTitle: context.l10n.playVideoWith,
-      );
+      final ok = await ref.read(externalPlayerCoordinatorProvider).open(
+            filePath: item.privatePath,
+            mimeType: item.mimeType,
+          );
       if (ok) return;
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

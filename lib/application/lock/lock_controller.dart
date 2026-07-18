@@ -71,11 +71,11 @@ class LockController extends Notifier<VaultLockState> {
   /// while Android suspends the isolate — resume must re-check this stamp.
   DateTime? _backgroundedAt;
 
-  /// Nested counter: viewer / player / external hand-off keep the vault open.
+  /// Nested counter used by in-app viewer/player routes.
   int _suppressAutoLockDepth = 0;
 
-  /// When true, one suppress level is released on the next [resumed].
-  bool _releaseSuppressOnResume = false;
+  /// True only between a native external-player launch and its next resume.
+  bool _externalPlayerHandoffExpected = false;
 
   @override
   VaultLockState build() {
@@ -84,7 +84,7 @@ class LockController extends Notifier<VaultLockState> {
       _lockoutTimer?.cancel();
       _backgroundedAt = null;
       _suppressAutoLockDepth = 0;
-      _releaseSuppressOnResume = false;
+      _externalPlayerHandoffExpected = false;
     });
     Future.microtask(_bootstrap);
     return const VaultLockState(status: LockStatus.locked);
@@ -157,11 +157,14 @@ class LockController extends Notifier<VaultLockState> {
     }
   }
 
-  /// Suppress auto-lock while another app (VLC / system player) is open.
-  /// Released automatically on the next [AppLifecycleState.resumed].
-  void suppressAutoLockUntilResumed() {
-    suppressAutoLock();
-    _releaseSuppressOnResume = true;
+  void beginExternalPlayerHandoff() {
+    _externalPlayerHandoffExpected = true;
+    _autoLockTimer?.cancel();
+    _autoLockTimer = null;
+  }
+
+  void cancelExternalPlayerHandoff() {
+    _externalPlayerHandoffExpected = false;
   }
 
   Future<void> _bootstrap() async {
@@ -443,6 +446,7 @@ class LockController extends Notifier<VaultLockState> {
   void lock() {
     _cancelAutoLockTimer();
     _cancelLockoutTimer();
+    _externalPlayerHandoffExpected = false;
     state = state.copyWith(status: LockStatus.locked, clearError: true);
   }
 
@@ -456,34 +460,28 @@ class LockController extends Notifier<VaultLockState> {
   /// - On paused/hidden/detached: stamp wall-clock time and arm a best-effort
   ///   [Timer]. Android often suspends Dart timers in the background, so the
   ///   stamp is the source of truth.
-  /// - On resumed: if background duration ≥ timeout, [lock] immediately
-  ///   (before UI paints home). Otherwise clear the stamp/timer.
-  /// - Always applies while unlocked — even with a viewer/player open or after
-  ///   launching VLC — so hiding the app for ≥ timeout requires re-auth.
-  void onAppLifecycle(AppLifecycleState lifecycle) {
-    if (state.status != LockStatus.unlocked) return;
+  /// - On resumed: bypass the lock only when the native external-player result
+  ///   matches an expected hand-off. Every other background return locks before
+  ///   vault content is shown.
+  /// - While an external player is active, defer the configured background
+  ///   timer until its result distinguishes Back from Home/app switching.
+  void onAppLifecycle(
+    AppLifecycleState lifecycle, {
+    bool externalPlayerReturnedCleanly = false,
+  }) {
     final seconds = ref.read(settingsControllerProvider).autoLockSeconds;
 
     switch (lifecycle) {
       case AppLifecycleState.resumed:
-        final leftAt = _backgroundedAt;
+        final expectedExternalReturn = _externalPlayerHandoffExpected;
         _autoLockTimer?.cancel();
         _autoLockTimer = null;
         _backgroundedAt = null;
+        _externalPlayerHandoffExpected = false;
 
-        if (_releaseSuppressOnResume) {
-          _releaseSuppressOnResume = false;
-          releaseAutoLockSuppress();
-        }
-
-        if (leftAt != null) {
-          final elapsed = DateTime.now().difference(leftAt);
-          // Immediate (0) already locked on pause; still lock if we somehow
-          // resumed unlocked after any positive timeout.
-          if (seconds <= 0 || elapsed >= Duration(seconds: seconds)) {
-            lock();
-          }
-        }
+        if (state.status != LockStatus.unlocked) return;
+        if (expectedExternalReturn && externalPlayerReturnedCleanly) return;
+        lock();
         return;
       case AppLifecycleState.inactive:
         // Ignore: system UI overlays / focus loss without leaving the app.
@@ -491,15 +489,17 @@ class LockController extends Notifier<VaultLockState> {
       case AppLifecycleState.paused:
       case AppLifecycleState.hidden:
       case AppLifecycleState.detached:
+        if (state.status != LockStatus.unlocked) return;
         _autoLockTimer?.cancel();
         _autoLockTimer = null;
+        _backgroundedAt ??= DateTime.now();
+        if (_externalPlayerHandoffExpected) return;
         if (seconds <= 0) {
           _backgroundedAt = null;
           lock();
         } else {
           // Keep first background stamp if we already recorded one (paused
           // often follows hidden); don't reset the deadline on every event.
-          _backgroundedAt ??= DateTime.now();
           final remaining = Duration(seconds: seconds) -
               DateTime.now().difference(_backgroundedAt!);
           if (remaining <= Duration.zero) {

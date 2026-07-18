@@ -675,72 +675,25 @@ class VaultFileHandler(
         return mapOf("ok" to true, "newPath" to dest.absolutePath)
     }
 
-    /** Opens media with Android's normal ACTION_VIEW resolver. */
-    fun openWithChooser(path: String, mimeType: String, title: String): Boolean {
-        return try {
-            val file = File(path)
-            if (!file.exists()) return false
+    /** Builds a result-tracked ACTION_VIEW intent for VLC/system players. */
+    fun createExternalPlayerIntent(path: String, mimeType: String): Intent? {
+        val file = File(path)
+        if (!file.isFile) return null
 
-            val uri = try {
-                FileProvider.getUriForFile(
-                    context,
-                    "${context.applicationContext.packageName}.fileprovider",
-                    file,
-                )
-            } catch (_: Exception) {
-                android.util.Log.e("PrivateHeart", "FileProvider failed for $path")
-                return false
-            }
-
-            val viewIntent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, mimeType.ifBlank { "*/*" })
-                // Do NOT use createChooser — that hides Always / Just once on modern Android.
-                // Do NOT force NEW_TASK from our Activity — start in the normal task.
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                addFlags(Intent.FLAG_GRANT_PREFIX_URI_PERMISSION)
-            }
-
-            // Grant URI permission to every matching app so the sheet targets work.
-            val resInfo: List<ResolveInfo> = context.packageManager.queryIntentActivities(
-                viewIntent,
-                PackageManager.MATCH_DEFAULT_ONLY,
-            )
-            if (resInfo.isEmpty()) {
-                android.util.Log.w("PrivateHeart", "No apps resolve ACTION_VIEW for $mimeType")
-                return false
-            }
-            for (info in resInfo) {
-                val pkg = info.activityInfo?.packageName ?: continue
-                try {
-                    context.grantUriPermission(
-                        pkg,
-                        uri,
-                        Intent.FLAG_GRANT_READ_URI_PERMISSION,
-                    )
-                } catch (_: Exception) {
-                }
-            }
-
-            context.startActivity(viewIntent)
-            true
-        } catch (e: Exception) {
-            android.util.Log.e("PrivateHeart", "openWithChooser failed: $e")
-            false
+        val uri = FileProvider.getUriForFile(
+            context,
+            "${context.applicationContext.packageName}.fileprovider",
+            file,
+        )
+        val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, mimeType.ifBlank { "*/*" })
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_GRANT_PREFIX_URI_PERMISSION)
         }
-    }
-
-    fun contentUriForPath(path: String): String? {
-        return try {
-            val file = File(path)
-            if (!file.exists()) return null
-            val uri = FileProvider.getUriForFile(
-                context,
-                "${context.applicationContext.packageName}.fileprovider",
-                file,
-            )
-            uri.toString()
-        } catch (_: Exception) {
-            null
-        }
+        val matches: List<ResolveInfo> = context.packageManager.queryIntentActivities(
+            viewIntent,
+            PackageManager.MATCH_DEFAULT_ONLY,
+        )
+        return viewIntent.takeIf { matches.isNotEmpty() }
     }
 }

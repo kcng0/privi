@@ -1,0 +1,53 @@
+import 'package:flutter/widgets.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../lock/lock_controller.dart';
+import '../providers.dart';
+import 'external_player_gateway.dart';
+
+final class ExternalPlayerCoordinator {
+  const ExternalPlayerCoordinator({
+    required ExternalPlayerGateway player,
+    required LockController lock,
+  })  : _player = player,
+        _lock = lock;
+
+  final ExternalPlayerGateway _player;
+  final LockController _lock;
+
+  Future<bool> open({
+    required String filePath,
+    required String mimeType,
+  }) async {
+    _lock.beginExternalPlayerHandoff();
+    try {
+      final launched = await _player.open(
+        filePath: filePath,
+        mimeType: mimeType,
+      );
+      if (!launched) _lock.cancelExternalPlayerHandoff();
+      return launched;
+    } catch (_) {
+      _lock.cancelExternalPlayerHandoff();
+      rethrow;
+    }
+  }
+
+  void onAppLifecycle(AppLifecycleState state) {
+    final returnedCleanly =
+        state == AppLifecycleState.resumed && _player.takeCleanReturn();
+    _lock.onAppLifecycle(
+      state,
+      externalPlayerReturnedCleanly: returnedCleanly,
+    );
+  }
+}
+
+final externalPlayerCoordinatorProvider = Provider<ExternalPlayerCoordinator>((
+  ref,
+) {
+  return ExternalPlayerCoordinator(
+    player: ref.watch(externalPlayerGatewayProvider),
+    lock: ref.read(lockControllerProvider.notifier),
+  );
+});

@@ -13,6 +13,7 @@ import '../data/services/biometric_service.dart';
 import '../data/services/grid_thumbnail_service.dart';
 import '../data/services/import/asset_gateway.dart';
 import '../data/services/import_service.dart';
+import '../data/services/intent_service.dart';
 import '../data/services/maintenance_service.dart';
 import '../data/services/media_store_service.dart';
 import '../data/services/media_thumbnail_service.dart';
@@ -25,6 +26,7 @@ import '../domain/enums.dart';
 import '../domain/models/album_view.dart';
 import '../domain/models/media_item.dart';
 import 'gallery/gallery_controller.dart';
+import 'player/external_player_gateway.dart';
 import 'update/app_restart_service.dart';
 import 'update/app_update_service.dart';
 import 'update/external_url_launcher.dart';
@@ -49,6 +51,12 @@ final appRestartServiceProvider = Provider<AppRestartService>((ref) {
 
 final externalUrlLauncherProvider = Provider<ExternalUrlLauncher>((ref) {
   throw UnimplementedError('externalUrlLauncherProvider must be overridden');
+});
+
+final externalPlayerGatewayProvider = Provider<ExternalPlayerGateway>((ref) {
+  final gateway = MethodChannelExternalPlayerGateway();
+  ref.onDispose(gateway.dispose);
+  return gateway;
 });
 
 final databaseProvider = Provider<AppDatabase>((ref) {

@@ -6,6 +6,7 @@ import 'application/gallery/gallery_controller.dart';
 import 'application/import/import_controller.dart';
 import 'application/import/share_queue_controller.dart';
 import 'application/lock/lock_controller.dart';
+import 'application/player/external_player_coordinator.dart';
 import 'application/providers.dart';
 import 'application/settings/settings_controller.dart';
 import 'core/l10n.dart';
@@ -25,10 +26,10 @@ class PrivateHeartApp extends ConsumerStatefulWidget {
   ConsumerState<PrivateHeartApp> createState() => _PrivateHeartAppState();
 }
 
-class _PrivateHeartAppState extends ConsumerState<PrivateHeartApp>
-    with WidgetsBindingObserver {
+class _PrivateHeartAppState extends ConsumerState<PrivateHeartApp> {
   final _share = ShareIntentService();
   final _navKey = GlobalKey<NavigatorState>();
+  late final AppLifecycleListener _lifecycleListener;
 
   @override
   void initState() {
@@ -43,7 +44,7 @@ class _PrivateHeartAppState extends ConsumerState<PrivateHeartApp>
         systemNavigationBarIconBrightness: Brightness.light,
       ),
     );
-    WidgetsBinding.instance.addObserver(this);
+    _lifecycleListener = AppLifecycleListener(onStateChange: _onLifecycleState);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _share.start(_onShared);
     });
@@ -51,14 +52,13 @@ class _PrivateHeartAppState extends ConsumerState<PrivateHeartApp>
 
   @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
+    _lifecycleListener.dispose();
     _share.dispose();
     super.dispose();
   }
 
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    ref.read(lockControllerProvider.notifier).onAppLifecycle(state);
+  void _onLifecycleState(AppLifecycleState state) {
+    ref.read(externalPlayerCoordinatorProvider).onAppLifecycle(state);
     if (state == AppLifecycleState.resumed) {
       // Gallery permission may have been granted in system Settings while we
       // were backgrounded — refresh Visible without another Grant tap.

@@ -7,8 +7,8 @@ import 'package:photo_manager/photo_manager.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../application/gallery/gallery_controller.dart';
 import '../../application/import/import_controller.dart';
-import '../../application/lock/lock_controller.dart';
 import '../../application/media/selectable_grid_controller.dart';
+import '../../application/player/external_player_coordinator.dart';
 import '../../application/providers.dart';
 import '../../application/settings/settings_controller.dart';
 import '../../core/constants.dart';
@@ -18,7 +18,6 @@ import '../../core/theme/vault_colors.dart';
 import '../../core/utils/media_chronology.dart';
 import '../../core/utils/media_query_utils.dart';
 import '../../data/services/import_service.dart';
-import '../../data/services/intent_service.dart';
 import '../../data/services/media_rename_service.dart';
 import '../../domain/enums.dart';
 import '../common/floating_action_capsule.dart';
@@ -178,22 +177,17 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
     final preferExternal = ref.read(settingsControllerProvider).playerExternal;
 
     if (a.isVideo && preferExternal) {
-      final openWith = context.l10n.openWith;
       final couldNotOpen = context.l10n.couldNotOpenExternally;
       // Resolve a real path for external players / chooser.
       final sources = await ref
           .read(galleryServiceProvider)
           .resolveForHide([a.id], sourceFolderName: widget.title);
       if (sources.isNotEmpty) {
-        ref
-            .read(lockControllerProvider.notifier)
-            .suppressAutoLockUntilResumed();
-        final ok = await IntentService().openExternal(
-          filePath: sources.first.path,
-          mimeType:
-              sources.first.mimeType ?? (a.isVideo ? 'video/*' : 'image/*'),
-          chooserTitle: openWith,
-        );
+        final ok = await ref.read(externalPlayerCoordinatorProvider).open(
+              filePath: sources.first.path,
+              mimeType:
+                  sources.first.mimeType ?? (a.isVideo ? 'video/*' : 'image/*'),
+            );
         if (ok) return;
       }
       if (mounted) {

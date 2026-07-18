@@ -7,14 +7,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../application/import/import_controller.dart';
-import '../../application/lock/lock_controller.dart';
 import '../../application/media/rating_controller.dart';
+import '../../application/player/external_player_coordinator.dart';
 import '../../application/providers.dart';
 import '../../application/settings/settings_controller.dart';
 import '../../core/constants.dart';
 import '../../core/l10n.dart';
 import '../../core/theme/vault_colors.dart';
-import '../../data/services/intent_service.dart';
 import '../../domain/models/media_item.dart';
 import '../common/heart_rating_bar.dart';
 import '../common/keep_vault_unlocked.dart';
@@ -118,12 +117,10 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
 
   Future<void> _openExternal() async {
     final item = _current;
-    // Stay unlocked while VLC/system player is open; release on resume.
-    ref.read(lockControllerProvider.notifier).suppressAutoLockUntilResumed();
-    await IntentService().openExternal(
-      filePath: item.privatePath,
-      mimeType: item.mimeType,
-    );
+    await ref.read(externalPlayerCoordinatorProvider).open(
+          filePath: item.privatePath,
+          mimeType: item.mimeType,
+        );
   }
 
   Future<void> _unhide() async {
