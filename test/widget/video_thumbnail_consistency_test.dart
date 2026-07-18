@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -8,6 +9,8 @@ import 'package:privi/application/providers.dart';
 import 'package:privi/core/media_thumbnail_spec.dart';
 import 'package:privi/core/theme/app_theme.dart';
 import 'package:privi/data/services/gallery_service.dart';
+import 'package:privi/data/services/grid_thumbnail_service.dart';
+import 'package:privi/data/services/thumbnail_cache.dart';
 import 'package:privi/domain/enums.dart';
 import 'package:privi/domain/models/media_item.dart';
 import 'package:privi/l10n/app_localizations.dart';
@@ -15,6 +18,26 @@ import 'package:privi/presentation/common/video_duration_badge.dart';
 import 'package:privi/presentation/grid/thumbnail_tile.dart';
 import 'package:privi/presentation/visible/visible_media_grid.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+/// Returns fixed bytes for both grids without touching disk or platform.
+class _FakeGrid extends GridThumbnailService {
+  _FakeGrid(this._bytes)
+      : super(
+          cache: ThumbnailCache(cacheDir: () async => Directory.systemTemp),
+          decodeAsset: (_, __) async => null,
+          ensureVaultPoster: (_) async => null,
+        );
+
+  final Uint8List _bytes;
+
+  @override
+  Future<Uint8List?> forAsset(String assetId, {required int size}) async =>
+      _bytes;
+
+  @override
+  Future<Uint8List?> forVaultItem(MediaItem item, {required int size}) async =>
+      _bytes;
+}
 
 class _GalleryWithOneVideo extends GalleryService {
   @override
@@ -123,24 +146,35 @@ void main() {
     );
 
     await tester.pumpWidget(
-      MaterialApp(
-        theme: AppTheme.dark,
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        supportedLocales: AppLocalizations.supportedLocales,
-        home: Scaffold(
-          body: SizedBox.square(
-            dimension: 120,
-            child: ThumbnailTile(item: item),
+      ProviderScope(
+        overrides: [
+          gridThumbnailServiceProvider.overrideWithValue(
+            _FakeGrid(Uint8List.fromList([1, 2, 3, 4])),
+          ),
+        ],
+        child: MaterialApp(
+          theme: AppTheme.dark,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: SizedBox.square(
+              dimension: 120,
+              child: ThumbnailTile(item: item),
+            ),
           ),
         ),
       ),
     );
+    await tester.pump();
+    await tester.pump();
 
     final image = tester.widget<Image>(find.byType(Image));
     expect(image.fit, BoxFit.cover);
     expect(image.image, isA<ResizeImage>());
     final resizeImage = image.image as ResizeImage;
-    expect(resizeImage.width, MediaThumbnailSpec.dimension);
+    // Width-only decode preserves the source aspect ratio; both grids now
+    // decode at the shared grid size.
+    expect(resizeImage.width, MediaThumbnailSpec.gridDimension);
     expect(resizeImage.height, isNull);
   });
 }
