@@ -120,6 +120,24 @@ pagination must query `createDate`, while vault queries use
 `dateTaken ?? dateAdded` and the exact source filename as their deterministic
 tie-breaker. Modified time and Hide time are not valid chronology inputs.
 
+## Media view preference contract
+
+Home-level preferences remain in `AppSettings`: photo/video mode, album columns,
+and the default media-grid columns for a folder with no saved override. Each
+Visible folder and Invisible album has a separate `MediaViewScope`, namespaced by
+source and stable folder id. That scope persists grid columns, rating/Hearts
+filters, single/multi sort mode, and its ordered sort criteria. Search text is
+session-only and must not be persisted.
+
+The first multi-sort criterion is primary. Later selections append as
+tie-breakers, while changing ascending/descending within one family replaces the
+criterion in place. The picker displays numeric priority badges. Switching back
+to single sort keeps the primary criterion only.
+
+`test/application/media_view_preferences_test.dart` verifies persistence and
+scope isolation. `test/widget/media_preferences_ui_test.dart` verifies the
+single/multi control, priority order, and localized Hearts label.
+
 ## Lock lifecycle and navigation contract
 
 The credential UI is a root overlay above the app Navigator. Locking must keep

@@ -75,6 +75,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get sort => 'Sort';
 
   @override
+  String get multiSort => 'Multi-sort';
+
+  @override
   String get style => 'Style';
 
   @override
@@ -573,7 +576,7 @@ class AppLocalizationsEn extends AppLocalizations {
       'FLAG_SECURE — hide content in recents';
 
   @override
-  String get mediaGridColumns => 'Media grid columns';
+  String get mediaGridColumns => 'Default grid columns';
 
   @override
   String get albumColumns => 'Album columns';

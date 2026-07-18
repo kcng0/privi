@@ -96,6 +96,59 @@ void main() {
       expect(out.map((e) => e.id).toList(), ['b', 'a', 'c']);
     });
 
+    test('single sort replaces the previous criterion', () {
+      final out = MediaQueryUtils.updateSortSelection(
+        current: const [MediaSort.dateAddedDesc],
+        selected: MediaSort.nameAsc,
+        multiSortEnabled: false,
+      );
+
+      expect(out, const [MediaSort.nameAsc]);
+    });
+
+    test('multi sort preserves selection order as priority', () {
+      final withRating = MediaQueryUtils.updateSortSelection(
+        current: const [MediaSort.dateAddedDesc],
+        selected: MediaSort.ratingDesc,
+        multiSortEnabled: true,
+      );
+      final withName = MediaQueryUtils.updateSortSelection(
+        current: withRating,
+        selected: MediaSort.nameAsc,
+        multiSortEnabled: true,
+      );
+
+      expect(
+        withName,
+        const [
+          MediaSort.dateAddedDesc,
+          MediaSort.ratingDesc,
+          MediaSort.nameAsc,
+        ],
+      );
+    });
+
+    test('changing direction keeps the criterion priority', () {
+      final out = MediaQueryUtils.updateSortSelection(
+        current: const [
+          MediaSort.ratingDesc,
+          MediaSort.dateAddedDesc,
+          MediaSort.nameAsc,
+        ],
+        selected: MediaSort.dateAddedAsc,
+        multiSortEnabled: true,
+      );
+
+      expect(
+        out,
+        const [
+          MediaSort.ratingDesc,
+          MediaSort.dateAddedAsc,
+          MediaSort.nameAsc,
+        ],
+      );
+    });
+
     test('newest first prefers dateTaken over hide-time dateAdded', () {
       // Simulated hide reshuffle: older capture written with newer dateAdded.
       final olderCapture = item(

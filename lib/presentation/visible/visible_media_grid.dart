@@ -7,6 +7,7 @@ import 'package:photo_manager/photo_manager.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../application/gallery/gallery_controller.dart';
 import '../../application/import/import_controller.dart';
+import '../../application/media/media_view_preferences.dart';
 import '../../application/media/selectable_grid_controller.dart';
 import '../../application/player/external_player_coordinator.dart';
 import '../../application/providers.dart';
@@ -48,6 +49,7 @@ class VisibleMediaGrid extends ConsumerStatefulWidget {
 
 class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
   final _selection = SelectableGridController<String>();
+  MediaViewScope get _viewScope => MediaViewScope.visibleFolder(widget.pathId);
 
   final List<GalleryAsset> _items = [];
   final _scroll = ScrollController();
@@ -60,9 +62,6 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
 
   bool _searchOpen = false;
   final _searchCtrl = TextEditingController();
-
-  /// Visible grids: date + name only (no ratings).
-  final List<MediaSort> _sorts = [MediaSort.dateAddedDesc];
 
   bool get _selecting => _selection.isSelecting;
   Set<String> get _selected => _selection.selected;
@@ -220,7 +219,7 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
           .toList(growable: false);
     }
     // Client-side sort on loaded page(s). Rating sorts ignored for Visible.
-    final sorts = _sorts.isEmpty ? [MediaSort.dateAddedDesc] : _sorts;
+    final sorts = ref.read(mediaViewPreferencesProvider(_viewScope)).sorts;
     list.sort((a, b) {
       for (final s in sorts) {
         final c = switch (s) {
@@ -269,27 +268,33 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
   }
 
   Future<void> _pickSort() async {
+    final provider = mediaViewPreferencesProvider(_viewScope);
+    final preferences = ref.read(provider);
+    final controller = ref.read(provider.notifier);
     await GridAppMenu.showSortPicker(
       context,
-      selected: _sorts,
+      selected: preferences.sorts,
+      multiSortEnabled: preferences.multiSortEnabled,
       options: const [
         MediaSort.dateAddedDesc,
         MediaSort.dateAddedAsc,
         MediaSort.nameAsc,
         MediaSort.nameDesc,
       ],
-      onChanged: (next) {
-        setState(() {
-          _sorts
-            ..clear()
-            ..addAll(next.isEmpty ? [MediaSort.dateAddedDesc] : next);
-        });
+      onChanged: (sorts, multiSortEnabled) {
+        unawaited(
+          controller.setSorting(
+            sorts,
+            multiSortEnabled: multiSortEnabled,
+          ),
+        );
       },
     );
   }
 
   Future<void> _pickStyle() async {
-    final current = ref.read(settingsControllerProvider).gridColumns;
+    final provider = mediaViewPreferencesProvider(_viewScope);
+    final current = ref.read(provider).gridColumns;
     final next = await GridAppMenu.showStylePicker(
       context,
       current: current,
@@ -297,7 +302,7 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
       title: context.l10n.layoutStyle,
     );
     if (next == null || !mounted) return;
-    await ref.read(settingsControllerProvider.notifier).setGridColumns(next);
+    await ref.read(provider.notifier).setGridColumns(next);
   }
 
   void _startSelectFromMenu() {
@@ -307,6 +312,7 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
   }
 
   Future<void> _showOverflowMenu() async {
+    final preferences = ref.read(mediaViewPreferencesProvider(_viewScope));
     final choice = await showVaultSheet<String>(
       context,
       showDragHandle: true,
@@ -335,7 +341,7 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
                 ),
                 subtitle: Text(
                   context.l10n.columnsCount(
-                    ref.read(settingsControllerProvider).gridColumns,
+                    preferences.gridColumns,
                   ),
                   style: const TextStyle(color: Colors.white54, fontSize: 12),
                 ),
@@ -359,7 +365,10 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
                   style: const TextStyle(color: Colors.white),
                 ),
                 subtitle: Text(
-                  MediaQueryUtils.sortsSummaryL10n(context.l10n, _sorts),
+                  MediaQueryUtils.sortsSummaryL10n(
+                    context.l10n,
+                    preferences.sorts,
+                  ),
                   style: const TextStyle(color: Colors.white54, fontSize: 12),
                 ),
                 onTap: () => Navigator.pop(ctx, 'sort'),
@@ -643,7 +652,8 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
       _reload();
     });
 
-    final cols = ref.watch(settingsControllerProvider).gridColumns;
+    final cols =
+        ref.watch(mediaViewPreferencesProvider(_viewScope)).gridColumns;
     final visible = _visibleItems;
     final bottomPad = GridDefaults.bottomClearance +
         MediaQuery.paddingOf(context).bottom +

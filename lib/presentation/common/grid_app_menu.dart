@@ -5,6 +5,11 @@ import '../../core/utils/media_query_utils.dart';
 import '../../domain/enums.dart';
 import 'vault_sheet.dart';
 
+typedef SortPickerChanged = void Function(
+  List<MediaSort> sorts,
+  bool multiSortEnabled,
+);
+
 /// Shared app-bar overflow actions for media grids (Invisible + Visible).
 ///
 /// Keeps Select / Style / Search / Sort in one ⋮ menu so sort/search are not
@@ -29,11 +34,13 @@ abstract final class GridAppMenu {
   static Future<void> showSortPicker(
     BuildContext context, {
     required List<MediaSort> selected,
-    required ValueChanged<List<MediaSort>> onChanged,
+    required bool multiSortEnabled,
+    required SortPickerChanged onChanged,
     List<MediaSort>? options,
   }) async {
     final opts = options ?? MediaSort.values;
-    final working = List<MediaSort>.of(selected);
+    var working = List<MediaSort>.of(selected);
+    var multiSort = multiSortEnabled;
 
     await showVaultSheet<void>(
       context,
@@ -44,14 +51,25 @@ abstract final class GridAppMenu {
         return SafeArea(
           child: StatefulBuilder(
             builder: (ctx, setLocal) {
-              void toggle(MediaSort s) {
+              void select(MediaSort sort) {
                 setLocal(() {
-                  MediaQueryUtils.toggleSort(working, s);
-                  if (working.isEmpty) {
-                    working.add(MediaSort.dateAddedDesc);
+                  working = MediaQueryUtils.updateSortSelection(
+                    current: working,
+                    selected: sort,
+                    multiSortEnabled: multiSort,
+                  );
+                });
+                onChanged(List.unmodifiable(working), multiSort);
+              }
+
+              void setMultiSort(bool enabled) {
+                setLocal(() {
+                  multiSort = enabled;
+                  if (!enabled && working.length > 1) {
+                    working = [working.first];
                   }
                 });
-                onChanged(List<MediaSort>.of(working));
+                onChanged(List.unmodifiable(working), multiSort);
               }
 
               return ConstrainedBox(
@@ -60,17 +78,33 @@ abstract final class GridAppMenu {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          ctx.l10n.sort,
-                          style: const TextStyle(
-                            color: Colors.white70,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
+                      padding: const EdgeInsets.fromLTRB(16, 0, 8, 4),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              ctx.l10n.sort,
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
                           ),
-                        ),
+                          Text(
+                            ctx.l10n.multiSort,
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12,
+                            ),
+                          ),
+                          Switch(
+                            value: multiSort,
+                            onChanged: setMultiSort,
+                            materialTapTargetSize:
+                                MaterialTapTargetSize.shrinkWrap,
+                          ),
+                        ],
                       ),
                     ),
                     Flexible(
@@ -80,6 +114,7 @@ abstract final class GridAppMenu {
                         itemBuilder: (ctx, i) {
                           final s = opts[i];
                           final on = working.contains(s);
+                          final priority = working.indexOf(s) + 1;
                           final primary = Theme.of(ctx).colorScheme.primary;
                           return ListTile(
                             dense: true,
@@ -94,9 +129,20 @@ abstract final class GridAppMenu {
                                 color: on ? primary : Colors.white,
                               ),
                             ),
-                            trailing:
-                                on ? Icon(Icons.check, color: primary) : null,
-                            onTap: () => toggle(s),
+                            trailing: !on
+                                ? null
+                                : multiSort
+                                    ? SizedBox.square(
+                                        dimension: 24,
+                                        child: Center(
+                                          child: Badge(
+                                            label: Text('$priority'),
+                                            backgroundColor: primary,
+                                          ),
+                                        ),
+                                      )
+                                    : Icon(Icons.check, color: primary),
+                            onTap: () => select(s),
                           );
                         },
                       ),

@@ -75,6 +75,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get sort => '排序';
 
   @override
+  String get multiSort => '多重排序';
+
+  @override
   String get style => '样式';
 
   @override
@@ -565,7 +568,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get blockScreenshotsSubtitle => 'FLAG_SECURE — 在最近任务中隐藏内容';
 
   @override
-  String get mediaGridColumns => '媒体网格列数';
+  String get mediaGridColumns => '默认网格列数';
 
   @override
   String get albumColumns => '相册列数';
@@ -991,6 +994,9 @@ class AppLocalizationsZhCn extends AppLocalizationsZh {
   String get sort => '排序';
 
   @override
+  String get multiSort => '多重排序';
+
+  @override
   String get style => '样式';
 
   @override
@@ -1481,7 +1487,7 @@ class AppLocalizationsZhCn extends AppLocalizationsZh {
   String get blockScreenshotsSubtitle => 'FLAG_SECURE — 在最近任务中隐藏内容';
 
   @override
-  String get mediaGridColumns => '媒体网格列数';
+  String get mediaGridColumns => '默认网格列数';
 
   @override
   String get albumColumns => '相册列数';
@@ -1905,6 +1911,9 @@ class AppLocalizationsZhHk extends AppLocalizationsZh {
 
   @override
   String get sort => '排序';
+
+  @override
+  String get multiSort => '多重排序';
 
   @override
   String get style => '樣式';
@@ -2397,7 +2406,7 @@ class AppLocalizationsZhHk extends AppLocalizationsZh {
   String get blockScreenshotsSubtitle => 'FLAG_SECURE — 在最近工作中隱藏內容';
 
   @override
-  String get mediaGridColumns => '媒體網格欄數';
+  String get mediaGridColumns => '預設網格欄數';
 
   @override
   String get albumColumns => '相簿欄數';

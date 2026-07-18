@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../application/gallery/gallery_controller.dart';
 import '../../application/import/import_controller.dart';
+import '../../application/media/media_view_preferences.dart';
 import '../../application/media/rating_controller.dart';
 import '../../application/media/selection_controller.dart';
 import '../../application/player/external_player_coordinator.dart';
@@ -23,6 +26,7 @@ import '../common/grid_app_menu.dart';
 import '../common/media_details_sheet.dart';
 import '../common/media_grid_scaffold.dart';
 import '../common/quick_rating_sheet.dart';
+import '../common/rating_filter_bar.dart';
 import '../common/vault_sheet.dart';
 import '../import/import_progress_sheet.dart';
 import '../player/player_screen.dart';
@@ -53,13 +57,11 @@ class MediaGridScreen extends ConsumerStatefulWidget {
 class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
   bool get _isRecycle => widget.albumId == SystemAlbumIds.recycle;
   bool get _isFavorites => widget.albumId == SystemAlbumIds.favorites;
+  MediaViewScope get _viewScope => MediaViewScope.vaultAlbum(widget.albumId);
 
   bool _searchOpen = false;
   final _searchCtrl = TextEditingController();
-  final List<MediaSort> _sorts = [MediaSort.dateAddedDesc];
   final GlobalKey _overflowKey = GlobalKey();
-  RatingFilter _rating = RatingFilter.all;
-  final Set<int> _heartLevels = {}; // multi-select ♥1/2/3 when Hearts chip used
   final GlobalKey _heartsChipKey = GlobalKey();
 
   @override
@@ -71,6 +73,7 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
   List<MediaItem> _applyQuery(
     List<MediaItem> items, {
     required MediaKindFilter kind,
+    required MediaViewPreferences preferences,
   }) {
     // Shared Visible/Invisible photo XOR video preference.
     final kindFiltered = items.where((m) {
@@ -81,16 +84,17 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
       return MediaQueryUtils.apply(
         items: kindFiltered,
         search: _searchCtrl.text,
-        sorts: List.of(_sorts),
+        sorts: preferences.sorts,
         rating: RatingFilter.all,
       );
     }
     return MediaQueryUtils.apply(
       items: kindFiltered,
       search: _searchCtrl.text,
-      sorts: List.of(_sorts),
-      rating: _rating,
-      heartLevels: _heartLevels.isEmpty ? null : Set.of(_heartLevels),
+      sorts: preferences.sorts,
+      rating: preferences.ratingFilter,
+      heartLevels:
+          preferences.heartLevels.isEmpty ? null : preferences.heartLevels,
     );
   }
 
@@ -382,7 +386,9 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
       chipSize = box.size;
     }
 
-    final selected = Set<int>.of(_heartLevels);
+    final provider = mediaViewPreferencesProvider(_viewScope);
+    final selected = Set<int>.of(ref.read(provider).heartLevels);
+    final controller = ref.read(provider.notifier);
 
     await showDialog<void>(
       context: context,
@@ -394,17 +400,7 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
               setLocal(() {
                 if (!selected.add(level)) selected.remove(level);
               });
-              setState(() {
-                _heartLevels
-                  ..clear()
-                  ..addAll(selected);
-                if (_heartLevels.isEmpty) {
-                  _rating = RatingFilter.all;
-                } else {
-                  // heartLevels drives the filter; favorites is a non-all sentinel.
-                  _rating = RatingFilter.favorites;
-                }
-              });
+              unawaited(controller.setHeartLevels(Set.unmodifiable(selected)));
             }
 
             final screenW = MediaQuery.sizeOf(ctx).width;
@@ -495,21 +491,27 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
   }
 
   Future<void> _pickSort() async {
+    final provider = mediaViewPreferencesProvider(_viewScope);
+    final preferences = ref.read(provider);
+    final controller = ref.read(provider.notifier);
     await GridAppMenu.showSortPicker(
       context,
-      selected: _sorts,
-      onChanged: (next) {
-        setState(() {
-          _sorts
-            ..clear()
-            ..addAll(next.isEmpty ? [MediaSort.dateAddedDesc] : next);
-        });
+      selected: preferences.sorts,
+      multiSortEnabled: preferences.multiSortEnabled,
+      onChanged: (sorts, multiSortEnabled) {
+        unawaited(
+          controller.setSorting(
+            sorts,
+            multiSortEnabled: multiSortEnabled,
+          ),
+        );
       },
     );
   }
 
   Future<void> _pickStyle() async {
-    final current = ref.read(settingsControllerProvider).gridColumns;
+    final provider = mediaViewPreferencesProvider(_viewScope);
+    final current = ref.read(provider).gridColumns;
     final next = await GridAppMenu.showStylePicker(
       context,
       current: current,
@@ -517,7 +519,7 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
       title: context.l10n.layoutStyle,
     );
     if (next == null || !mounted) return;
-    await ref.read(settingsControllerProvider.notifier).setGridColumns(next);
+    await ref.read(provider.notifier).setGridColumns(next);
   }
 
   void _startSelectFromMenu(List<MediaItem> items) {
@@ -537,6 +539,7 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
   }
 
   Future<void> _showOverflowMenu(List<MediaItem> items) async {
+    final preferences = ref.read(mediaViewPreferencesProvider(_viewScope));
     final choice = await showVaultSheet<String>(
       context,
       showDragHandle: true,
@@ -565,7 +568,7 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
                 ),
                 subtitle: Text(
                   context.l10n.columnsCount(
-                    ref.read(settingsControllerProvider).gridColumns,
+                    preferences.gridColumns,
                   ),
                   style: const TextStyle(color: Colors.white54, fontSize: 12),
                 ),
@@ -589,7 +592,10 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
                   style: const TextStyle(color: Colors.white),
                 ),
                 subtitle: Text(
-                  MediaQueryUtils.sortsSummaryL10n(context.l10n, _sorts),
+                  MediaQueryUtils.sortsSummaryL10n(
+                    context.l10n,
+                    preferences.sorts,
+                  ),
                   style: const TextStyle(color: Colors.white54, fontSize: 12),
                 ),
                 onTap: () => Navigator.pop(ctx, 'sort'),
@@ -618,7 +624,8 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
     final asyncMedia = ref.watch(albumMediaProvider(widget.albumId));
     final selected = ref.watch(selectionControllerProvider);
     final selecting = selected.isNotEmpty;
-    final cols = ref.watch(settingsControllerProvider).gridColumns;
+    final viewPreferences = ref.watch(mediaViewPreferencesProvider(_viewScope));
+    final cols = viewPreferences.gridColumns;
     final kind = ref.watch(mediaKindFilterProvider);
     final bottomPad = GridDefaults.bottomClearance +
         MediaQuery.paddingOf(context).bottom +
@@ -655,7 +662,11 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
             icon: const Icon(Icons.select_all),
             onPressed: () {
               asyncMedia.whenData((raw) {
-                final items = _applyQuery(raw, kind: kind);
+                final items = _applyQuery(
+                  raw,
+                  kind: kind,
+                  preferences: viewPreferences,
+                );
                 sel.selectAll(items.map((e) => e.id));
               });
             },
@@ -668,13 +679,23 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
                 icon: const Icon(Icons.play_arrow),
                 onPressed: items.isEmpty
                     ? null
-                    : () => _playAlbum(_applyQuery(items, kind: kind)),
+                    : () => _playAlbum(
+                          _applyQuery(
+                            items,
+                            kind: kind,
+                            preferences: viewPreferences,
+                          ),
+                        ),
               ),
               orElse: () => const SizedBox.shrink(),
             ),
           asyncMedia.maybeWhen(
             data: (raw) {
-              final items = _applyQuery(raw, kind: kind);
+              final items = _applyQuery(
+                raw,
+                kind: kind,
+                preferences: viewPreferences,
+              );
               return IconButton(
                 key: _overflowKey,
                 tooltip: context.l10n.more,
@@ -696,7 +717,11 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
         error: (e, _) =>
             Center(child: Text(context.l10n.errorWithDetails('\$e'))),
         data: (rawItems) {
-          final items = _applyQuery(rawItems, kind: kind);
+          final items = _applyQuery(
+            rawItems,
+            kind: kind,
+            preferences: viewPreferences,
+          );
           if (rawItems.isEmpty) {
             return EmptyState(
               icon: _isFavorites
@@ -721,19 +746,17 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
           return Column(
             children: [
               if (!_isRecycle && !_isFavorites)
-                _RatingChips(
-                  value: _rating,
-                  heartLevels: _heartLevels,
+                RatingFilterBar(
+                  value: viewPreferences.ratingFilter,
+                  heartLevels: viewPreferences.heartLevels,
                   heartsKey: _heartsChipKey,
-                  onChanged: (v) => setState(() {
-                    _rating = v;
-                    // Non-heart chips clear multi heart selection.
-                    if (v == RatingFilter.all ||
-                        v == RatingFilter.unrated ||
-                        v == RatingFilter.favorites) {
-                      _heartLevels.clear();
-                    }
-                  }),
+                  onChanged: (filter) => unawaited(
+                    ref
+                        .read(
+                          mediaViewPreferencesProvider(_viewScope).notifier,
+                        )
+                        .setRatingFilter(filter),
+                  ),
                   onHeartsPressed: _pickHeartLevels,
                 ),
               Expanded(
@@ -827,94 +850,6 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
             ],
           );
         },
-      ),
-    );
-  }
-}
-
-class _RatingChips extends StatelessWidget {
-  const _RatingChips({
-    required this.value,
-    required this.heartLevels,
-    required this.onChanged,
-    required this.onHeartsPressed,
-    this.heartsKey,
-  });
-
-  final RatingFilter value;
-  final Set<int> heartLevels;
-  final ValueChanged<RatingFilter> onChanged;
-  final VoidCallback onHeartsPressed;
-  final Key? heartsKey;
-
-  @override
-  Widget build(BuildContext context) {
-    final primary = Theme.of(context).colorScheme.primary;
-
-    Widget chip({
-      required String label,
-      required bool selected,
-      required VoidCallback onTap,
-      Key? key,
-      Widget? avatar,
-    }) {
-      return Padding(
-        padding: const EdgeInsets.only(right: 6),
-        child: FilterChip(
-          key: key,
-          avatar: avatar,
-          label: Text(label),
-          selected: selected,
-          onSelected: (_) => onTap(),
-          selectedColor: primary.withValues(alpha: 0.35),
-          checkmarkColor: Colors.white,
-          labelStyle: TextStyle(
-            color: selected ? Colors.white : Colors.white70,
-            fontSize: 12,
-          ),
-          visualDensity: VisualDensity.compact,
-          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        ),
-      );
-    }
-
-    final heartsSelected = heartLevels.isNotEmpty;
-    final heartsLabel = heartsSelected
-        ? '♥ ${([1, 2, 3].where(heartLevels.contains).join(','))}'
-        : 'Hearts';
-
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.fromLTRB(12, 4, 12, 6),
-      child: Row(
-        children: [
-          chip(
-            label: context.l10n.all,
-            selected: value == RatingFilter.all && !heartsSelected,
-            onTap: () => onChanged(RatingFilter.all),
-          ),
-          chip(
-            key: heartsKey,
-            label: heartsLabel,
-            selected: heartsSelected,
-            avatar: Icon(
-              Icons.favorite,
-              size: 16,
-              color: heartsSelected ? primary : Colors.white54,
-            ),
-            onTap: onHeartsPressed,
-          ),
-          chip(
-            label: context.l10n.favorites,
-            selected: value == RatingFilter.favorites && !heartsSelected,
-            onTap: () => onChanged(RatingFilter.favorites),
-          ),
-          chip(
-            label: context.l10n.unrated,
-            selected: value == RatingFilter.unrated && !heartsSelected,
-            onTap: () => onChanged(RatingFilter.unrated),
-          ),
-        ],
       ),
     );
   }

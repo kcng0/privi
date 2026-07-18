@@ -175,13 +175,34 @@ abstract final class MediaQueryUtils {
         MediaSort.ratingDesc || MediaSort.ratingAsc => 2,
       };
 
-  static void toggleSort(List<MediaSort> selected, MediaSort s) {
-    if (selected.contains(s)) {
-      if (selected.length > 1) selected.remove(s);
-      return;
+  /// Applies one sort-picker selection without mutating [current].
+  ///
+  /// In single-sort mode the selected criterion replaces the current one. In
+  /// multi-sort mode the order the user selects is the priority order (first
+  /// criterion is primary); switching direction within a family keeps its
+  /// existing priority slot.
+  static List<MediaSort> updateSortSelection({
+    required List<MediaSort> current,
+    required MediaSort selected,
+    required bool multiSortEnabled,
+  }) {
+    if (!multiSortEnabled) return [selected];
+
+    final next = List<MediaSort>.of(current);
+    final selectedIndex = next.indexOf(selected);
+    if (selectedIndex >= 0) {
+      if (next.length > 1) next.removeAt(selectedIndex);
+      return next.isEmpty ? [MediaSort.dateAddedDesc] : next;
     }
-    selected.removeWhere((x) => sortFamilyRank(x) == sortFamilyRank(s));
-    selected.add(s);
-    selected.sort((a, b) => sortFamilyRank(a).compareTo(sortFamilyRank(b)));
+
+    final familyIndex = next.indexWhere(
+      (sort) => sortFamilyRank(sort) == sortFamilyRank(selected),
+    );
+    if (familyIndex >= 0) {
+      next[familyIndex] = selected;
+    } else {
+      next.add(selected);
+    }
+    return next;
   }
 }

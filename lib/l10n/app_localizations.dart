@@ -232,6 +232,12 @@ abstract class AppLocalizations {
   /// **'Sort'**
   String get sort;
 
+  /// No description provided for @multiSort.
+  ///
+  /// In en, this message translates to:
+  /// **'Multi-sort'**
+  String get multiSort;
+
   /// No description provided for @style.
   ///
   /// In en, this message translates to:
@@ -1105,7 +1111,7 @@ abstract class AppLocalizations {
   /// No description provided for @mediaGridColumns.
   ///
   /// In en, this message translates to:
-  /// **'Media grid columns'**
+  /// **'Default grid columns'**
   String get mediaGridColumns;
 
   /// No description provided for @albumColumns.
