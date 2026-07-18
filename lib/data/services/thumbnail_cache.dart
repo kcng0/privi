@@ -173,8 +173,8 @@ class ThumbnailCache {
   }
 
   void _trim() {
-    while (_mem.isNotEmpty &&
-        (_mem.length > maxEntries || _memBytes > maxBytes)) {
+    while (
+        _mem.isNotEmpty && (_mem.length > maxEntries || _memBytes > maxBytes)) {
       final oldest = _mem.keys.first;
       final bytes = _mem.remove(oldest);
       if (bytes != null) _memBytes -= bytes.length;
