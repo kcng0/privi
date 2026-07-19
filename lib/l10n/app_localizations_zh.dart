@@ -489,6 +489,26 @@ class AppLocalizationsZh extends AppLocalizations {
   String get newGroup => '新建合集';
 
   @override
+  String get manageGroup => '管理合集';
+
+  @override
+  String get addAlbums => '添加相册';
+
+  @override
+  String get noAlbumsToAdd => '没有可添加的相册';
+
+  @override
+  String addedAlbums(int count) {
+    return '已添加 $count 个相册';
+  }
+
+  @override
+  String get removedFromGroup => '已移出合集';
+
+  @override
+  String get newGroupCreated => '合集已创建';
+
+  @override
   String get groupNameHint => '合集名称';
 
   @override
@@ -1467,6 +1487,26 @@ class AppLocalizationsZhCn extends AppLocalizationsZh {
   String get newGroup => '新建合集';
 
   @override
+  String get manageGroup => '管理合集';
+
+  @override
+  String get addAlbums => '添加相册';
+
+  @override
+  String get noAlbumsToAdd => '没有可添加的相册';
+
+  @override
+  String addedAlbums(int count) {
+    return '已添加 $count 个相册';
+  }
+
+  @override
+  String get removedFromGroup => '已移出合集';
+
+  @override
+  String get newGroupCreated => '合集已创建';
+
+  @override
   String get groupNameHint => '合集名称';
 
   @override
@@ -2443,6 +2483,26 @@ class AppLocalizationsZhHk extends AppLocalizationsZh {
 
   @override
   String get newGroup => '新增合集';
+
+  @override
+  String get manageGroup => '管理合集';
+
+  @override
+  String get addAlbums => '加入相簿';
+
+  @override
+  String get noAlbumsToAdd => '沒有可加入的相簿';
+
+  @override
+  String addedAlbums(int count) {
+    return '已加入 $count 個相簿';
+  }
+
+  @override
+  String get removedFromGroup => '已移出合集';
+
+  @override
+  String get newGroupCreated => '合集已建立';
 
   @override
   String get groupNameHint => '合集名稱';

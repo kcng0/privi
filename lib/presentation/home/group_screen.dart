@@ -1,10 +1,13 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/gallery/gallery_controller.dart';
 import '../../application/import/import_controller.dart';
+import '../../application/media/collection_view_preferences.dart';
 import '../../application/providers.dart';
 import '../../core/l10n.dart';
 import '../../core/theme/vault_colors.dart';
@@ -31,14 +34,30 @@ class GroupScreen extends ConsumerWidget {
     final shelf = ref.watch(albumShelfProvider);
     GroupView? group;
     shelf.whenData((value) {
-      for (final entry in value.entries) {
-        if (entry is GroupEntry && entry.view.group.id == groupId) {
-          group = entry.view;
+      for (final view in value.groups) {
+        if (view.group.id == groupId) {
+          group = view;
           break;
+        }
+      }
+      // Keeps provider overrides and older in-memory fixtures compatible.
+      if (group == null) {
+        for (final entry in value.entries) {
+          if (entry is GroupEntry && entry.view.group.id == groupId) {
+            group = entry.view;
+            break;
+          }
         }
       }
     });
     if (group == null) {
+      if (shelf.hasValue) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (context.mounted && Navigator.of(context).canPop()) {
+            Navigator.of(context).pop();
+          }
+        });
+      }
       return Scaffold(
         appBar: AppBar(title: Text(context.l10n.emptyGroup)),
         body: Center(child: Text(context.l10n.emptyGroup)),
@@ -61,14 +80,9 @@ class _GroupContent extends ConsumerWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: const Icon(Icons.shuffle),
-              title: Text(context.l10n.shuffle),
-              onTap: () => Navigator.pop(ctx, 'shuffle'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.unarchive_outlined),
-              title: Text(context.l10n.restore),
-              onTap: () => Navigator.pop(ctx, 'restore'),
+              leading: const Icon(Icons.add_photo_alternate_outlined),
+              title: Text(context.l10n.addAlbums),
+              onTap: () => Navigator.pop(ctx, 'add'),
             ),
             ListTile(
               leading: const Icon(Icons.drive_file_rename_outline),
@@ -91,6 +105,8 @@ class _GroupContent extends ConsumerWidget {
     );
     if (action == null || !context.mounted) return;
     switch (action) {
+      case 'add':
+        await _addAlbums(context, ref);
       case 'rename':
         final controller = TextEditingController(text: group.group.name);
         final name = await showDialog<String>(
@@ -149,6 +165,104 @@ class _GroupContent extends ConsumerWidget {
     }
   }
 
+  Future<void> _addAlbums(BuildContext context, WidgetRef ref) async {
+    final candidates = <AlbumView>[];
+    ref.read(albumShelfProvider).whenData((shelf) {
+      for (final entry in shelf.entries) {
+        if (entry is AlbumEntry) candidates.add(entry.view);
+      }
+    });
+    if (candidates.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(context.l10n.noAlbumsToAdd)),
+      );
+      return;
+    }
+
+    final selected = await showVaultSheet<List<String>>(
+      context,
+      isScrollControlled: true,
+      builder: (ctx) {
+        final selectedIds = <String>{};
+        return StatefulBuilder(
+          builder: (ctx, setState) => SafeArea(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.sizeOf(ctx).height * 0.78,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ListTile(
+                    leading: const Icon(Icons.add_photo_alternate_outlined),
+                    title: Text(context.l10n.addAlbums),
+                    subtitle: Text(
+                      context.l10n.selectedCount(selectedIds.length),
+                    ),
+                  ),
+                  Expanded(
+                    child: ListView.builder(
+                      itemCount: candidates.length,
+                      itemBuilder: (ctx, index) {
+                        final view = candidates[index];
+                        final id = view.album.id;
+                        return CheckboxListTile(
+                          value: selectedIds.contains(id),
+                          title: Text(view.album.name),
+                          subtitle: Text(context.l10n.itemsCount(view.count)),
+                          onChanged: (checked) {
+                            setState(() {
+                              if (checked == true) {
+                                selectedIds.add(id);
+                              } else {
+                                selectedIds.remove(id);
+                              }
+                            });
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        onPressed: selectedIds.isEmpty
+                            ? null
+                            : () => Navigator.pop(
+                                  ctx,
+                                  List<String>.of(selectedIds),
+                                ),
+                        icon: const Icon(Icons.add),
+                        label: Text(context.l10n.addAlbums),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+    if (selected == null || selected.isEmpty || !context.mounted) return;
+    try {
+      await ref
+          .read(albumRepositoryProvider)
+          .addAlbumsToGroup(selected, group.group.id);
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(context.l10n.addedAlbums(selected.length))),
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(context.l10n.errorWithDetails('$error'))),
+      );
+    }
+  }
+
   Future<void> _memberMenu(
     BuildContext context,
     WidgetRef ref,
@@ -161,6 +275,16 @@ class _GroupContent extends ConsumerWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            ListTile(
+              leading: const Icon(Icons.shuffle),
+              title: Text(context.l10n.shuffle),
+              onTap: () => Navigator.pop(ctx, 'shuffle'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.unarchive_outlined),
+              title: Text(context.l10n.restore),
+              onTap: () => Navigator.pop(ctx, 'restore'),
+            ),
             ListTile(
               leading: const Icon(Icons.favorite_border),
               title: Text(context.l10n.rate),
@@ -241,6 +365,11 @@ class _GroupContent extends ConsumerWidget {
           );
     } else if (action == 'remove') {
       await ref.read(albumRepositoryProvider).removeFromGroup(view.album.id);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(context.l10n.removedFromGroup)),
+        );
+      }
     } else if (action == 'delete') {
       await ref.read(albumRepositoryProvider).deleteUserAlbum(view.album.id);
     }
@@ -341,12 +470,210 @@ class _GroupContent extends ConsumerWidget {
     }
   }
 
+  Future<void> _setViewMode(
+    WidgetRef ref,
+    AlbumViewMode mode,
+  ) async {
+    await ref
+        .read(collectionViewPreferencesProvider(group.group.id).notifier)
+        .setViewMode(mode);
+    await HapticFeedback.selectionClick();
+  }
+
+  void _openMember(BuildContext context, AlbumView view) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => MediaGridScreen(
+          albumId: view.album.id,
+          title: view.album.name,
+        ),
+      ),
+    );
+  }
+
+  Widget _grid(BuildContext context, WidgetRef ref) {
+    return GridView.builder(
+      key: const ValueKey('collection-member-grid'),
+      padding: const EdgeInsets.all(8),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        crossAxisSpacing: 8,
+        mainAxisSpacing: 8,
+      ),
+      itemCount: group.members.length,
+      itemBuilder: (context, index) {
+        final view = group.members[index];
+        final path = view.cover?.displayPath;
+        return Material(
+          color: context.vaultColors.chrome,
+          child: InkWell(
+            onTap: () => _openMember(context, view),
+            onLongPress: () => _memberMenu(context, ref, index),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                if (path != null && path.isNotEmpty)
+                  Image.file(
+                    File(path),
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) =>
+                        const Icon(Icons.photo_album_outlined),
+                  )
+                else
+                  const Icon(Icons.photo_album_outlined),
+                const Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  height: 46,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [Colors.transparent, Colors.black87],
+                      ),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  left: 6,
+                  right: 6,
+                  bottom: 6,
+                  child: Text(
+                    view.album.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      shadows: [Shadow(blurRadius: 5)],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _list(BuildContext context, WidgetRef ref) {
+    return ListView.builder(
+      key: const ValueKey('collection-member-list'),
+      padding: EdgeInsets.only(bottom: MediaQuery.paddingOf(context).bottom),
+      itemCount: group.members.length,
+      itemBuilder: (context, index) {
+        final view = group.members[index];
+        final path = view.cover?.displayPath;
+        final hearts = view.album.rating == 0
+            ? ''
+            : List.filled(view.album.rating, '♥').join();
+        final tile = Material(
+          color: Colors.transparent,
+          child: ListTile(
+            contentPadding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
+            leading: SizedBox.square(
+              dimension: 52,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: path != null && path.isNotEmpty
+                    ? Image.file(
+                        File(path),
+                        fit: BoxFit.cover,
+                        cacheWidth: 192,
+                        errorBuilder: (_, __, ___) => const ColoredBox(
+                          color: Colors.black26,
+                          child: Icon(Icons.photo_album_outlined),
+                        ),
+                      )
+                    : const ColoredBox(
+                        color: Colors.black26,
+                        child: Icon(Icons.photo_album_outlined),
+                      ),
+              ),
+            ),
+            title: Text(
+              view.album.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            subtitle: Text(
+              hearts.isEmpty
+                  ? context.l10n.itemsCount(view.count)
+                  : '$hearts  ${context.l10n.itemsCount(view.count)}',
+              style: TextStyle(color: context.vaultColors.heart),
+            ),
+            trailing: IconButton(
+              tooltip: context.l10n.more,
+              onPressed: () => _memberMenu(context, ref, index),
+              icon: const Icon(Icons.more_vert),
+            ),
+            onTap: () => _openMember(context, view),
+            onLongPress: () => _memberMenu(context, ref, index),
+          ),
+        );
+        return Dismissible(
+          key: ValueKey('collection-member-${view.album.id}'),
+          direction: DismissDirection.endToStart,
+          background: const SizedBox.shrink(),
+          secondaryBackground: ColoredBox(
+            color: Theme.of(context).colorScheme.primaryContainer,
+            child: const Align(
+              alignment: Alignment.centerRight,
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 24),
+                child: Icon(Icons.tune),
+              ),
+            ),
+          ),
+          confirmDismiss: (_) async {
+            await _memberMenu(context, ref, index);
+            return false;
+          },
+          child: tile,
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final viewMode = ref.watch(
+      collectionViewPreferencesProvider(group.group.id),
+    );
+    final body = group.members.isEmpty
+        ? Center(child: Text(context.l10n.emptyGroup))
+        : viewMode == AlbumViewMode.list
+            ? _list(context, ref)
+            : _grid(context, ref);
     return Scaffold(
       appBar: AppBar(
         title: Text(group.group.name),
         actions: [
+          IconButton(
+            tooltip: viewMode == AlbumViewMode.list
+                ? context.l10n.mosaicView
+                : context.l10n.listView,
+            onPressed: () => unawaited(
+              _setViewMode(
+                ref,
+                viewMode == AlbumViewMode.list
+                    ? AlbumViewMode.mosaic
+                    : AlbumViewMode.list,
+              ),
+            ),
+            icon: Icon(
+              viewMode == AlbumViewMode.list
+                  ? Icons.grid_view
+                  : Icons.view_list,
+            ),
+          ),
+          IconButton(
+            tooltip: context.l10n.addAlbums,
+            onPressed: () => _addAlbums(context, ref),
+            icon: const Icon(Icons.add),
+          ),
           IconButton(
             tooltip: context.l10n.more,
             onPressed: () => _menu(context, ref),
@@ -354,58 +681,79 @@ class _GroupContent extends ConsumerWidget {
           ),
         ],
       ),
-      body: group.members.isEmpty
-          ? Center(child: Text(context.l10n.emptyGroup))
-          : GridView.builder(
-              padding: const EdgeInsets.all(8),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 3,
-                crossAxisSpacing: 8,
-                mainAxisSpacing: 8,
-              ),
-              itemCount: group.members.length,
-              itemBuilder: (context, index) {
-                final view = group.members[index];
-                final path = view.cover?.displayPath;
-                return Material(
-                  color: context.vaultColors.chrome,
-                  child: InkWell(
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => MediaGridScreen(
-                          albumId: view.album.id,
-                          title: view.album.name,
-                        ),
-                      ),
-                    ),
-                    onLongPress: () => _memberMenu(context, ref, index),
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        if (path != null && path.isNotEmpty)
-                          Image.file(File(path), fit: BoxFit.cover)
-                        else
-                          const Icon(Icons.photo_album_outlined),
-                        Positioned(
-                          left: 6,
-                          right: 6,
-                          bottom: 6,
-                          child: Text(
-                            view.album.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              shadows: [Shadow(blurRadius: 5)],
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            ),
+      body: _CollectionEdgeSwipe(
+        onRightToLeft: viewMode == AlbumViewMode.list
+            ? null
+            : () => unawaited(_setViewMode(ref, AlbumViewMode.list)),
+        onLeftToRight: viewMode == AlbumViewMode.mosaic
+            ? null
+            : () => unawaited(_setViewMode(ref, AlbumViewMode.mosaic)),
+        child: body,
+      ),
+    );
+  }
+}
+
+class _CollectionEdgeSwipe extends StatefulWidget {
+  const _CollectionEdgeSwipe({
+    required this.child,
+    this.onRightToLeft,
+    this.onLeftToRight,
+  });
+
+  final Widget child;
+  final VoidCallback? onRightToLeft;
+  final VoidCallback? onLeftToRight;
+
+  @override
+  State<_CollectionEdgeSwipe> createState() => _CollectionEdgeSwipeState();
+}
+
+class _CollectionEdgeSwipeState extends State<_CollectionEdgeSwipe> {
+  static const _edgeWidth = 48.0;
+  static const _minimumDistance = 72.0;
+
+  double? _startX;
+  double _deltaX = 0;
+  bool _triggered = false;
+
+  void _onDown(PointerDownEvent event, double width) {
+    final x = event.localPosition.dx;
+    _startX = x >= width - _edgeWidth || x <= _edgeWidth ? x : null;
+    _deltaX = 0;
+    _triggered = false;
+  }
+
+  void _onMove(PointerMoveEvent event) {
+    final startX = _startX;
+    if (startX == null || _triggered) return;
+    _deltaX = event.localPosition.dx - startX;
+    if (_deltaX <= -_minimumDistance && startX > _edgeWidth) {
+      _triggered = true;
+      widget.onRightToLeft?.call();
+    } else if (_deltaX >= _minimumDistance && startX <= _edgeWidth) {
+      _triggered = true;
+      widget.onLeftToRight?.call();
+    }
+  }
+
+  void _reset() {
+    _startX = null;
+    _deltaX = 0;
+    _triggered = false;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) => Listener(
+        behavior: HitTestBehavior.translucent,
+        onPointerDown: (event) => _onDown(event, constraints.maxWidth),
+        onPointerMove: _onMove,
+        onPointerUp: (_) => _reset(),
+        onPointerCancel: (_) => _reset(),
+        child: widget.child,
+      ),
     );
   }
 }

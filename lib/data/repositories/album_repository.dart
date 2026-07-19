@@ -234,6 +234,9 @@ class AlbumRepository {
   Future<void> addToGroup(String albumId, String groupId) =>
       _db.addAlbumToGroup(albumId, groupId);
 
+  Future<void> addAlbumsToGroup(List<String> albumIds, String groupId) =>
+      _db.addAlbumsToGroup(List.unmodifiable(albumIds), groupId);
+
   Future<void> removeFromGroup(String albumId) =>
       _db.setAlbumsGroup([albumId], null);
 

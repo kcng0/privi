@@ -193,6 +193,7 @@ final albumShelfProvider = Provider<AsyncValue<AlbumShelf>>((ref) {
       if (groupId != null) (byGroup[groupId] ??= []).add(view);
     }
     final groupViews = <GroupView>[];
+    final visibleGroupViews = <GroupView>[];
     for (final group in groups) {
       final members = List<AlbumView>.of(byGroup[group.id] ?? const [])
         ..sort(
@@ -204,24 +205,23 @@ final albumShelfProvider = Provider<AsyncValue<AlbumShelf>>((ref) {
         );
       final totalCount =
           members.fold<int>(0, (sum, member) => sum + member.count);
-      if (members.isNotEmpty && totalCount == 0) continue;
       final cover = members.cast<AlbumView?>().firstWhere(
             (member) => member?.cover != null,
             orElse: () => null,
           );
-      groupViews.add(
-        GroupView(
-          group: group,
-          members: List.unmodifiable(members),
-          totalCount: totalCount,
-          maxRating: members.fold<int>(
-            0,
-            (max, member) =>
-                member.album.rating > max ? member.album.rating : max,
-          ),
-          cover: cover,
+      final groupView = GroupView(
+        group: group,
+        members: List.unmodifiable(members),
+        totalCount: totalCount,
+        maxRating: members.fold<int>(
+          0,
+          (max, member) =>
+              member.album.rating > max ? member.album.rating : max,
         ),
+        cover: cover,
       );
+      groupViews.add(groupView);
+      if (members.isEmpty || totalCount > 0) visibleGroupViews.add(groupView);
     }
     final entries = <ShelfEntry>[];
     for (final view in views) {
@@ -231,7 +231,7 @@ final albumShelfProvider = Provider<AsyncValue<AlbumShelf>>((ref) {
         entries.add(AlbumEntry(view));
       }
     }
-    entries.addAll(groupViews.map(GroupEntry.new));
+    entries.addAll(visibleGroupViews.map(GroupEntry.new));
     entries.sort(
       (left, right) => AlbumQueryUtils.compareEntries(
         left,
@@ -243,6 +243,7 @@ final albumShelfProvider = Provider<AsyncValue<AlbumShelf>>((ref) {
     return AlbumShelf(
       systemViews: List.unmodifiable(systemViews),
       entries: List.unmodifiable(entries),
+      groups: List.unmodifiable(groupViews),
     );
   });
 });

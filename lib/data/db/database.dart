@@ -685,7 +685,11 @@ class AppDatabase extends _$AppDatabase {
     });
   }
 
-  Future<void> addAlbumToGroup(String albumId, String groupId) async {
+  Future<void> addAlbumToGroup(String albumId, String groupId) =>
+      addAlbumsToGroup([albumId], groupId);
+
+  Future<void> addAlbumsToGroup(List<String> albumIds, String groupId) async {
+    if (albumIds.isEmpty) return;
     await transaction(() async {
       final group = await (select(albumGroups)
             ..where((table) => table.id.equals(groupId)))
@@ -699,19 +703,24 @@ class AppDatabase extends _$AppDatabase {
         ..addColumns([maxIndex])
         ..where(albums.groupId.equals(groupId));
       final row = await query.getSingle();
-      final nextIndex = (row.read(maxIndex) ?? -1) + 1;
-      final updated = await (update(albums)
-            ..where(
-              (table) =>
-                  table.id.equals(albumId) & table.isSystem.equals(false),
-            ))
-          .write(
-        AlbumsCompanion(
-          groupId: Value(groupId),
-          sortIndex: Value(nextIndex),
-        ),
-      );
-      if (updated != 1) throw StateError('User album does not exist: $albumId');
+      final startIndex = (row.read(maxIndex) ?? -1) + 1;
+      for (var index = 0; index < albumIds.length; index++) {
+        final albumId = albumIds[index];
+        final updated = await (update(albums)
+              ..where(
+                (table) =>
+                    table.id.equals(albumId) & table.isSystem.equals(false),
+              ))
+            .write(
+          AlbumsCompanion(
+            groupId: Value(groupId),
+            sortIndex: Value(startIndex + index),
+          ),
+        );
+        if (updated != 1) {
+          throw StateError('User album does not exist: $albumId');
+        }
+      }
     });
   }
 

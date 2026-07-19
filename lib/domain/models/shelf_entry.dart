@@ -23,8 +23,15 @@ class GroupEntry extends ShelfEntry {
 }
 
 class AlbumShelf {
-  const AlbumShelf({required this.systemViews, required this.entries});
+  const AlbumShelf({
+    required this.systemViews,
+    required this.entries,
+    this.groups = const [],
+  });
 
   final List<AlbumView> systemViews;
   final List<ShelfEntry> entries;
+
+  /// All persisted groups, including groups hidden by the active media filter.
+  final List<GroupView> groups;
 }
