@@ -62,10 +62,12 @@ media stays on-device.
 ## Features
 
 - **Visible | Invisible** home — browse system gallery albums or the private vault
+- **Independent mosaic/list views** — each home tab remembers its own layout
 - **Directory hide** — media removed from the system gallery while kept on disk
 - **Consistent HD posters** — the same 768 px video frame before and after Hide
 - **Stable date order** — folders keep original capture chronology after Hide
-- **Hearts (0–3)** + favorites, albums, and playlists
+- **Hearts (0–3)** + favorites, album sorting, and manual drag-to-arrange
+- **Collections** — create, rename, organize members, and dissolve without deleting media
 - **Built-in viewer/player** + result-tracked external media apps
 - **Pattern / PIN + biometric** lock, optional `FLAG_SECURE` (block screenshots)
 - **Root resume lock** — covers every tab/route; only tracked media-app Back bypasses it
@@ -86,21 +88,30 @@ GitHub topics: `flutter` `android` `photo-vault` `video-vault` `private-gallery`
 
 ## Screenshots
 
-Captured on device with **Privi v0.1.0**. Dark UI only — vault media stays local.
+Captured from the current **Privi v1.0.14** Flutter UI using synthetic folders,
+albums, collections, and the bundled app icon. No personal media or connected
+device is used; the dark theme and latest Visible/Invisible/collection flows are
+shown as they ship.
 
-| Invisible vault | Lock | Playlist |
-|:---------------:|:----:|:--------:|
-| <img src="assets/screenshots/01_invisible.png" width="200" alt="Invisible vault home with album mosaic"> | <img src="assets/screenshots/02_lock.png" width="200" alt="Pattern lock and biometric unlock"> | <img src="assets/screenshots/03_playlist.png" width="200" alt="Media grid and playlist playback"> |
+Maintainers can regenerate them without an Android device:
+`flutter test tool/readme_screenshots_test.dart --update-goldens`.
 
-| Options menu | Settings |
-|:------------:|:--------:|
-| <img src="assets/screenshots/04_option_menu.png" width="200" alt="Overflow menu with Select, Style, Search, and Sort"> | <img src="assets/screenshots/05_settings.png" width="200" alt="Settings for lock, auto-lock, and player"> |
+| Visible mosaic | Visible list | Invisible mosaic |
+|:--------------:|:------------:|:----------------:|
+| <img src="assets/screenshots/01_visible_mosaic.png" width="200" alt="Visible system folders in mosaic view"> | <img src="assets/screenshots/02_visible_list.png" width="200" alt="Visible system folders in list view"> | <img src="assets/screenshots/03_invisible_mosaic.png" width="200" alt="Invisible albums and collection in mosaic view"> |
 
-1. **Invisible vault** — private albums after hide; photo/video mode and Style columns  
-2. **Lock** — pattern / PIN + optional biometric before the vault opens  
-3. **Playlist** — hearts, multi-select, and play (built-in or open in VLC)  
-4. **Options menu** — Select, Style, Search, and Sort in one ⋮ sheet  
-5. **Settings** — auto-lock, `FLAG_SECURE`, player preference, About  
+| Invisible list | Collection mosaic | Collection list |
+|:--------------:|:-----------------:|:---------------:|
+| <img src="assets/screenshots/04_invisible_list.png" width="200" alt="Invisible albums and collection in list view"> | <img src="assets/screenshots/05_collection_mosaic.png" width="200" alt="Collection members in mosaic view"> | <img src="assets/screenshots/06_collection_list.png" width="200" alt="Collection members in list view"> |
+
+| Collection management | Settings | Lock setup |
+|:--------------------:|:--------:|:----------:|
+| <img src="assets/screenshots/07_collection_management.png" width="200" alt="Collection member management menu"> | <img src="assets/screenshots/08_settings.png" width="200" alt="Security, display, and playback settings"> | <img src="assets/screenshots/09_lock_setup.png" width="200" alt="Pattern lock setup screen"> |
+
+- **Visible mosaic/list** — the new tab-isolated home presentation toggle.
+- **Invisible mosaic/list** — vault albums, ratings, counts, and collections.
+- **Collection screens** — member mosaic/list views and CRUD management actions.
+- **Settings / lock** — security, display, playback, and first-run pattern setup.
 
 ---
 
