@@ -6,58 +6,60 @@ privi 是一个纯本地的 Android 私密媒体保险库（Flutter 个人应用
 
 ## 当前状态与重点
 
-- 版本 1.0.11+16；通过 Shorebird 做补丁发布。
+- 版本 1.0.14+19；通过 GitHub Releases 提供 Android APK。
 - 首页两个页签：**Visible**（系统相册文件夹，经 photo_manager 读 MediaStore）与 **Invisible**（保险库相册，Drift 数据库）。隐藏 = 拷入 vault + 尽力删除原件；取消隐藏反向恢复。
-- 元数据在 Drift(SQLite) **schema v5**；媒体字节在磁盘 vault 目录；备份为"媒体文件 + JSON manifest(version 2)"的**逐字段手工序列化**导出。
+- 元数据在 Drift(SQLite) **schema v6**；媒体字节在磁盘 vault 目录；备份为"媒体文件 + JSON manifest(version 3)"的**逐字段手工序列化**导出。
 - 锁以覆盖层渲染在应用 Navigator 之上（不可破坏不变量，见 AGENTS.md）；push 到应用 Navigator 的路由自动被锁覆盖。
 
 ## 能力地图
 
 - **隐藏/取消隐藏**：Visible 页签多选 → 导入管线（vault 拷贝、元数据、缩略图、DB 行）→ 系统相册删除。深入：`docs/02-design/screens/06-import.md`、`lib/data/services/import/`。
-- **保险库浏览**：Invisible 相册马赛克（系统卡片 All/Fav/回收站 + 用户相册）→ 媒体网格 → 查看器/播放器。深入：`docs/02-design/screens/02-home-albums.md`、`03-media-grid.md`。
-- **评分与筛选**：媒体 0–3 红心；Favorites 是计算相册（rating>=1）；网格内红心筛选。
+- **首页浏览**：Visible 文件夹与 Invisible 相册均支持马赛克/列表切换且分别持久化；Invisible 包含系统卡片 All/Fav/回收站、用户相册与合集。深入：`docs/02-design/screens/02-home-albums.md`、`03-media-grid.md`。
+- **评分与筛选**：媒体和保险库相册支持 0–3 红心；Favorites 是计算相册（rating>=1）；媒体网格支持红心筛选。
 - **媒体排序**：多级排序（日期/名称/评分三族 × 升降序；族内唯一；选择顺序=优先级），客户端比较器实现。
+- **相册组织**：Invisible 支持相册多级排序、排他的 custom 手动顺序、置顶、评分，以及合集创建/改名/添加成员/移出/整理/无损解散。
 - **每文件夹视图偏好**：排序/筛选/列数按 `MediaViewScope`（`visibleFolder:` / `vaultAlbum:`）持久化，互相隔离。
 - **回收站**：软删除 + 保留期清理。
-- **备份/恢复**：导出到目录（媒体 + manifest v2）；导入向后兼容 v1。
+- **备份/恢复**：导出到目录（媒体 + manifest v3）；导入向后兼容 v1/v2。
 - **安全**：图案/PIN + 生物识别、FLAG_SECURE、自动锁。深入：`docs/03-architecture/security.md`。
 
 ## 使用路径
 
 - 想隐藏媒体：Visible 页签 → 进文件夹 → 多选 → Hide。
-- 想整理保险库：Invisible → 相册卡片长按（随机播放/取消隐藏/重命名/置顶/删除）；⋮ 菜单（样式列数/新建相册/设置）。
+- 想切换首页形态：Visible 或 Invisible → 顶部列表/马赛克按钮；两个页签分别记忆选择。
+- 想整理保险库：Invisible → 相册或合集长按；⋮ 菜单可排序、整理顺序、新建相册/合集和调整样式。
 - 想找回媒体：相册菜单"取消隐藏"，或回收站恢复。
 
 ## 界面与交互
 
-### 首页 Invisible 马赛克
+### 首页 Visible / Invisible
 
 - 角色与入口：解锁后的默认页签。
 - 图示状态：当前
 
 ```text
-┌ [📷 Visible][🔒 Invisible]  🖼|▶ ⋮ ┐
+┌ [📷 Visible][🔒 Invisible]  ▦/≣ 🖼|▶ ⋮ ┐
 │ ┌─────┐ ┌─────┐                    │
 │ │ All │ │ Fav♡│   系统卡片          │
 │ └─────┘ └─────┘                    │
-│ ┌─────┐ ┌─────┐   用户相册         │
-│ │📌 A │ │  B  │   (名称 A–Z，      │
-│ └─────┘ └─────┘    置顶浮顶)        │
+│ ┌─────┐ ┌─────┐   相册/合集         │
+│ │📌 A │ │合集 B│   (可排序/评分/     │
+│ └─────┘ └─────┘    手动整理)         │
 │ ┌─────┐ ┌─────┐                    │
 │ │＋新建│ │回收站│                   │
 └────────────────────────────────────┘
 ```
 
-- 交互与状态：3↔4 列全局设置；count==0 的用户相册自动隐藏；卡片=封面+名称+数量角标；长按出菜单。
+- 交互与状态：两个页签的马赛克/列表偏好独立持久化；马赛克列数沿用全局设置；Visible 列表行支持点按进入与长按隐藏；Invisible 两种形态共享同一份 Shelf 数据与操作。
 - 稳定约束：固定顺序 All → Fav → [用户区] → ＋新建 → 回收站；"照片 XOR 视频"全局过滤同时作用于两个页签的计数与封面。
 
 ## 架构落点
 
 - `lib/domain/`：模型与枚举（MediaItem、Album、MediaSort…）。
-- `lib/data/db/`：Drift 表/查询/迁移（database.dart，v5；手写 ALTER + beforeOpen 幂等安全网）。
+- `lib/data/db/`：Drift 表/查询/迁移（database.dart，v6；手写 ALTER + beforeOpen 幂等安全网）。
 - `lib/data/repositories/`：AlbumRepository（首页流 `watchAlbumViewsReactive`，表更新 + 75ms 防抖全量重建）、MediaRepository。
 - `lib/data/services/`：导入/隐藏命名/缩略图/备份（vault_backup_service.dart）/图库封装。
-- `lib/application/`：Riverpod 3 手写 providers（providers.dart 汇总）、设置（AppSettings/SharedPreferences）、视图偏好（media/media_view_preferences.dart）。
+- `lib/application/`：Riverpod 3 手写 providers、设置（AppSettings/SharedPreferences）、按 scope 的媒体视图偏好，以及互相隔离的 Visible/Invisible 首页形态偏好。
 - `lib/presentation/`：home / grid / viewer / player / lock / settings / visible。
 - 测试：`test/`（host 端 Drift 走 sqlite3 override）；迁移测试配套 `drift_schemas/*.json` + `test/generated_migrations/`。
 
@@ -88,19 +90,21 @@ privi 是一个纯本地的 Android 私密媒体保险库（Flutter 个人应用
 - 系统相册用查询计算而非 membership，避免评分与收藏关系漂移（决策 A6）。
 - 媒体时序统一用 `COALESCE(dateTaken, dateAdded)` + 原文件名平局，保证隐藏/取消隐藏不重排。
 - 视图偏好按 scope 隔离而非全局，防止跨文件夹串扰（AGENTS.md 不变量）。
+- 首页形态偏好按页签隔离：Visible 文件夹列表与 Invisible Shelf 列表不得互相切换。
 - 迁移采取"显式 onUpgrade + beforeOpen 幂等安全网"双保险，容忍旧构建跳版本升级。
 
 ## 质量约束与取舍
 
 - **可靠性/可恢复性**：认证覆盖层必须位于应用 Navigator 之上；锁定期间保持 Navigator 挂载并禁用指针/焦点/语义；所有私有路由被覆盖（AGENTS.md；有回归测试）。
-- **数据完整性**：rating 不变量 0–3 在仓库边界 clamp；删除相册不删媒体；purge 同时清文件+缩略图+行+membership+封面引用。
+- **数据完整性**：rating 不变量 0–3 在仓库边界 clamp；删除相册不删媒体；解散合集不删相册或媒体；purge 同时清文件+缩略图+行+membership+封面引用。
 - **兼容性**：备份导入向后兼容旧 manifest 版本；对未知的更高版本硬校验拒绝。
 
 ## 证据索引
 
-- `lib/data/db/tables.dart`、`lib/data/db/database.dart`（schemaVersion=5、迁移链与索引）。
-- `lib/data/repositories/album_repository.dart:84-105`（首页当前排序规则：rank 分区 + pinnedAt + 名称）。
+- `lib/data/db/tables.dart`、`lib/data/db/database.dart`（schemaVersion=6、迁移链、合集表与索引）。
+- `lib/application/providers.dart`、`lib/core/utils/album_query_utils.dart`（首页 Shelf 组装与相册排序规则）。
+- `lib/application/media/album_list_preferences.dart`、`visible_folder_view_preferences.dart`（两个首页形态偏好及隔离 key）。
 - `lib/application/media/media_view_preferences.dart`（多级排序校验与 JSON 持久化模式）。
 - `lib/core/utils/media_query_utils.dart`（客户端多级比较器与选择规则）。
-- `lib/data/services/vault_backup_service.dart`（manifest v2 全字段清单与导入防御）。
+- `lib/data/services/vault_backup_service.dart`（manifest v3 全字段清单、合集往返与旧版导入防御）。
 - `docs/03-architecture/data-model.md`（模型与不变量）。

@@ -5,6 +5,7 @@ import 'package:photo_manager/photo_manager.dart';
 
 import '../../application/gallery/gallery_controller.dart';
 import '../../application/import/import_controller.dart';
+import '../../application/media/visible_folder_view_preferences.dart';
 import '../../application/providers.dart';
 import '../../application/settings/settings_controller.dart';
 import '../../core/constants.dart';
@@ -57,11 +58,24 @@ class _VisibleFolderGridState extends ConsumerState<VisibleFolderGrid>
     ref.read(galleryServiceProvider).apply(const VisiblePermissionChanged());
   }
 
+  Future<void> _openFolder(GalleryFolder folder) async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => VisibleMediaGrid(
+          pathId: folder.id,
+          title: folder.name,
+        ),
+      ),
+    );
+    if (mounted) ref.invalidate(galleryFoldersProvider);
+  }
+
   @override
   Widget build(BuildContext context) {
     final perm = ref.watch(galleryPermissionProvider);
     final folders = ref.watch(galleryFoldersProvider);
     final filter = ref.watch(mediaKindFilterProvider);
+    final viewMode = ref.watch(visibleFolderViewPreferencesProvider);
     // Same Style setting as Invisible home mosaic (home ⋮ → Style).
     final cols = ref.watch(settingsControllerProvider).albumColumns;
 
@@ -113,6 +127,68 @@ class _VisibleFolderGridState extends ConsumerState<VisibleFolderGrid>
               );
             }
 
+            final content = viewMode == AlbumViewMode.list
+                ? ListView.builder(
+                    key: const ValueKey('visible-folder-list'),
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: EdgeInsets.fromLTRB(
+                      GridDefaults.gutter,
+                      GridDefaults.gutter,
+                      GridDefaults.gutter,
+                      GridDefaults.bottomClearance +
+                          MediaQuery.paddingOf(context).bottom,
+                    ),
+                    itemCount: list.length,
+                    itemBuilder: (context, i) {
+                      final folder = list[i];
+                      return _FolderListTile(
+                        key: ValueKey('visible-folder-list-${folder.id}'),
+                        folder: folder,
+                        filter: filter,
+                        onTap: () => _openFolder(folder),
+                        onLongPress: () => _hideFolder(
+                          context: context,
+                          ref: ref,
+                          folder: folder,
+                          filter: filter,
+                        ),
+                      );
+                    },
+                  )
+                : GridView.builder(
+                    key: const ValueKey('visible-folder-grid'),
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: EdgeInsets.fromLTRB(
+                      GridDefaults.gutter,
+                      GridDefaults.gutter,
+                      GridDefaults.gutter,
+                      GridDefaults.bottomClearance +
+                          MediaQuery.paddingOf(context).bottom,
+                    ),
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: cols,
+                      mainAxisSpacing: GridDefaults.gutter,
+                      crossAxisSpacing: GridDefaults.gutter,
+                      childAspectRatio: 1,
+                    ),
+                    itemCount: list.length,
+                    itemBuilder: (context, i) {
+                      final folder = list[i];
+                      return _FolderTile(
+                        key: ValueKey('visible-folder-grid-${folder.id}'),
+                        folder: folder,
+                        filter: filter,
+                        onTap: () => _openFolder(folder),
+                        onLongPress: () => _hideFolder(
+                          context: context,
+                          ref: ref,
+                          folder: folder,
+                          filter: filter,
+                        ),
+                      );
+                    },
+                  );
+
             return RefreshIndicator(
               color: Theme.of(context).colorScheme.primary,
               onRefresh: () async {
@@ -143,50 +219,7 @@ class _VisibleFolderGridState extends ConsumerState<VisibleFolderGrid>
                 ref.invalidate(galleryFoldersProvider);
                 await ref.read(galleryFoldersProvider.future);
               },
-              child: GridView.builder(
-                padding: EdgeInsets.fromLTRB(
-                  GridDefaults.gutter,
-                  GridDefaults.gutter,
-                  GridDefaults.gutter,
-                  GridDefaults.bottomClearance +
-                      MediaQuery.paddingOf(context).bottom,
-                ),
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: cols,
-                  mainAxisSpacing: GridDefaults.gutter,
-                  crossAxisSpacing: GridDefaults.gutter,
-                  childAspectRatio: 1,
-                ),
-                itemCount: list.length,
-                itemBuilder: (context, i) {
-                  final f = list[i];
-                  return _FolderTile(
-                    folder: f,
-                    filter: filter,
-                    onTap: () async {
-                      await Navigator.of(context).push<void>(
-                        MaterialPageRoute<void>(
-                          builder: (_) => VisibleMediaGrid(
-                            pathId: f.id,
-                            title: f.name,
-                          ),
-                        ),
-                      );
-                      // Back from folder: ensure list reflects any hide work
-                      // (optimistic path already updated; cheap re-list).
-                      if (context.mounted) {
-                        ref.invalidate(galleryFoldersProvider);
-                      }
-                    },
-                    onLongPress: () => _hideFolder(
-                      context: context,
-                      ref: ref,
-                      folder: f,
-                      filter: filter,
-                    ),
-                  );
-                },
-              ),
+              child: content,
             );
           },
         );
@@ -410,6 +443,7 @@ Future<void> _hideFolder({
 
 class _FolderTile extends ConsumerWidget {
   const _FolderTile({
+    super.key,
     required this.folder,
     required this.filter,
     required this.onTap,
@@ -489,6 +523,55 @@ class _FolderTile extends ConsumerWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _FolderListTile extends StatelessWidget {
+  const _FolderListTile({
+    super.key,
+    required this.folder,
+    required this.filter,
+    required this.onTap,
+    required this.onLongPress,
+  });
+
+  final GalleryFolder folder;
+  final MediaKindFilter filter;
+  final VoidCallback onTap;
+  final VoidCallback onLongPress;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+        leading: SizedBox.square(
+          dimension: 52,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(AppRadii.albumTile),
+            child: _LazyFolderCover(
+              pathId: folder.id,
+              filter: filter,
+              contentVersion: Object.hash(folder.count, folder.coverEpoch),
+            ),
+          ),
+        ),
+        title: Text(
+          folder.name,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(color: Colors.white),
+        ),
+        subtitle: Text(
+          context.l10n.itemsCount(folder.count),
+          style: const TextStyle(color: Colors.white54),
+        ),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: onTap,
+        onLongPress: onLongPress,
       ),
     );
   }
