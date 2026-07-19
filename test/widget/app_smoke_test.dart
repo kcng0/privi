@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:photo_manager/photo_manager.dart';
 import 'package:privi/app.dart';
+import 'package:privi/application/gallery/gallery_controller.dart';
 import 'package:privi/application/lock/lock_controller.dart';
 import 'package:privi/application/media/album_list_preferences.dart';
+import 'package:privi/application/media/visible_folder_view_preferences.dart';
 import 'package:privi/application/providers.dart';
 import 'package:privi/application/settings/settings_controller.dart';
 import 'package:privi/data/db/database.dart';
@@ -201,6 +204,86 @@ void main() {
     await tester.tap(find.byTooltip('List'));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('invisible-album-list')), findsOneWidget);
+  });
+
+  testWidgets('Visible and Invisible expose isolated list toggles',
+      (tester) async {
+    tester.view.physicalSize = const Size(420, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    SharedPreferences.setMockInitialValues({});
+    final preferences = await SharedPreferences.getInstance();
+    final database = AppDatabase.memory();
+    final container = ProviderContainer(
+      overrides: [
+        sharedPreferencesProvider.overrideWithValue(preferences),
+        databaseProvider.overrideWithValue(database),
+        securityServiceProvider.overrideWithValue(_FakeSecurity()),
+        biometricServiceProvider.overrideWithValue(_FakeBio()),
+        lockControllerProvider.overrideWith(_UnlockedLock.new),
+        albumsProvider.overrideWith((ref) => Stream.value(const [])),
+        galleryPermissionProvider.overrideWith(
+          (ref) async => PermissionState.authorized,
+        ),
+        galleryFoldersProvider.overrideWith(
+          (ref) async => const [
+            GalleryFolder(id: 'camera', name: 'Camera', count: 12),
+          ],
+        ),
+      ],
+    );
+    addTearDown(() async {
+      container.dispose();
+      await database.close();
+    });
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const PrivateHeartApp(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('List'), findsOneWidget);
+    expect(find.byKey(const ValueKey('invisible-album-grid')), findsOneWidget);
+
+    await tester.tap(find.text('Visible'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('List'), findsOneWidget);
+    expect(find.byKey(const ValueKey('visible-folder-grid')), findsOneWidget);
+
+    await tester.tap(find.byTooltip('List'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('visible-folder-list')), findsOneWidget);
+    expect(
+      container.read(visibleFolderViewPreferencesProvider),
+      AlbumViewMode.list,
+    );
+    expect(
+      container.read(albumListPreferencesProvider).viewMode,
+      AlbumViewMode.mosaic,
+    );
+
+    await tester.tap(find.text('Invisible'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('List'), findsOneWidget);
+    expect(find.byKey(const ValueKey('invisible-album-grid')), findsOneWidget);
+
+    await tester.tap(find.byTooltip('List'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('invisible-album-list')), findsOneWidget);
+    expect(
+      container.read(visibleFolderViewPreferencesProvider),
+      AlbumViewMode.list,
+    );
+
+    await tester.tap(find.text('Visible'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Mosaic'), findsOneWidget);
+    expect(find.byKey(const ValueKey('visible-folder-list')), findsOneWidget);
   });
 
   testWidgets('root lock covers pushed routes and preserves the selected tab',

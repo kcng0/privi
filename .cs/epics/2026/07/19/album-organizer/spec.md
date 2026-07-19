@@ -17,6 +17,8 @@ created: 2026-07-19
 4. 手动整理：进入整理模式拖拽调整相册顺序（sortIndex）。
 5. 合集（AlbumGroup）：把多个相册组成如"漫画系列"的合集，支持重命名、整体排序、组内排序、解散。
 
+后续增量（用户 2026-07-19）：首页展示形态扩展到 Visible 页签，使 Visible 文件夹与 Invisible 相册都能显式切换马赛克/列表；两者偏好独立持久化。Visible 的排序、评分、手动顺序、合集及文件夹内媒体视图不在此增量内。
+
 ## 为什么现在做
 
 用户以相册承载漫画等系列内容（一卷一相册），当前只有"名称序 + 置顶"无法表达卷序、系列归属与优先级；媒体层早已具备同类组织能力，相册层缺位造成体验断层。
@@ -27,7 +29,7 @@ created: 2026-07-19
 
 ## 关联 Project Spec
 
-- `.cs/spec/index.md`"能力地图/保险库浏览、界面与交互、统一语言"：本 epic 改变首页 Invisible 用户区的排序规则、卡片信息与形态，并新增合集实体；关闭后需回写这些章节。
+- `.cs/spec/index.md`"能力地图/保险库浏览、界面与交互、统一语言"：本 epic 改变首页 Invisible 用户区的排序规则、卡片信息与形态，新增合集实体，并让 Visible 首页文件夹支持独立的马赛克/列表偏好；关闭后需回写这些章节。
 
 ## 当前方案
 
@@ -35,13 +37,13 @@ created: 2026-07-19
 
 - **数据**：Drift v5→v6 一次迁移。`Albums` 加 `rating`（0–3，默认 0）、`sortIndex`（NULL=未整理）、`groupId`（NULL=顶层）；新表 `AlbumGroups`(id/name/createdAt/sortIndex)。引用完整性沿现有惯例在仓库事务中手工维护，不加 SQL 外键。
 - **排序**：新枚举 `AlbumSort` 镜像 `MediaSort` 的族规则与校验；比较器集中在新 `AlbumQueryUtils`（镜像 `MediaQueryUtils`）；排序职责从 AlbumRepository 上移到 application 层（repository 只出稳定基序数据）。
-- **偏好**：新 `AlbumListPreferences`{sorts, multiSortEnabled, viewMode: mosaic|list} 单键 JSON 持久化（镜像 `MediaViewPreferencesController`；首页属全局层级，符合 AGENTS.md "home 设置 global" 不变量）。`albumColumns` 留在 AppSettings 不动。
-- **UI**：长按菜单加"评分/加入合集"；⋮ 菜单（仅 Invisible 页签）加"排序/整理顺序"，样式面板加"列表"；新增 ArrangeScreen（顶层与组内复用）与 GroupScreen 两个普通 push 路由（自动被锁覆盖）。
+- **偏好**：`AlbumListPreferences`{sorts, multiSortEnabled, viewMode: mosaic|list} 管理 Invisible 首页；`visibleFolderViewPreferencesProvider` 以独立 key 管理 Visible 首页形态。两者全局持久化且互不串扰；`albumColumns` 留在 AppSettings 不动。
+- **UI**：两个首页页签始终显示马赛克/列表切换按钮；长按保险库相册菜单加"评分/加入合集"；⋮ 菜单（仅 Invisible 页签）加"排序/整理顺序"，样式面板加"列表"；新增 ArrangeScreen（顶层与组内复用）与 GroupScreen 两个普通 push 路由（自动被锁覆盖）。
 - **备份**：manifest v2→v3，albums 条目加三个新键、顶层加 `albumGroups` 数组；导入放宽到 v3、向后兼容 v1/v2。
 
 ### 已确认决策（用户 2026-07-19）
 
-1. 范围 = Invisible 保险库相册（Visible 系统文件夹不做）。
+1. 初始组织能力范围 = Invisible 保险库相册；后续确认仅把首页马赛克/列表展示扩展到 Visible 系统文件夹，不扩展排序、评分、手动顺序或合集。
 2. custom 模式下置顶**不再浮顶**（自动排序模式维持浮顶）。
 3. 合集卡片角标 = 成员**相册数**（非媒体总数）。
 4. v6 **一次迁移**带上合集表（不按里程碑拆两次）。
@@ -63,6 +65,14 @@ created: 2026-07-19
 - 合集详情支持从屏幕右侧边缘向左滑切换到列表，从左向右滑回马赛克；手势只作为快捷入口，不能替代 AppBar 切换按钮。
 - 首页列表中的合集行支持从右向左滑出合集管理入口；滑动不会直接执行解散，仍由管理面板中的确认流程完成。
 - 合集 CRUD 入口完整可发现：Invisible 顶部菜单可独立新建空合集；合集详情可添加多个未入组相册、重命名、整理、解散；成员可移出或删除。
+
+### Visible 首页形态增量（2026-07-19）
+
+- Visible 与 Invisible 页签顶部都提供同一位置的马赛克/列表切换按钮。
+- Visible 列表行显示文件夹封面、名称、媒体数量与进入图标；点按进入文件夹，长按沿用隐藏文件夹操作。
+- Visible 与 Invisible 使用独立持久化 key；任一页签切换形态不得改变另一页签。
+- 权限拒绝、加载、错误、空文件夹与下拉刷新状态沿用原路径；切换偏好不绕过这些状态。
+- Visible 文件夹内部仍使用 `MediaViewScope.visibleFolder:{id}` 的既有媒体偏好；首页形态不得写入或覆盖该 scope。
 
 目标关系（目标状态）：
 
@@ -170,8 +180,9 @@ flowchart TD
 - **排序面板一个内核**：`GridAppMenu.showSortPicker` 内核抽成泛型，`MediaSort`/`AlbumSort` 两个薄包装；媒体面板行为必须不变。
 - **合集不嵌套、不落库评分**：评分排序需要时用成员 max 计算。
 - **合集详情形态隔离**：`collectionViewPreferencesProvider(groupId)` 按合集 id 持久化；不复用首页全局 `AlbumListPreferences.viewMode`，避免改变其它 Invisible 入口。
+- **两个首页形态隔离**：Visible 首页形态使用 `visible_folder_view_mode_v1`，Invisible 首页使用 `album_list_preferences_v1.viewMode`；两者不复用，快速切换和重启恢复均保持各自状态。
 - **右滑只打开管理**：首页列表合集行使用 Flutter SDK `Dismissible` 的 `confirmDismiss` 入口并始终返回 false；手势不会直接执行解散。
-- 被排除方案：Visible 系统文件夹纳入（无持久身份、不可改名）；DB 文件快照式备份（现行 manifest 逐字段导出是既有安全边界，只能扩展格式）。
+- 被排除方案：Visible 系统文件夹纳入相册组织数据模型（无应用侧持久身份、不可改名）；DB 文件快照式备份（现行 manifest 逐字段导出是既有安全边界，只能扩展格式）。
 
 ## 质量约束与取舍
 
@@ -222,7 +233,7 @@ flowchart TD
 
 ## 暂不推进范围
 
-- Visible 系统文件夹的排序/列表/元数据（另立需求再议）。
+- Visible 系统文件夹的排序、评分、手动顺序、合集或其它应用侧元数据；文件夹内部媒体视图继续沿用既有 `MediaViewScope`。
 - 合集嵌套、合集独立评分、组内自动排序（各有升级触发，见各 issue 有界简化）。
 - 马赛克网格内直接拖拽（触发：列表形态整理体验不足 → 引入 reorderable-grid 依赖）。
 - 自然数字排序（Vol.2 vs Vol.10；M2 实施时评估一句成本后再定）。
@@ -241,7 +252,7 @@ flowchart TD
 
 ## 合并回 Project Spec 的候选
 
-- 首页 Invisible 的新排序规则、列表模式、合集能力 → `.cs/spec/index.md` 能力地图 + 界面与交互（当前图更新）。
+- 首页 Invisible 的新排序规则、列表模式、合集能力，以及 Visible 首页独立列表模式 → `.cs/spec/index.md` 能力地图 + 界面与交互（当前图更新）。
 - 统一语言：合集 / 手动顺序 / custom 排他 / 整理模式。
 - 质量约束：备份 manifest v3 兼容策略；"解散不删内容"护栏；性能容量边界。
 - Schema v6 与迁移事实 → 架构落点/证据索引。

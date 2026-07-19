@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../application/gallery/gallery_controller.dart';
 import '../../application/import/import_controller.dart';
 import '../../application/media/album_list_preferences.dart';
+import '../../application/media/visible_folder_view_preferences.dart';
 import '../../application/providers.dart';
 import '../../application/settings/settings_controller.dart';
 import '../../core/constants.dart';
@@ -361,12 +362,21 @@ class _HomeShellState extends ConsumerState<HomeShell>
     ref.invalidate(galleryFoldersProvider);
   }
 
-  Future<void> _toggleAlbumView() async {
-    final current = ref.read(albumListPreferencesProvider).viewMode;
+  Future<void> _toggleHomeView() async {
+    final invisible = _tabs.index == 1;
+    final current = invisible
+        ? ref.read(albumListPreferencesProvider).viewMode
+        : ref.read(visibleFolderViewPreferencesProvider);
     final next = current == AlbumViewMode.list
         ? AlbumViewMode.mosaic
         : AlbumViewMode.list;
-    await ref.read(albumListPreferencesProvider.notifier).setViewMode(next);
+    if (invisible) {
+      await ref.read(albumListPreferencesProvider.notifier).setViewMode(next);
+    } else {
+      await ref
+          .read(visibleFolderViewPreferencesProvider.notifier)
+          .setViewMode(next);
+    }
     if (!mounted) return;
     await HapticFeedback.selectionClick();
   }
@@ -381,7 +391,11 @@ class _HomeShellState extends ConsumerState<HomeShell>
   Widget build(BuildContext context) {
     final filter = ref.watch(mediaKindFilterProvider);
     final albumPreferences = ref.watch(albumListPreferencesProvider);
+    final visibleFolderViewMode =
+        ref.watch(visibleFolderViewPreferencesProvider);
     final invisible = _tabs.index == 1;
+    final homeViewMode =
+        invisible ? albumPreferences.viewMode : visibleFolderViewMode;
     // Status bar + notch: MediaQuery padding, never hug the physical top edge.
     final topInset = MediaQuery.paddingOf(context).top;
 
@@ -449,21 +463,19 @@ class _HomeShellState extends ConsumerState<HomeShell>
                           ],
                         ),
                       ),
-                      if (invisible)
-                        IconButton(
-                          tooltip:
-                              albumPreferences.viewMode == AlbumViewMode.list
-                                  ? context.l10n.mosaicView
-                                  : context.l10n.listView,
-                          icon: Icon(
-                            albumPreferences.viewMode == AlbumViewMode.list
-                                ? Icons.grid_view
-                                : Icons.view_list,
-                            size: 22,
-                          ),
-                          color: Colors.white70,
-                          onPressed: _toggleAlbumView,
+                      IconButton(
+                        tooltip: homeViewMode == AlbumViewMode.list
+                            ? context.l10n.mosaicView
+                            : context.l10n.listView,
+                        icon: Icon(
+                          homeViewMode == AlbumViewMode.list
+                              ? Icons.grid_view
+                              : Icons.view_list,
+                          size: 22,
                         ),
+                        color: Colors.white70,
+                        onPressed: _toggleHomeView,
+                      ),
                       // Photo XOR video mode — same control on Visible & Invisible.
                       IconButton(
                         tooltip: filter == MediaKindFilter.image
