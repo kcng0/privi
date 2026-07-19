@@ -62,4 +62,24 @@ void main() {
     );
     expect((await albums.getById(user.id))!.groupId, isNull);
   });
+
+  test('adding multiple albums is ordered and atomic', () async {
+    final existing = await albums.createUserAlbum('Existing');
+    final first = await albums.createUserAlbum('First');
+    final second = await albums.createUserAlbum('Second');
+    final group = await albums.createGroup('Series');
+    await albums.addToGroup(existing.id, group.id);
+
+    await albums.addAlbumsToGroup([first.id, second.id], group.id);
+    expect((await albums.getById(existing.id))!.sortIndex, 0);
+    expect((await albums.getById(first.id))!.sortIndex, 1);
+    expect((await albums.getById(second.id))!.sortIndex, 2);
+
+    final untouched = await albums.createUserAlbum('Untouched');
+    await expectLater(
+      albums.addAlbumsToGroup([untouched.id, 'missing-album'], group.id),
+      throwsStateError,
+    );
+    expect((await albums.getById(untouched.id))!.groupId, isNull);
+  });
 }

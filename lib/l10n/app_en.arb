@@ -302,6 +302,19 @@
   "orderSaved": "Order saved",
   "addToGroup": "Add to collection",
   "newGroup": "New collection",
+  "manageGroup": "Manage collection",
+  "addAlbums": "Add albums",
+  "noAlbumsToAdd": "No albums available",
+  "addedAlbums": "Added {count} albums",
+  "@addedAlbums": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "removedFromGroup": "Removed from collection",
+  "newGroupCreated": "Collection created",
   "groupNameHint": "Collection name",
   "renameGroup": "Rename collection",
   "dissolveGroup": "Dissolve collection",

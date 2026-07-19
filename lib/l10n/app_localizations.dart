@@ -976,6 +976,42 @@ abstract class AppLocalizations {
   /// **'New collection'**
   String get newGroup;
 
+  /// No description provided for @manageGroup.
+  ///
+  /// In en, this message translates to:
+  /// **'Manage collection'**
+  String get manageGroup;
+
+  /// No description provided for @addAlbums.
+  ///
+  /// In en, this message translates to:
+  /// **'Add albums'**
+  String get addAlbums;
+
+  /// No description provided for @noAlbumsToAdd.
+  ///
+  /// In en, this message translates to:
+  /// **'No albums available'**
+  String get noAlbumsToAdd;
+
+  /// No description provided for @addedAlbums.
+  ///
+  /// In en, this message translates to:
+  /// **'Added {count} albums'**
+  String addedAlbums(int count);
+
+  /// No description provided for @removedFromGroup.
+  ///
+  /// In en, this message translates to:
+  /// **'Removed from collection'**
+  String get removedFromGroup;
+
+  /// No description provided for @newGroupCreated.
+  ///
+  /// In en, this message translates to:
+  /// **'Collection created'**
+  String get newGroupCreated;
+
   /// No description provided for @groupNameHint.
   ///
   /// In en, this message translates to:

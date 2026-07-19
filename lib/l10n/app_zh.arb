@@ -146,6 +146,19 @@
   "orderSaved": "顺序已保存",
   "addToGroup": "加入合集",
   "newGroup": "新建合集",
+  "manageGroup": "管理合集",
+  "addAlbums": "添加相册",
+  "noAlbumsToAdd": "没有可添加的相册",
+  "addedAlbums": "已添加 {count} 个相册",
+  "@addedAlbums": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "removedFromGroup": "已移出合集",
+  "newGroupCreated": "合集已创建",
   "groupNameHint": "合集名称",
   "renameGroup": "重命名合集",
   "dissolveGroup": "解散合集",

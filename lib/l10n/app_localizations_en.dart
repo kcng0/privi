@@ -494,6 +494,26 @@ class AppLocalizationsEn extends AppLocalizations {
   String get newGroup => 'New collection';
 
   @override
+  String get manageGroup => 'Manage collection';
+
+  @override
+  String get addAlbums => 'Add albums';
+
+  @override
+  String get noAlbumsToAdd => 'No albums available';
+
+  @override
+  String addedAlbums(int count) {
+    return 'Added $count albums';
+  }
+
+  @override
+  String get removedFromGroup => 'Removed from collection';
+
+  @override
+  String get newGroupCreated => 'Collection created';
+
+  @override
   String get groupNameHint => 'Collection name';
 
   @override

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:privi/app.dart';
 import 'package:privi/application/lock/lock_controller.dart';
+import 'package:privi/application/media/album_list_preferences.dart';
 import 'package:privi/application/providers.dart';
 import 'package:privi/application/settings/settings_controller.dart';
 import 'package:privi/data/db/database.dart';
@@ -10,7 +11,10 @@ import 'package:privi/data/services/biometric_service.dart';
 import 'package:privi/data/services/security_service.dart';
 import 'package:privi/domain/enums.dart';
 import 'package:privi/domain/models/album.dart';
+import 'package:privi/domain/models/album_group.dart';
 import 'package:privi/domain/models/album_view.dart';
+import 'package:privi/domain/models/group_view.dart';
+import 'package:privi/domain/models/shelf_entry.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class _FakeSecurity extends SecurityService {
@@ -192,6 +196,11 @@ void main() {
     expect(find.text('New album'), findsOneWidget);
     expect(find.text('paris'), findsOneWidget);
     expect(find.text('Recycle Bin'), findsOneWidget);
+
+    expect(find.byTooltip('List'), findsOneWidget);
+    await tester.tap(find.byTooltip('List'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('invisible-album-list')), findsOneWidget);
   });
 
   testWidgets('root lock covers pushed routes and preserves the selected tab',
@@ -263,6 +272,66 @@ void main() {
     await routeClosed;
     await tester.pump(const Duration(milliseconds: 400));
     expect(tester.widget<TabBar>(find.byType(TabBar)).controller!.index, 0);
+  });
+
+  testWidgets('collection row swipe opens management without removal',
+      (tester) async {
+    tester.view.physicalSize = const Size(420, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final group = GroupView(
+      group: AlbumGroup(
+        id: 'group-1',
+        name: 'Series',
+        createdAt: DateTime.utc(2026, 1, 1),
+      ),
+      members: const [],
+      totalCount: 0,
+      maxRating: 0,
+    );
+    SharedPreferences.setMockInitialValues({});
+    final preferences = await SharedPreferences.getInstance();
+    final database = AppDatabase.memory();
+    final container = ProviderContainer(
+      overrides: [
+        sharedPreferencesProvider.overrideWithValue(preferences),
+        databaseProvider.overrideWithValue(database),
+        securityServiceProvider.overrideWithValue(_FakeSecurity()),
+        biometricServiceProvider.overrideWithValue(_FakeBio()),
+        lockControllerProvider.overrideWith(_UnlockedLock.new),
+        albumShelfProvider.overrideWithValue(
+          AsyncData(
+            AlbumShelf(
+              systemViews: const [],
+              entries: [GroupEntry(group)],
+              groups: [group],
+            ),
+          ),
+        ),
+      ],
+    );
+    addTearDown(() async {
+      container.dispose();
+      await database.close();
+    });
+    await container
+        .read(albumListPreferencesProvider.notifier)
+        .setViewMode(AlbumViewMode.list);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const PrivateHeartApp(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.text('Series'), const Offset(-300, 0));
+    await tester.pumpAndSettle();
+    expect(find.text('Manage collection'), findsOneWidget);
+    expect(find.text('Series'), findsOneWidget);
   });
 
   testWidgets('persisted settings are available on the first frame',

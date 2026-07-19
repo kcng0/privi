@@ -91,6 +91,39 @@ class _HomeShellState extends ConsumerState<HomeShell>
     _openAlbum(album.id, album.name);
   }
 
+  Future<void> _newGroup() async {
+    final controller = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(context.l10n.newGroup),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: InputDecoration(hintText: context.l10n.groupNameHint),
+          textCapitalization: TextCapitalization.sentences,
+          onSubmitted: (value) => Navigator.pop(ctx, value),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(context.l10n.cancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, controller.text),
+            child: Text(context.l10n.create),
+          ),
+        ],
+      ),
+    );
+    if (name == null || name.trim().isEmpty) return;
+    await ref.read(albumRepositoryProvider).createGroup(name);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(context.l10n.newGroupCreated)),
+    );
+  }
+
   void _openAlbum(String id, String name, {SystemAlbumKind? systemKind}) {
     final title = localizedAlbumTitle(
       context.l10n,
@@ -171,6 +204,18 @@ class _HomeShellState extends ConsumerState<HomeShell>
               ),
               onTap: () => Navigator.pop(ctx, 'new_album'),
             ),
+            if (invisible)
+              ListTile(
+                leading: const Icon(
+                  Icons.layers_outlined,
+                  color: Colors.white70,
+                ),
+                title: Text(
+                  context.l10n.newGroup,
+                  style: const TextStyle(color: Colors.white),
+                ),
+                onTap: () => Navigator.pop(ctx, 'new_group'),
+              ),
             ListTile(
               leading:
                   const Icon(Icons.settings_outlined, color: Colors.white70),
@@ -195,6 +240,8 @@ class _HomeShellState extends ConsumerState<HomeShell>
         await _openArrange();
       case 'new_album':
         await _newAlbum();
+      case 'new_group':
+        await _newGroup();
       case 'settings':
         _openSettings();
     }
@@ -314,6 +361,16 @@ class _HomeShellState extends ConsumerState<HomeShell>
     ref.invalidate(galleryFoldersProvider);
   }
 
+  Future<void> _toggleAlbumView() async {
+    final current = ref.read(albumListPreferencesProvider).viewMode;
+    final next = current == AlbumViewMode.list
+        ? AlbumViewMode.mosaic
+        : AlbumViewMode.list;
+    await ref.read(albumListPreferencesProvider.notifier).setViewMode(next);
+    if (!mounted) return;
+    await HapticFeedback.selectionClick();
+  }
+
   IconData _filterIcon(MediaKindFilter f) {
     return f == MediaKindFilter.image
         ? Icons.image_outlined
@@ -323,6 +380,8 @@ class _HomeShellState extends ConsumerState<HomeShell>
   @override
   Widget build(BuildContext context) {
     final filter = ref.watch(mediaKindFilterProvider);
+    final albumPreferences = ref.watch(albumListPreferencesProvider);
+    final invisible = _tabs.index == 1;
     // Status bar + notch: MediaQuery padding, never hug the physical top edge.
     final topInset = MediaQuery.paddingOf(context).top;
 
@@ -390,6 +449,21 @@ class _HomeShellState extends ConsumerState<HomeShell>
                           ],
                         ),
                       ),
+                      if (invisible)
+                        IconButton(
+                          tooltip:
+                              albumPreferences.viewMode == AlbumViewMode.list
+                                  ? context.l10n.mosaicView
+                                  : context.l10n.listView,
+                          icon: Icon(
+                            albumPreferences.viewMode == AlbumViewMode.list
+                                ? Icons.grid_view
+                                : Icons.view_list,
+                            size: 22,
+                          ),
+                          color: Colors.white70,
+                          onPressed: _toggleAlbumView,
+                        ),
                       // Photo XOR video mode — same control on Visible & Invisible.
                       IconButton(
                         tooltip: filter == MediaKindFilter.image
@@ -502,6 +576,7 @@ class _InvisibleTab extends ConsumerWidget {
 
         final content = preferences.viewMode == AlbumViewMode.list
             ? ListView.builder(
+                key: const ValueKey('invisible-album-list'),
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: EdgeInsets.fromLTRB(
                   GridDefaults.gutter,
@@ -514,7 +589,7 @@ class _InvisibleTab extends ConsumerWidget {
                 itemBuilder: (context, i) {
                   final c = cells[i];
                   final v = c.view;
-                  return _ShelfListTile(
+                  final tile = _ShelfListTile(
                     key: ValueKey('list-${c.id}'),
                     cell: c,
                     onTap: () {
@@ -536,9 +611,16 @@ class _InvisibleTab extends ConsumerWidget {
                             ? () => _albumMenu(context, ref, v)
                             : null,
                   );
+                  if (c.group == null) return tile;
+                  return _CollectionSwipeTile(
+                    key: ValueKey('swipe-${c.group!.group.id}'),
+                    onManage: () => _groupMenu(context, ref, c.group!),
+                    child: tile,
+                  );
                 },
               )
             : GridView.builder(
+                key: const ValueKey('invisible-album-grid'),
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: EdgeInsets.fromLTRB(
                   GridDefaults.gutter,
@@ -911,6 +993,11 @@ class _InvisibleTab extends ConsumerWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
+              leading: const Icon(Icons.open_in_new),
+              title: Text(context.l10n.manageGroup),
+              onTap: () => Navigator.pop(ctx, 'open'),
+            ),
+            ListTile(
               leading: const Icon(Icons.drive_file_rename_outline),
               title: Text(context.l10n.renameGroup),
               onTap: () => Navigator.pop(ctx, 'rename'),
@@ -931,6 +1018,8 @@ class _InvisibleTab extends ConsumerWidget {
     );
     if (action == null || !context.mounted) return;
     switch (action) {
+      case 'open':
+        _openGroup(context, group.group.id);
       case 'rename':
         final controller = TextEditingController(text: group.group.name);
         final name = await showDialog<String>(
@@ -1333,6 +1422,41 @@ class _MosaicTile extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _CollectionSwipeTile extends StatelessWidget {
+  const _CollectionSwipeTile({
+    super.key,
+    required this.child,
+    required this.onManage,
+  });
+
+  final Widget child;
+  final Future<void> Function() onManage;
+
+  @override
+  Widget build(BuildContext context) {
+    return Dismissible(
+      key: key ?? ValueKey(child),
+      direction: DismissDirection.endToStart,
+      background: const SizedBox.shrink(),
+      secondaryBackground: ColoredBox(
+        color: Theme.of(context).colorScheme.primaryContainer,
+        child: const Align(
+          alignment: Alignment.centerRight,
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: 24),
+            child: Icon(Icons.tune),
+          ),
+        ),
+      ),
+      confirmDismiss: (_) async {
+        await onManage();
+        return false;
+      },
+      child: child,
     );
   }
 }
