@@ -1,5 +1,7 @@
 # Privi
 
+[English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文（香港）](./README.zh-HK.md)
+
 Personal, on-device **Android media vault**. Hide photos & videos from the system
 gallery, rate them **1–3 hearts**, favorite, play playlists (built-in or
 **VLC**), and lock the app with **pattern / PIN + biometric**. Dark theme only.
@@ -204,6 +206,10 @@ version, then run **Actions → Shorebird Patch** with the exact base version
 If Privi is useful to you, you can support development here:
 
 **[Buy Me a Coffee](https://buymeacoffee.com/kcng0)**
+
+## Community
+
+- **[Linux do](https://linux.do)**
 
 ## License
 
