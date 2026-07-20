@@ -67,6 +67,44 @@ void main() {
     expect(hotUpdates.checkCalls, 0);
   });
 
+  test('unsupported binary release source is not queried', () async {
+    final hotUpdates = _FakeHotUpdateService(
+      const AppUpdateCheck.hotUpdateAvailable(),
+    );
+    final releaseSource = _UnsupportedReleaseSource();
+    final coordinator = AppUpdateCoordinator(
+      currentVersion: Version.parse('1.0.7'),
+      releaseSource: releaseSource,
+      hotUpdates: hotUpdates,
+    );
+
+    final result = await coordinator.checkForUpdate();
+
+    expect(result.status, AppUpdateStatus.hotUpdateAvailable);
+    expect(releaseSource.readCalls, 0);
+    expect(hotUpdates.checkCalls, 1);
+  });
+
+  test('UnsupportedError from a supported release source remains visible',
+      () async {
+    final hotUpdates = _FakeHotUpdateService(
+      const AppUpdateCheck.upToDate(),
+    );
+    final coordinator = AppUpdateCoordinator(
+      currentVersion: Version.parse('1.0.7'),
+      releaseSource: _ThrowingReleaseSource(
+        UnsupportedError('GitHub response contract changed'),
+      ),
+      hotUpdates: hotUpdates,
+    );
+
+    await expectLater(
+      coordinator.checkForUpdate(),
+      throwsA(isA<UnsupportedError>()),
+    );
+    expect(hotUpdates.checkCalls, 0);
+  });
+
   test('patch metadata and downloads remain delegated to Shorebird', () async {
     final hotUpdates = _FakeHotUpdateService(
       const AppUpdateCheck.upToDate(),
@@ -96,6 +134,9 @@ final class _FakeReleaseSource implements AppReleaseSource {
   final AppRelease release;
 
   @override
+  bool get supported => true;
+
+  @override
   Future<AppRelease> readLatestRelease() async => release;
 }
 
@@ -105,7 +146,23 @@ final class _ThrowingReleaseSource implements AppReleaseSource {
   final Object error;
 
   @override
+  bool get supported => true;
+
+  @override
   Future<AppRelease> readLatestRelease() async => throw error;
+}
+
+final class _UnsupportedReleaseSource implements AppReleaseSource {
+  int readCalls = 0;
+
+  @override
+  bool get supported => false;
+
+  @override
+  Future<AppRelease> readLatestRelease() async {
+    readCalls++;
+    throw StateError('unsupported source must not be queried');
+  }
 }
 
 final class _FakeHotUpdateService implements AppUpdateService {

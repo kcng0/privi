@@ -25,8 +25,8 @@ void main() {
     verifier = SchemaVerifier(GeneratedHelper());
   });
 
-  for (final fromVersion in [2, 3, 4, 5]) {
-    test('v$fromVersion to v6 preserves rows and validates schema', () async {
+  for (final fromVersion in [2, 3, 4, 5, 6]) {
+    test('v$fromVersion to v7 preserves rows and validates schema', () async {
       final schema = await verifier.schemaAt(fromVersion);
       final raw = schema.rawDatabase;
       raw.execute(
@@ -59,12 +59,15 @@ void main() {
       );
 
       final db = AppDatabase(schema.newConnection());
-      await verifier.migrateAndValidate(db, 6);
+      await verifier.migrateAndValidate(db, 7);
 
       final media = await db.getMediaById('legacy-media');
       expect(media, isNotNull);
       expect(media!.originalPath, '/camera/legacy.jpg');
       expect(media.rating, 2);
+      expect(media.sourcePlatformId, isNull);
+      expect(media.sourceRemovalPending, isFalse);
+      expect(media.contentDigest, isNull);
       expect(await db.countMembership('legacy-album'), 1);
 
       final album = await db.getAlbumById('legacy-album');

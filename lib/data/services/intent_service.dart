@@ -18,6 +18,9 @@ final class MethodChannelExternalPlayerGateway
   bool _returnedCleanly = false;
 
   @override
+  bool get supported => true;
+
+  @override
   Future<bool> open({
     required String filePath,
     required String mimeType,

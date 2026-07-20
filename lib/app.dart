@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -16,6 +18,7 @@ import 'data/services/share_intent_service.dart';
 import 'domain/enums.dart';
 import 'presentation/home/home_shell.dart';
 import 'presentation/import/import_progress_sheet.dart';
+import 'presentation/import/import_result_message.dart';
 import 'presentation/lock/lock_screen.dart';
 
 /// Root of the app. Dark theme only (docs/02-design/design-system.md).
@@ -27,13 +30,14 @@ class PrivateHeartApp extends ConsumerStatefulWidget {
 }
 
 class _PrivateHeartAppState extends ConsumerState<PrivateHeartApp> {
-  final _share = ShareIntentService();
+  late final ShareIntentService _share;
   final _navKey = GlobalKey<NavigatorState>();
   late final AppLifecycleListener _lifecycleListener;
 
   @override
   void initState() {
     super.initState();
+    _share = ShareIntentService(stager: ref.read(shareSourceStagerProvider));
     // Always show Android status bar + navigation buttons.
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setSystemUIOverlayStyle(
@@ -46,14 +50,27 @@ class _PrivateHeartAppState extends ConsumerState<PrivateHeartApp> {
     );
     _lifecycleListener = AppLifecycleListener(onStateChange: _onLifecycleState);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _share.start(_onShared);
+      unawaited(
+        _share.start(_onShared).catchError(
+          (Object error, StackTrace stackTrace) {
+            FlutterError.reportError(
+              FlutterErrorDetails(
+                exception: error,
+                stack: stackTrace,
+                library: 'share intent',
+                context: ErrorDescription('while starting share intake'),
+              ),
+            );
+          },
+        ),
+      );
     });
   }
 
   @override
   void dispose() {
     _lifecycleListener.dispose();
-    _share.dispose();
+    unawaited(_share.dispose());
     super.dispose();
   }
 
@@ -131,10 +148,15 @@ class _PrivateHeartAppState extends ConsumerState<PrivateHeartApp> {
           await ref.read(importControllerProvider.notifier).runImport(sources);
       if (ctx.mounted) Navigator.of(ctx).pop();
       if (ctx.mounted) {
+        final detail = importOutcomeDetail(ctx, summary.errorCode);
+        final originalMessage = ctx.l10n.hiddenSharedItems(summary.imported);
+        final message = detail == null
+            ? originalMessage
+            : summary.imported > 0
+                ? '$originalMessage · $detail'
+                : detail;
         ScaffoldMessenger.of(ctx).showSnackBar(
-          SnackBar(
-            content: Text(ctx.l10n.hiddenSharedItems(summary.imported)),
-          ),
+          SnackBar(content: Text(message)),
         );
       }
       ref.read(importControllerProvider.notifier).clearSummary();

@@ -17,6 +17,9 @@ class MediaItem {
     this.dateTaken,
     this.thumbnailPath,
     this.deletedAt,
+    this.sourcePlatformId,
+    this.sourceRemovalPending = false,
+    this.contentDigest,
   });
 
   final String id;
@@ -36,6 +39,17 @@ class MediaItem {
   final int sizeBytes;
   final String? thumbnailPath;
   final DateTime? deletedAt;
+
+  /// Opaque platform identity (for example a PhotoKit localIdentifier).
+  /// Never use this value as a filesystem path.
+  final String? sourcePlatformId;
+
+  /// True when a verified vault copy exists but the system-library source has
+  /// not yet been removed. This is a recoverable, non-success state.
+  final bool sourceRemovalPending;
+
+  /// SHA-256 digest of the verified vault bytes, when available.
+  final String? contentDigest;
 
   bool get isDeleted => deletedAt != null;
   bool get isFavorite => rating >= 1;
@@ -66,6 +80,9 @@ class MediaItem {
     int? sizeBytes,
     String? thumbnailPath,
     DateTime? deletedAt,
+    String? sourcePlatformId,
+    bool? sourceRemovalPending,
+    String? contentDigest,
     bool clearDeletedAt = false,
   }) {
     return MediaItem(
@@ -84,6 +101,9 @@ class MediaItem {
       sizeBytes: sizeBytes ?? this.sizeBytes,
       thumbnailPath: thumbnailPath ?? this.thumbnailPath,
       deletedAt: clearDeletedAt ? null : (deletedAt ?? this.deletedAt),
+      sourcePlatformId: sourcePlatformId ?? this.sourcePlatformId,
+      sourceRemovalPending: sourceRemovalPending ?? this.sourceRemovalPending,
+      contentDigest: contentDigest ?? this.contentDigest,
     );
   }
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/providers.dart';
+import '../../application/update/app_restart_service.dart';
 import '../../application/update/app_update_service.dart';
 import '../../core/l10n.dart';
 
@@ -90,11 +91,16 @@ class _AppUpdateTileState extends ConsumerState<AppUpdateTile> {
   }
 
   Future<void> _confirmAndDownload(AppUpdateService service) async {
+    final restart = ref.read(appRestartServiceProvider);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: Text(context.l10n.updateAvailableTitle),
-        content: Text(context.l10n.updateDownloadPrompt),
+        content: Text(
+          restart.automaticRestartSupported
+              ? context.l10n.updateDownloadPrompt
+              : context.l10n.updateDownloadRelaunchPrompt,
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
@@ -121,8 +127,15 @@ class _AppUpdateTileState extends ConsumerState<AppUpdateTile> {
   }
 
   Future<void> _restartApp() async {
+    final restart = ref.read(appRestartServiceProvider);
+    if (!restart.automaticRestartSupported) {
+      _showMessage(context.l10n.updateRelaunchRequired);
+      return;
+    }
     try {
-      await ref.read(appRestartServiceProvider).restart();
+      await restart.restart();
+    } on RestartRequiredException {
+      if (mounted) _showMessage(context.l10n.updateRelaunchRequired);
     } catch (error, stackTrace) {
       debugPrint('app restart failed: $error\n$stackTrace');
       if (mounted) _showMessage(context.l10n.updateRestartFailed);

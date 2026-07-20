@@ -18,8 +18,7 @@ import '../../core/media_thumbnail_spec.dart';
 import '../../core/theme/vault_colors.dart';
 import '../../core/utils/media_chronology.dart';
 import '../../core/utils/media_query_utils.dart';
-import '../../data/services/import_service.dart';
-import '../../data/services/media_rename_service.dart';
+import '../../data/services/import/import_models.dart';
 import '../../domain/enums.dart';
 import '../common/floating_action_capsule.dart';
 import '../common/grid_app_menu.dart';
@@ -27,6 +26,7 @@ import '../common/media_grid_scaffold.dart';
 import '../common/vault_sheet.dart';
 import '../common/video_duration_badge.dart';
 import '../import/import_progress_sheet.dart';
+import '../import/import_result_message.dart';
 import 'folder_cover_cache.dart';
 import 'gallery_preview_screen.dart';
 
@@ -175,18 +175,19 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
   Future<void> _openPreview(GalleryAsset a) async {
     final preferExternal = ref.read(settingsControllerProvider).playerExternal;
 
-    if (a.isVideo && preferExternal) {
+    final external = ref.read(externalPlayerCoordinatorProvider);
+    if (a.isVideo && preferExternal && external.supported) {
       final couldNotOpen = context.l10n.couldNotOpenExternally;
       // Resolve a real path for external players / chooser.
       final sources = await ref
           .read(galleryServiceProvider)
           .resolveForHide([a.id], sourceFolderName: widget.title);
       if (sources.isNotEmpty) {
-        final ok = await ref.read(externalPlayerCoordinatorProvider).open(
-              filePath: sources.first.path,
-              mimeType:
-                  sources.first.mimeType ?? (a.isVideo ? 'video/*' : 'image/*'),
-            );
+        final ok = await external.open(
+          filePath: sources.first.path,
+          mimeType:
+              sources.first.mimeType ?? (a.isVideo ? 'video/*' : 'image/*'),
+        );
         if (ok) return;
       }
       if (mounted) {
@@ -399,11 +400,11 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
     final messenger = ScaffoldMessenger.of(context);
     final nav = Navigator.of(context);
     final folderName = widget.title.trim().isEmpty ? 'Imported' : widget.title;
-    final renamer = MediaRenameService();
-
-    // Android 11+: hide needs broader storage access on many folders.
-    final hasAllFiles = await renamer.isExternalStorageManager();
-    if (!hasAllFiles) {
+    // Android 11+: hide needs broader storage access on many folders. iOS
+    // uses an app-private vault and therefore bypasses this Android-only gate.
+    final vaultAccess = ref.read(vaultAccessProvider);
+    final vaultReady = await vaultAccess.isReady();
+    if (!vaultReady && vaultAccess.requiresUserGrant) {
       if (!mounted) return;
       final go = await showDialog<bool>(
         context: context,
@@ -423,7 +424,7 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
         ),
       );
       if (go == true) {
-        await renamer.openManageAllFilesSettings();
+        await vaultAccess.openSettings();
       }
       return;
     }
@@ -488,6 +489,9 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
         );
         if (summary.errorCode == ImportErrorCode.needManageStorage) {
           msg.write(' · ${context.l10n.permissionNeeded}');
+        } else {
+          final detail = importOutcomeDetail(context, summary.errorCode);
+          if (detail != null) msg.write(' · $detail');
         }
       }
       if (msg.isEmpty) msg.write(context.l10n.nothingHidden);

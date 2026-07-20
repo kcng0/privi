@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../application/player/external_player_coordinator.dart';
 import '../../application/player/player_controller.dart';
 import '../../application/settings/settings_controller.dart';
 import '../../core/constants.dart';
@@ -103,7 +104,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       await _disposeNextVideo();
       return;
     }
-    final external = ref.read(settingsControllerProvider).playerExternal;
+    final external = ref.read(settingsControllerProvider).playerExternal &&
+        ref.read(externalPlayerCoordinatorProvider).supported;
     if (external) {
       await _disposeVideo();
       await _disposeNextVideo();
@@ -229,7 +231,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     if (_nextVideoId == nextItem.id && _nextVideo != null) return;
 
     await _disposeNextVideo();
-    final external = ref.read(settingsControllerProvider).playerExternal;
+    final external = ref.read(settingsControllerProvider).playerExternal &&
+        ref.read(externalPlayerCoordinatorProvider).supported;
     if (external) return;
 
     final file = File(nextItem.privatePath);

@@ -69,16 +69,20 @@ void main() {
     return database;
   }
 
-  VaultBackupService service(AppDatabase database) {
+  VaultBackupService service(
+    AppDatabase database, {
+    bool usePrivateMediaStorage = false,
+  }) {
     return VaultBackupService(
       db: database,
       media: MediaRepository(database, storage),
       albums: AlbumRepository(database),
       storage: storage,
+      usePrivateMediaStorage: usePrivateMediaStorage,
     );
   }
 
-  test('manifest v3 round-trip preserves vault layout and organization',
+  test('manifest v4 round-trip preserves source metadata and organization',
       () async {
     final sourceDb = newDatabase();
     final sourceMedia = MediaRepository(sourceDb, storage);
@@ -113,36 +117,61 @@ void main() {
       dateAdded: DateTime.utc(2026, 2, 1),
       dateTaken: DateTime.utc(2026, 1, 31),
       sizeBytes: await File(privatePath).length(),
+      sourcePlatformId: 'photo-kit-local-id',
+      sourceRemovalPending: true,
+      contentDigest: 'sha256-digest',
     );
     await sourceMedia.insert(item, userAlbumId: 'album-camera');
 
     final exportDir = p.join(temp.path, 'export');
-    expect(await service(sourceDb).exportToDirectory(exportDir), 1);
+    expect(
+      await service(
+        sourceDb,
+        usePrivateMediaStorage: true,
+      ).exportToDirectory(exportDir),
+      1,
+    );
     final manifest = jsonDecode(
       await File(p.join(exportDir, VaultBackupService.manifestName))
           .readAsString(),
     ) as Map<String, dynamic>;
-    expect(manifest['version'], 3);
+    expect(manifest['version'], 4);
     expect((manifest['albumGroups'] as List<dynamic>), hasLength(1));
     expect((manifest['membership'] as List<dynamic>), hasLength(1));
+    final mediaManifest =
+        (manifest['media'] as List<dynamic>).single as Map<String, dynamic>;
+    expect(mediaManifest['source'], {
+      'platform': 'ios',
+      'libraryId': 'photo-kit-local-id',
+    });
 
     await sourceDb.close();
     databases.remove(sourceDb);
     final restoredDb = newDatabase();
-    expect(await service(restoredDb).importFromDirectory(exportDir), 1);
+    expect(
+      await service(
+        restoredDb,
+        usePrivateMediaStorage: true,
+      ).importFromDirectory(exportDir),
+      1,
+    );
 
     final restored = await restoredDb.getMediaById(mediaId);
     expect(restored, isNotNull);
-    expect(restored!.privatePath, startsWith(root.path));
+    expect(restored!.privatePath, startsWith(storage.privateVault.path));
     expect(
       restored.privatePath,
       contains('${p.separator}Camera${p.separator}'),
     );
+    expect(p.basename(restored.privatePath), startsWith('${mediaId}_'));
     expect(
       restored.originalPath,
       '/storage/emulated/0/DCIM/Camera/IMG_0001.jpg',
     );
     expect(restored.rating, 3);
+    expect(restored.sourcePlatformId, 'photo-kit-local-id');
+    expect(restored.sourceRemovalPending, isTrue);
+    expect(restored.contentDigest, 'sha256-digest');
     expect(await restoredDb.countMembership('album-camera'), 1);
     final album = await restoredDb.getAlbumById('album-camera');
     expect(album, isNotNull);
@@ -150,6 +179,53 @@ void main() {
     expect(album.rating, 2);
     expect(album.groupId, group.id);
     expect((await restoredDb.getAllAlbumGroups()).single.name, 'Trips');
+  });
+
+  test('cross-platform restore does not reuse a foreign library identity',
+      () async {
+    final sourceDb = newDatabase();
+    final sourceMedia = MediaRepository(sourceDb, storage);
+    const mediaId = 'ios-source-media';
+    final privatePath = await storage.privateMediaFileFor(
+      id: mediaId,
+      originalName: 'source.jpg',
+      sourceFolder: 'Photos',
+    );
+    await privatePath.writeAsString('ios-backup-media');
+    await sourceMedia.insert(
+      MediaItem(
+        id: mediaId,
+        privatePath: privatePath.path,
+        originalPath: null,
+        originalName: 'source.jpg',
+        mimeType: 'image/jpeg',
+        isVideo: false,
+        rating: 0,
+        dateAdded: DateTime.utc(2026, 7, 19),
+        sizeBytes: await privatePath.length(),
+        sourcePlatformId: 'photo-kit-id',
+        sourceRemovalPending: true,
+        contentDigest: 'digest',
+      ),
+    );
+    final exportDir = p.join(temp.path, 'ios-export');
+    await service(
+      sourceDb,
+      usePrivateMediaStorage: true,
+    ).exportToDirectory(exportDir);
+
+    await sourceDb.close();
+    databases.remove(sourceDb);
+
+    final restoredDb = newDatabase();
+    expect(await service(restoredDb).importFromDirectory(exportDir), 1);
+
+    final restored = await restoredDb.getMediaById(mediaId);
+    expect(restored, isNotNull);
+    expect(restored!.privatePath, startsWith(root.path));
+    expect(restored.sourcePlatformId, isNull);
+    expect(restored.sourceRemovalPending, isFalse);
+    expect(restored.contentDigest, 'digest');
   });
 
   test('v1 fixture remains importable into the shared hidden root', () async {

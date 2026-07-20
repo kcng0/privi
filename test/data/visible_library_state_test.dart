@@ -1,7 +1,69 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:photo_manager/photo_manager.dart';
+import 'package:privi/application/platform/visible_library.dart';
 import 'package:privi/data/services/gallery_service.dart';
+import 'package:privi/data/services/import/import_models.dart';
 import 'package:privi/domain/enums.dart';
+
+final class _FakeVisibleLibrary implements VisibleLibrary {
+  const _FakeVisibleLibrary({
+    required this.capabilities,
+    required List<AssetPathEntity> paths,
+    required Map<String, List<AssetEntity>> assetsByPath,
+  })  : _paths = paths,
+        _assetsByPath = assetsByPath;
+
+  @override
+  final VisibleLibraryCapabilities capabilities;
+
+  final List<AssetPathEntity> _paths;
+  final Map<String, List<AssetEntity>> _assetsByPath;
+
+  @override
+  Future<int> assetCount(AssetPathEntity path) async =>
+      _assetsByPath[path.id]?.length ?? 0;
+
+  @override
+  Future<List<AssetEntity>> assetPage(
+    AssetPathEntity path, {
+    required int page,
+    required int size,
+  }) async {
+    final assets = _assetsByPath[path.id] ?? const <AssetEntity>[];
+    final start = page * size;
+    if (start >= assets.length) return const [];
+    final end = start + size < assets.length ? start + size : assets.length;
+    return assets.sublist(start, end);
+  }
+
+  @override
+  Future<void> openSettings() async {}
+
+  @override
+  Future<List<AssetPathEntity>> paths(MediaKindFilter filter) async => _paths;
+
+  @override
+  Future<PermissionState> permissionState() async => PermissionState.authorized;
+
+  @override
+  Future<PermissionState> requestPermission() async =>
+      PermissionState.authorized;
+
+  @override
+  Future<ImportSource?> resolveForHide(
+    String assetId, {
+    String? sourceFolderName,
+  }) async =>
+      null;
+}
+
+AssetEntity _asset(String id, AssetType type) => AssetEntity(
+      id: id,
+      typeInt: type.index,
+      width: 1,
+      height: 1,
+      title: '$id.jpg',
+    );
 
 void main() {
   late VisibleLibraryState state;
@@ -128,5 +190,85 @@ void main() {
       ),
       throwsUnsupportedError,
     );
+  });
+
+  test('iOS retains All while Android keeps virtual collections excluded',
+      () async {
+    final all = AssetPathEntity(id: 'all', name: 'Recent', isAll: true);
+    final assets = {
+      'all': [_asset('image-1', AssetType.image)],
+    };
+    final ios = GalleryService(
+      library: _FakeVisibleLibrary(
+        capabilities: const VisibleLibraryCapabilities(
+          filtersAssetTypesInDart: true,
+          includesAllCollection: true,
+          showsLimitedAccessNotice: true,
+        ),
+        paths: [all],
+        assetsByPath: assets,
+      ),
+    );
+    final android = GalleryService(
+      library: _FakeVisibleLibrary(
+        capabilities: const VisibleLibraryCapabilities(
+          filtersAssetTypesInDart: false,
+          includesAllCollection: false,
+          showsLimitedAccessNotice: false,
+        ),
+        paths: [all],
+        assetsByPath: assets,
+      ),
+    );
+    addTearDown(ios.dispose);
+    addTearDown(android.dispose);
+
+    final iosFolders = await ios.listFolders(MediaKindFilter.image);
+    final androidFolders = await android.listFolders(MediaKindFilter.image);
+
+    expect(iosFolders, hasLength(1));
+    expect(iosFolders.single.isAll, isTrue);
+    expect(androidFolders, isEmpty);
+  });
+
+  test('mixed iOS results paginate after media-kind filtering', () async {
+    final path = AssetPathEntity(id: 'photos', name: 'Photos');
+    final library = _FakeVisibleLibrary(
+      capabilities: const VisibleLibraryCapabilities(
+        filtersAssetTypesInDart: true,
+        includesAllCollection: true,
+        showsLimitedAccessNotice: true,
+      ),
+      paths: [path],
+      assetsByPath: {
+        'photos': [
+          _asset('image-0', AssetType.image),
+          _asset('video-0', AssetType.video),
+          _asset('image-1', AssetType.image),
+          _asset('video-1', AssetType.video),
+          _asset('image-2', AssetType.image),
+          _asset('video-2', AssetType.video),
+          _asset('image-3', AssetType.image),
+        ],
+      },
+    );
+    final gallery = GalleryService(library: library);
+    addTearDown(gallery.dispose);
+
+    final first = await gallery.listAssets(
+      pathId: path.id,
+      filter: MediaKindFilter.image,
+      page: 0,
+      size: 2,
+    );
+    final second = await gallery.listAssets(
+      pathId: path.id,
+      filter: MediaKindFilter.image,
+      page: 1,
+      size: 2,
+    );
+
+    expect(first.map((asset) => asset.id), ['image-0', 'image-1']);
+    expect(second.map((asset) => asset.id), ['image-2', 'image-3']);
   });
 }

@@ -11,6 +11,13 @@ enum ImportErrorCode {
   transferFailed,
   emptyDest,
   timeout,
+  permissionDenied,
+  limitedAccess,
+  notLocallyAvailable,
+  sourceStillPresent,
+  destinationVerificationFailed,
+  unsupported,
+  platformFailure,
 }
 
 /// Source for a hide operation (real file path preferred).
@@ -23,6 +30,8 @@ class ImportSource {
     this.assetId,
     this.sourceFolderName,
     this.dateTaken,
+    this.deleteAfterImport = false,
+    this.temporaryThumbnailPath,
   });
 
   final String path;
@@ -31,6 +40,13 @@ class ImportSource {
   final String? contentUri;
   final String? assetId;
   final String? sourceFolderName;
+
+  /// True only for app-owned staging. A workflow may remove this file after a
+  /// verified private copy; user-owned picker and gallery paths must stay false.
+  final bool deleteAfterImport;
+
+  /// Optional app-group derivative that the iOS stager consumes with [path].
+  final String? temporaryThumbnailPath;
 
   /// Original capture/create time from MediaStore.
   final DateTime? dateTaken;
@@ -47,6 +63,7 @@ class ImportProgress {
     this.skipped = 0,
     this.failed = 0,
     this.removalFailed = 0,
+    this.sourceStillPresent = 0,
     this.statusMessage,
     this.lastError,
     this.errorCode,
@@ -61,6 +78,7 @@ class ImportProgress {
   final int skipped;
   final int failed;
   final int removalFailed;
+  final int sourceStillPresent;
 
   @Deprecated('Use phase and errorCode for localized UI text.')
   final String? statusMessage;

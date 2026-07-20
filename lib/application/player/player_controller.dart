@@ -115,11 +115,12 @@ class PlayerController extends Notifier<PlayerUiState> {
 
     final settings = ref.read(settingsControllerProvider);
 
-    if (item.isVideo && settings.playerExternal) {
-      final ok = await ref.read(externalPlayerCoordinatorProvider).open(
-            filePath: item.privatePath,
-            mimeType: item.mimeType,
-          );
+    final external = ref.read(externalPlayerCoordinatorProvider);
+    if (item.isVideo && settings.playerExternal && external.supported) {
+      final ok = await external.open(
+        filePath: item.privatePath,
+        mimeType: item.mimeType,
+      );
       state = state.copyWith(playing: false, externalHandedOff: ok);
       return;
     }

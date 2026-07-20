@@ -224,6 +224,21 @@ class AppLocalizationsZh extends AppLocalizations {
   String get allowGalleryAccessBody => '“可见”会列出你的照片或视频文件夹。请授予权限以便浏览和隐藏。';
 
   @override
+  String get limitedPhotosAccess => '仅可访问已选择的照片';
+
+  @override
+  String get mediaNotAvailableOffline => '原始媒体尚未下载到本机';
+
+  @override
+  String get sourceStillPresent => '私密副本已保存，原件仍在照片中';
+
+  @override
+  String get privateCopyVerificationFailed => '无法验证私密副本';
+
+  @override
+  String get operationUnavailableOnPlatform => '当前平台不支持此操作';
+
+  @override
   String get noPhotoFolders => '未找到照片文件夹';
 
   @override
@@ -647,6 +662,12 @@ class AppLocalizationsZh extends AppLocalizations {
   String get blockScreenshotsSubtitle => 'FLAG_SECURE — 在最近任务中隐藏内容';
 
   @override
+  String get protectAppPreview => '保护后台预览';
+
+  @override
+  String get protectAppPreviewSubtitle => '隐藏后台预览，不阻止截屏';
+
+  @override
   String get mediaGridColumns => '默认网格列数';
 
   @override
@@ -654,6 +675,12 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get preferExternalPlayer => '优先使用外部播放器';
+
+  @override
+  String get inAppPlayback => '应用内播放';
+
+  @override
+  String get externalPlaybackUnsupported => '外部播放不可用';
 
   @override
   String get shuffleByDefault => '默认随机播放';
@@ -746,6 +773,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get updateDownloadPrompt => '立即下载并重启？';
 
   @override
+  String get updateDownloadRelaunchPrompt => '立即下载？重新打开后生效。';
+
+  @override
   String appReleasePrompt(String version) {
     return 'GitHub 已发布 Privi $version';
   }
@@ -764,6 +794,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get updateRestartFailed => '重启失败，请重新打开';
+
+  @override
+  String get updateRelaunchRequired => '更新已下载，请重新打开应用';
 
   @override
   String get updatesUnavailable => '此版本不支持更新';
@@ -974,6 +1007,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get screenshotSettingFailed => '无法更新截屏保护';
+
+  @override
+  String get privacySettingFailed => '无法更新后台预览保护';
 
   @override
   String get noOrphanVaultFiles => '未找到保险库文件';
@@ -1222,6 +1258,21 @@ class AppLocalizationsZhCn extends AppLocalizationsZh {
   String get allowGalleryAccessBody => '“可见”会列出你的照片或视频文件夹。请授予权限以便浏览和隐藏。';
 
   @override
+  String get limitedPhotosAccess => '仅可访问已选择的照片';
+
+  @override
+  String get mediaNotAvailableOffline => '原始媒体尚未下载到本机';
+
+  @override
+  String get sourceStillPresent => '私密副本已保存，原件仍在照片中';
+
+  @override
+  String get privateCopyVerificationFailed => '无法验证私密副本';
+
+  @override
+  String get operationUnavailableOnPlatform => '当前平台不支持此操作';
+
+  @override
   String get noPhotoFolders => '未找到照片文件夹';
 
   @override
@@ -1645,6 +1696,12 @@ class AppLocalizationsZhCn extends AppLocalizationsZh {
   String get blockScreenshotsSubtitle => 'FLAG_SECURE — 在最近任务中隐藏内容';
 
   @override
+  String get protectAppPreview => '保护后台预览';
+
+  @override
+  String get protectAppPreviewSubtitle => '隐藏后台预览，不阻止截屏';
+
+  @override
   String get mediaGridColumns => '默认网格列数';
 
   @override
@@ -1652,6 +1709,12 @@ class AppLocalizationsZhCn extends AppLocalizationsZh {
 
   @override
   String get preferExternalPlayer => '优先使用外部播放器';
+
+  @override
+  String get inAppPlayback => '应用内播放';
+
+  @override
+  String get externalPlaybackUnsupported => '外部播放不可用';
 
   @override
   String get shuffleByDefault => '默认随机播放';
@@ -1744,6 +1807,9 @@ class AppLocalizationsZhCn extends AppLocalizationsZh {
   String get updateDownloadPrompt => '立即下载并重启？';
 
   @override
+  String get updateDownloadRelaunchPrompt => '立即下载？重新打开后生效。';
+
+  @override
   String appReleasePrompt(String version) {
     return 'GitHub 已发布 Privi $version';
   }
@@ -1762,6 +1828,9 @@ class AppLocalizationsZhCn extends AppLocalizationsZh {
 
   @override
   String get updateRestartFailed => '重启失败，请重新打开';
+
+  @override
+  String get updateRelaunchRequired => '更新已下载，请重新打开应用';
 
   @override
   String get updatesUnavailable => '此版本不支持更新';
@@ -1972,6 +2041,9 @@ class AppLocalizationsZhCn extends AppLocalizationsZh {
 
   @override
   String get screenshotSettingFailed => '无法更新截屏保护';
+
+  @override
+  String get privacySettingFailed => '无法更新后台预览保护';
 
   @override
   String get noOrphanVaultFiles => '未找到保险库文件';
@@ -2218,6 +2290,21 @@ class AppLocalizationsZhHk extends AppLocalizationsZh {
 
   @override
   String get allowGalleryAccessBody => '「可見」會列出你的相片或影片資料夾。請授予權限以便瀏覽和隱藏。';
+
+  @override
+  String get limitedPhotosAccess => '只可存取已選擇的相片';
+
+  @override
+  String get mediaNotAvailableOffline => '原始媒體尚未下載至裝置';
+
+  @override
+  String get sourceStillPresent => '私人副本已儲存，原檔仍在相片中';
+
+  @override
+  String get privateCopyVerificationFailed => '無法驗證私人副本';
+
+  @override
+  String get operationUnavailableOnPlatform => '目前平台不支援此操作';
 
   @override
   String get noPhotoFolders => '找不到相片資料夾';
@@ -2643,6 +2730,12 @@ class AppLocalizationsZhHk extends AppLocalizationsZh {
   String get blockScreenshotsSubtitle => 'FLAG_SECURE — 在最近工作中隱藏內容';
 
   @override
+  String get protectAppPreview => '保護背景預覽';
+
+  @override
+  String get protectAppPreviewSubtitle => '隱藏背景預覽，不阻止截圖';
+
+  @override
   String get mediaGridColumns => '預設網格欄數';
 
   @override
@@ -2650,6 +2743,12 @@ class AppLocalizationsZhHk extends AppLocalizationsZh {
 
   @override
   String get preferExternalPlayer => '優先使用外部播放器';
+
+  @override
+  String get inAppPlayback => '應用程式內播放';
+
+  @override
+  String get externalPlaybackUnsupported => '外部播放不可用';
 
   @override
   String get shuffleByDefault => '預設隨機播放';
@@ -2742,6 +2841,9 @@ class AppLocalizationsZhHk extends AppLocalizationsZh {
   String get updateDownloadPrompt => '立即下載並重新啟動？';
 
   @override
+  String get updateDownloadRelaunchPrompt => '立即下載？重新開啟後生效。';
+
+  @override
   String appReleasePrompt(String version) {
     return 'GitHub 已發布 Privi $version';
   }
@@ -2760,6 +2862,9 @@ class AppLocalizationsZhHk extends AppLocalizationsZh {
 
   @override
   String get updateRestartFailed => '重新啟動失敗，請重新開啟';
+
+  @override
+  String get updateRelaunchRequired => '更新已下載，請重新開啟應用程式';
 
   @override
   String get updatesUnavailable => '此版本不支援更新';
@@ -2970,6 +3075,9 @@ class AppLocalizationsZhHk extends AppLocalizationsZh {
 
   @override
   String get screenshotSettingFailed => '無法更新截圖保護';
+
+  @override
+  String get privacySettingFailed => '無法更新背景預覽保護';
 
   @override
   String get noOrphanVaultFiles => '未找到保險庫檔案';
