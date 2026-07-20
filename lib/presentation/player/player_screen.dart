@@ -34,19 +34,18 @@ class PlayerScreen extends ConsumerStatefulWidget {
   ConsumerState<PlayerScreen> createState() => _PlayerScreenState();
 }
 
-class _PlayerScreenState extends ConsumerState<PlayerScreen>
-    with WidgetsBindingObserver {
+class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   VideoPlayerController? _video;
   String? _videoItemId;
   VideoPlayerController? _nextVideo;
   String? _nextVideoId;
   String? _completedForId;
   bool _chrome = true;
+  bool _programmaticPopAllowed = false;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
     // Keep status + navigation bars visible (no immersive fullscreen).
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -59,20 +58,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   }
 
   @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    // After external player (VLC etc.), auto-advance when user returns.
-    if (state == AppLifecycleState.resumed) {
-      final ui = ref.read(playerControllerProvider);
-      if (ui.externalHandedOff) {
-        // ignore: discarded_futures
-        ref.read(playerControllerProvider.notifier).onItemCompleted();
-      }
-    }
-  }
-
-  @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
     final c = _video;
     _video = null;
     _videoItemId = null;
@@ -257,6 +243,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
   void _maybeAdvanceOnVideoEnd(VideoPlayerController c, String itemId) {
     if (!mounted) return;
+    if (!ref.read(playerControllerProvider).playing) return;
     if (_completedForId == itemId) return;
     if (!c.value.isInitialized) return;
     final dur = c.value.duration;
@@ -269,6 +256,20 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     _completedForId = itemId;
     // ignore: discarded_futures
     ref.read(playerControllerProvider.notifier).onItemCompleted();
+  }
+
+  void _exitPlayer() {
+    ref.read(playerControllerProvider.notifier).stop();
+    if (!mounted) return;
+    setState(() {
+      _chrome = false;
+      _programmaticPopAllowed = true;
+    });
+    // PopScope's canPop value is updated by the rebuild above. Wait for that
+    // frame before issuing the programmatic pop from the visible back button.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) Navigator.of(context).pop();
+    });
   }
 
   @override
@@ -289,8 +290,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
     return KeepVaultUnlocked(
       child: PopScope(
-        canPop: true,
+        canPop: !_chrome || _programmaticPopAllowed,
         onPopInvokedWithResult: (didPop, _) async {
+          if (!didPop) {
+            if (mounted && _chrome) setState(() => _chrome = false);
+            return;
+          }
+          ref.read(playerControllerProvider.notifier).stop();
           await _disposeVideo();
           await _disposeNextVideo();
         },
@@ -385,11 +391,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
               children: [
                 IconButton(
                   icon: const Icon(Icons.arrow_back, color: Colors.white),
-                  onPressed: () async {
-                    ref.read(playerControllerProvider.notifier).stop();
-                    await _disposeVideo();
-                    if (mounted) Navigator.pop(context);
-                  },
+                  onPressed: _exitPlayer,
                 ),
                 Expanded(
                   child: Text(

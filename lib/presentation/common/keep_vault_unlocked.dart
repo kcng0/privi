@@ -19,20 +19,22 @@ class KeepVaultUnlocked extends ConsumerStatefulWidget {
 }
 
 class _KeepVaultUnlockedState extends ConsumerState<KeepVaultUnlocked> {
+  late final LockController _lock;
   bool _holding = false;
 
   @override
   void initState() {
     super.initState();
     // ref.read is OK in initState; keep vault open for the whole route lifetime.
-    ref.read(lockControllerProvider.notifier).suppressAutoLock();
+    _lock = ref.read(lockControllerProvider.notifier);
+    _lock.suppressAutoLock();
     _holding = true;
   }
 
   @override
   void dispose() {
     if (_holding) {
-      ref.read(lockControllerProvider.notifier).releaseAutoLockSuppress();
+      _lock.releaseAutoLockSuppress();
       _holding = false;
     }
     super.dispose();
