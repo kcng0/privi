@@ -36,13 +36,14 @@ final class ExternalPlayerCoordinator {
     }
   }
 
-  void onAppLifecycle(AppLifecycleState state) {
-    final returnedCleanly =
-        state == AppLifecycleState.resumed && _player.takeCleanReturn();
+  ExternalPlayerReturn? onAppLifecycle(AppLifecycleState state) {
+    final playerReturn =
+        state == AppLifecycleState.resumed ? _player.takeReturn() : null;
     _lock.onAppLifecycle(
       state,
-      externalPlayerReturnedCleanly: returnedCleanly,
+      externalPlayerReturnedCleanly: playerReturn != null,
     );
+    return playerReturn;
   }
 }
 

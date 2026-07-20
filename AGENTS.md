@@ -27,3 +27,19 @@
   toggle and localized filter widgets.
 - Scope: folder sort mode/criteria, rating/Hearts filters, and media-grid columns.
   Search remains ephemeral; home, playback, and security settings stay global.
+
+## External playlist completion invariant
+
+- Trigger signal: VLC Back advances the playlist, or a naturally completed
+  external video returns to Privi without opening the next item.
+- Root cause: an Android Activity Result only proves that the external player
+  returned. VLC reports the same result code for Back and completion, and some
+  versions reset their returned position/duration to 0/0 at natural end.
+- Correct approach: normalize the tracked Activity Result into a one-shot
+  `completed`/`interrupted` outcome. Advance only an active playlist hand-off;
+  Back and unknown external-player results must remain on the current item.
+- Verification: cover near-end VLC metadata, VLC's reset-at-end 0/0 result,
+  quick Back, missing metadata, unrelated external viewers, lock bypass, and
+  the player screen's two-step system Back behavior.
+- Scope: Android external video playlist playback. iOS continues to use the
+  built-in player until it gains an explicit external hand-off contract.

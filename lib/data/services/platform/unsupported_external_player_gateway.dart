@@ -17,5 +17,5 @@ final class UnsupportedExternalPlayerGateway implements ExternalPlayerGateway {
   }
 
   @override
-  bool takeCleanReturn() => false;
+  ExternalPlayerReturn? takeReturn() => null;
 }

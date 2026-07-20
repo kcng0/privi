@@ -9,6 +9,7 @@ import 'application/import/import_controller.dart';
 import 'application/import/share_queue_controller.dart';
 import 'application/lock/lock_controller.dart';
 import 'application/player/external_player_coordinator.dart';
+import 'application/player/player_controller.dart';
 import 'application/providers.dart';
 import 'application/settings/settings_controller.dart';
 import 'core/l10n.dart';
@@ -75,7 +76,15 @@ class _PrivateHeartAppState extends ConsumerState<PrivateHeartApp> {
   }
 
   void _onLifecycleState(AppLifecycleState state) {
-    ref.read(externalPlayerCoordinatorProvider).onAppLifecycle(state);
+    final externalReturn =
+        ref.read(externalPlayerCoordinatorProvider).onAppLifecycle(state);
+    if (externalReturn != null) {
+      unawaited(
+        ref
+            .read(playerControllerProvider.notifier)
+            .onExternalPlayerReturned(externalReturn),
+      );
+    }
     if (state == AppLifecycleState.resumed) {
       // Gallery permission may have been granted in system Settings while we
       // were backgrounded — refresh Visible without another Grant tap.
