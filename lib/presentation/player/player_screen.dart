@@ -2,17 +2,17 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../application/player/external_player_coordinator.dart';
 import '../../application/player/player_controller.dart';
 import '../../application/settings/settings_controller.dart';
-import '../../core/constants.dart';
 import '../../core/l10n.dart';
 import '../../domain/models/media_item.dart';
 import '../common/keep_vault_unlocked.dart';
+import 'video_player_controls.dart';
+import 'video_player_surface.dart';
 
 /// Playlist player (built-in slideshow + video, external hand-off for VLC).
 /// See docs/02-design/screens/05-player.md.
@@ -42,12 +42,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   String? _completedForId;
   bool _chrome = true;
   bool _programmaticPopAllowed = false;
+  VideoFitMode _fitMode = VideoFitMode.fit;
+  double _playbackSpeed = 1;
+  bool _muted = false;
+  bool? _lastImmersive;
 
   @override
   void initState() {
     super.initState();
-    // Keep status + navigation bars visible (no immersive fullscreen).
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    unawaited(VideoSystemUi.apply(false));
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(playerControllerProvider.notifier).start(
             items: widget.items,
@@ -80,8 +83,83 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       // ignore: discarded_futures
       n.dispose();
     }
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    unawaited(VideoSystemUi.restore());
     super.dispose();
+  }
+
+  bool _isLandscape(BuildContext context) =>
+      MediaQuery.orientationOf(context) == Orientation.landscape;
+
+  void _syncSystemUi(bool immersive) {
+    if (_lastImmersive == immersive) return;
+    _lastImmersive = immersive;
+    unawaited(VideoSystemUi.apply(immersive));
+  }
+
+  Future<void> _toggleOrientation(BuildContext context) async {
+    await VideoSystemUi.toggle(_isLandscape(context));
+  }
+
+  Future<void> _chooseFit() async {
+    final selected = await showVideoFitModeSheet(
+      context,
+      current: _fitMode,
+    );
+    if (selected != null && mounted) setState(() => _fitMode = selected);
+  }
+
+  void _setPlaybackSpeed(double speed) {
+    setState(() => _playbackSpeed = speed);
+    final video = _video;
+    if (video != null) unawaited(video.setPlaybackSpeed(speed));
+  }
+
+  void _setMuted(bool muted) {
+    setState(() => _muted = muted);
+    final video = _video;
+    if (video != null) unawaited(video.setVolume(muted ? 0 : 1));
+  }
+
+  void _seekTo(Duration position) {
+    final video = _video;
+    if (video != null) unawaited(video.seekTo(position));
+  }
+
+  Future<void> _openSettings(PlayerUiState ui) async {
+    final settings = ref.read(settingsControllerProvider);
+    await showVideoSettingsSheet(
+      context,
+      seekSeconds: settings.playerSeekSeconds,
+      onSeekSecondsChanged: (seconds) => unawaited(
+        ref.read(settingsControllerProvider.notifier).setPlayerSeekSeconds(
+              seconds,
+            ),
+      ),
+      playbackSpeed: _playbackSpeed,
+      onPlaybackSpeedChanged: _setPlaybackSpeed,
+      muted: _muted,
+      onMutedChanged: _setMuted,
+      shuffle: ui.playlist?.shuffle,
+      onShuffleChanged: (value) {
+        if (value != ref.read(playerControllerProvider).playlist?.shuffle) {
+          ref.read(playerControllerProvider.notifier).toggleShuffle();
+        }
+      },
+    );
+  }
+
+  Future<void> _configureVideo(
+    VideoPlayerController controller, {
+    required bool playing,
+  }) async {
+    await controller.setLooping(false);
+    await controller.setVolume(_muted ? 0 : 1);
+    if (playing) {
+      await controller.play();
+      await controller.setPlaybackSpeed(_playbackSpeed);
+    } else {
+      await controller.setPlaybackSpeed(_playbackSpeed);
+    }
   }
 
   Future<void> _syncVideo(MediaItem? item, bool playing) async {
@@ -99,7 +177,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     }
     if (_videoItemId == item.id && _video != null) {
       if (playing && !_video!.value.isPlaying) {
+        if (_completedForId == item.id) {
+          _completedForId = null;
+          await _video!.seekTo(Duration.zero);
+        }
         await _video!.play();
+        await _video!.setPlaybackSpeed(_playbackSpeed);
       } else if (!playing && _video!.value.isPlaying) {
         await _video!.pause();
       }
@@ -118,15 +201,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       final itemId = item.id;
       c.addListener(() {
         if (!mounted) return;
-        setState(() {});
         _maybeAdvanceOnVideoEnd(c, itemId);
       });
       if (playing) {
         try {
           await c.seekTo(Duration.zero);
         } catch (_) {}
-        await c.play();
       }
+      await _configureVideo(c, playing: playing);
       if (!mounted) {
         await c.dispose();
         await prev?.dispose();
@@ -153,14 +235,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     if (!await file.exists()) return;
     final c = VideoPlayerController.file(file);
     await c.initialize();
-    await c.setLooping(false);
     final itemId = item.id;
     c.addListener(() {
       if (!mounted) return;
-      setState(() {});
       _maybeAdvanceOnVideoEnd(c, itemId);
     });
-    if (playing) await c.play();
+    await _configureVideo(c, playing: playing);
     if (!mounted) {
       await c.dispose();
       return;
@@ -226,8 +306,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     try {
       final c = VideoPlayerController.file(file);
       await c.initialize();
-      await c.setLooping(false);
       await c.pause();
+      await c.setVolume(_muted ? 0 : 1);
+      await c.setPlaybackSpeed(_playbackSpeed);
       if (!mounted) {
         await c.dispose();
         return;
@@ -235,7 +316,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       // Don't call setState during dispose races — only if still mounted.
       _nextVideo = c;
       _nextVideoId = nextItem.id;
-      if (mounted) setState(() {});
     } catch (e) {
       debugPrint('preload next: $e');
     }
@@ -277,6 +357,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     final ui = ref.watch(playerControllerProvider);
     final item = ui.current;
     final pl = ui.playlist;
+    final landscape = _isLandscape(context);
+    final builtInVideo = item?.isVideo == true &&
+        _video != null &&
+        _videoItemId == item?.id &&
+        _video!.value.isInitialized;
+    final immersive = landscape && builtInVideo;
+    _syncSystemUi(immersive);
 
     // Keep video engine in sync with playlist cursor.
     ref.listen(playerControllerProvider, (prev, next) {
@@ -302,27 +389,27 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         },
         child: Scaffold(
           backgroundColor: Colors.black,
-          body: GestureDetector(
-            onTap: () => setState(() => _chrome = !_chrome),
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                if (item == null)
-                  Center(
-                    child: Text(
-                      context.l10n.emptyPlaylist,
-                      style: const TextStyle(color: Colors.white54),
-                    ),
-                  )
-                else if (item.isVideo)
-                  _buildVideo(item, ui)
-                else
-                  _buildImage(item),
-                if (_chrome)
-                  _topBar(ui, pl?.positionDisplay ?? 0, pl?.length ?? 0),
-                if (_chrome) _bottomBar(ui),
-              ],
-            ),
+          body: Stack(
+            fit: StackFit.expand,
+            children: [
+              if (item == null)
+                Center(
+                  child: Text(
+                    context.l10n.emptyPlaylist,
+                    style: const TextStyle(color: Colors.white54),
+                  ),
+                )
+              else if (item.isVideo)
+                _buildVideo(item, ui)
+              else
+                _buildImage(item),
+              if (_chrome && !immersive)
+                _topBar(ui, pl?.positionDisplay ?? 0, pl?.length ?? 0),
+              if (_chrome && builtInVideo)
+                _videoBottomBar(ui, landscape)
+              else if (_chrome)
+                _bottomBar(ui, landscape),
+            ],
           ),
         ),
       ),
@@ -336,9 +423,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         child: Icon(Icons.broken_image, color: Colors.white38, size: 64),
       );
     }
-    return InteractiveViewer(
-      child: Center(
-        child: Image.file(file, fit: BoxFit.contain),
+    return GestureDetector(
+      onTap: () => setState(() => _chrome = !_chrome),
+      child: InteractiveViewer(
+        child: Center(
+          child: Image.file(file, fit: BoxFit.contain),
+        ),
       ),
     );
   }
@@ -351,9 +441,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           children: [
             const Icon(Icons.open_in_new, color: Colors.white54, size: 48),
             const SizedBox(height: 12),
-            const Text(
-              'Opened in external player',
-              style: TextStyle(color: Colors.white70),
+            Text(
+              context.l10n.openedExternalPlayer,
+              style: const TextStyle(color: Colors.white70),
             ),
             const SizedBox(height: 16),
             FilledButton(
@@ -367,14 +457,20 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     }
     final c = _video;
     if (c == null || !c.value.isInitialized) {
-      return const Center(
-        child: CircularProgressIndicator(color: Colors.white54),
+      return GestureDetector(
+        onTap: () => setState(() => _chrome = !_chrome),
+        child: const Center(
+          child: CircularProgressIndicator(color: Colors.white54),
+        ),
       );
     }
-    return Center(
-      child: AspectRatio(
-        aspectRatio: c.value.aspectRatio == 0 ? 16 / 9 : c.value.aspectRatio,
-        child: VideoPlayer(c),
+    return VideoGestureSurface(
+      controller: c,
+      seekSeconds: ref.watch(settingsControllerProvider).playerSeekSeconds,
+      onTap: () => setState(() => _chrome = !_chrome),
+      child: VideoViewport(
+        controller: c,
+        fitMode: _fitMode,
       ),
     );
   }
@@ -408,10 +504,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     );
   }
 
-  Widget _bottomBar(PlayerUiState ui) {
+  Widget _bottomBar(PlayerUiState ui, bool landscape) {
     final pl = ui.playlist;
-    final video = _video;
-    final showSeek = video != null && video.value.isInitialized;
 
     return Align(
       alignment: Alignment.bottomCenter,
@@ -423,29 +517,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (showSeek)
-                  Row(
-                    children: [
-                      Expanded(
-                        child: VideoProgressIndicator(
-                          video,
-                          allowScrubbing: true,
-                          colors: VideoProgressColors(
-                            playedColor: Theme.of(context).colorScheme.primary,
-                            bufferedColor: Colors.white24,
-                            backgroundColor: Colors.white12,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                const SizedBox(height: AppSpacing.sm),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
                     IconButton(
                       iconSize: 32,
                       color: Colors.white,
+                      tooltip: context.l10n.previousMedia,
                       onPressed: pl?.hasPrev == true
                           ? () =>
                               ref.read(playerControllerProvider.notifier).prev()
@@ -455,6 +533,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                     IconButton(
                       iconSize: 44,
                       color: Colors.white,
+                      tooltip:
+                          ui.playing ? context.l10n.pause : context.l10n.play,
                       onPressed: () => ref
                           .read(playerControllerProvider.notifier)
                           .togglePlayPause(),
@@ -465,6 +545,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                     IconButton(
                       iconSize: 32,
                       color: Colors.white,
+                      tooltip: context.l10n.nextMedia,
                       onPressed: pl?.hasNext == true
                           ? () =>
                               ref.read(playerControllerProvider.notifier).next()
@@ -476,10 +557,24 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                       color: pl?.shuffle == true
                           ? Theme.of(context).colorScheme.primary
                           : Colors.white70,
+                      tooltip: context.l10n.shuffle,
                       onPressed: () => ref
                           .read(playerControllerProvider.notifier)
                           .toggleShuffle(),
                       icon: const Icon(Icons.shuffle),
+                    ),
+                    IconButton(
+                      iconSize: 28,
+                      color: Colors.white,
+                      tooltip: landscape
+                          ? context.l10n.portrait
+                          : context.l10n.landscape,
+                      onPressed: () => unawaited(_toggleOrientation(context)),
+                      icon: Icon(
+                        landscape
+                            ? Icons.stay_current_portrait
+                            : Icons.stay_current_landscape,
+                      ),
                     ),
                   ],
                 ),
@@ -487,6 +582,41 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _videoBottomBar(PlayerUiState ui, bool landscape) {
+    final video = _video;
+    final playlist = ui.playlist;
+    if (video == null || !video.value.isInitialized) {
+      return const SizedBox.shrink();
+    }
+    return Align(
+      alignment: Alignment.bottomCenter,
+      child: ValueListenableBuilder<VideoPlayerValue>(
+        valueListenable: video,
+        builder: (context, value, _) {
+          return VideoBottomControls(
+            value: value,
+            landscape: landscape,
+            fitMode: _fitMode,
+            hasPrevious: playlist?.hasPrev == true,
+            hasNext: playlist?.hasNext == true,
+            onPrevious: () => unawaited(
+              ref.read(playerControllerProvider.notifier).prev(),
+            ),
+            onSeek: _seekTo,
+            onPlayPause: () =>
+                ref.read(playerControllerProvider.notifier).togglePlayPause(),
+            onNext: () => unawaited(
+              ref.read(playerControllerProvider.notifier).next(),
+            ),
+            onToggleOrientation: () => unawaited(_toggleOrientation(context)),
+            onChooseFit: () => unawaited(_chooseFit()),
+            onOpenSettings: () => unawaited(_openSettings(ui)),
+          );
+        },
       ),
     );
   }

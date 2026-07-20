@@ -43,3 +43,20 @@
   the player screen's two-step system Back behavior.
 - Scope: Android external video playlist playback. iOS continues to use the
   built-in player until it gains an explicit external hand-off contract.
+
+## In-app video interaction invariant
+
+- Trigger signal: system Back changes the media item, a seek gesture flips the
+  Viewer page, landscape retains a top bar, or leaving playback keeps the app
+  orientation locked.
+- Root cause: route navigation, PageView gestures, video gestures, and system
+  UI lifecycle are handled by overlapping widgets without one owner.
+- Correct approach: video owns horizontal drag/double-tap seeking; dedicated
+  bottom buttons own Previous/Next; system Back hides visible controls before
+  exiting; landscape video hides top chrome; route disposal restores system UI
+  and supported orientations.
+- Verification: cover two-step system Back and immediate top-bar Back, seek
+  direction/magnitude limits, narrow landscape controls, persisted seek time,
+  Viewer manual navigation, and absence of the Viewer delete action.
+- Scope: built-in video playback in playlist and Viewer routes on Android and
+  iOS. External-player completion remains governed by the separate invariant.
