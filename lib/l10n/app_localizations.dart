@@ -715,7 +715,7 @@ abstract class AppLocalizations {
   /// No description provided for @openedExternalPlayer.
   ///
   /// In en, this message translates to:
-  /// **'Opened in external player'**
+  /// **'Opened externally'**
   String get openedExternalPlayer;
 
   /// No description provided for @rate.
@@ -1611,6 +1611,108 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Open external'**
   String get openExternal;
+
+  /// No description provided for @previousMedia.
+  ///
+  /// In en, this message translates to:
+  /// **'Previous'**
+  String get previousMedia;
+
+  /// No description provided for @nextMedia.
+  ///
+  /// In en, this message translates to:
+  /// **'Next'**
+  String get nextMedia;
+
+  /// No description provided for @play.
+  ///
+  /// In en, this message translates to:
+  /// **'Play'**
+  String get play;
+
+  /// No description provided for @pause.
+  ///
+  /// In en, this message translates to:
+  /// **'Pause'**
+  String get pause;
+
+  /// No description provided for @portrait.
+  ///
+  /// In en, this message translates to:
+  /// **'Portrait'**
+  String get portrait;
+
+  /// No description provided for @landscape.
+  ///
+  /// In en, this message translates to:
+  /// **'Landscape'**
+  String get landscape;
+
+  /// No description provided for @videoDisplayMode.
+  ///
+  /// In en, this message translates to:
+  /// **'Display mode'**
+  String get videoDisplayMode;
+
+  /// No description provided for @videoFit.
+  ///
+  /// In en, this message translates to:
+  /// **'Fit'**
+  String get videoFit;
+
+  /// No description provided for @videoFill.
+  ///
+  /// In en, this message translates to:
+  /// **'Fill screen'**
+  String get videoFill;
+
+  /// No description provided for @videoOriginal.
+  ///
+  /// In en, this message translates to:
+  /// **'Original'**
+  String get videoOriginal;
+
+  /// No description provided for @videoRatioFourThree.
+  ///
+  /// In en, this message translates to:
+  /// **'4:3'**
+  String get videoRatioFourThree;
+
+  /// No description provided for @videoRatioSixteenNine.
+  ///
+  /// In en, this message translates to:
+  /// **'16:9'**
+  String get videoRatioSixteenNine;
+
+  /// No description provided for @playerSettings.
+  ///
+  /// In en, this message translates to:
+  /// **'Player settings'**
+  String get playerSettings;
+
+  /// No description provided for @doubleTapSeek.
+  ///
+  /// In en, this message translates to:
+  /// **'Double-tap seek'**
+  String get doubleTapSeek;
+
+  /// No description provided for @playbackSpeed.
+  ///
+  /// In en, this message translates to:
+  /// **'Playback speed'**
+  String get playbackSpeed;
+
+  /// No description provided for @mute.
+  ///
+  /// In en, this message translates to:
+  /// **'Mute'**
+  String get mute;
+
+  /// No description provided for @loopVideo.
+  ///
+  /// In en, this message translates to:
+  /// **'Loop video'**
+  String get loopVideo;
 
   /// No description provided for @typeLabel.
   ///

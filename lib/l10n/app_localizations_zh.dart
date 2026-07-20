@@ -347,7 +347,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get noExternalPlayer => '未找到外部播放器 — 改用应用内播放';
 
   @override
-  String get openedExternalPlayer => '已在外部播放器中打开';
+  String get openedExternalPlayer => '已在外部打开';
 
   @override
   String get rate => '评分';
@@ -840,6 +840,57 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get openExternal => '外部打开';
+
+  @override
+  String get previousMedia => '上一项';
+
+  @override
+  String get nextMedia => '下一项';
+
+  @override
+  String get play => '播放';
+
+  @override
+  String get pause => '暂停';
+
+  @override
+  String get portrait => '竖屏';
+
+  @override
+  String get landscape => '横屏';
+
+  @override
+  String get videoDisplayMode => '画面比例';
+
+  @override
+  String get videoFit => '适应';
+
+  @override
+  String get videoFill => '铺满';
+
+  @override
+  String get videoOriginal => '原始';
+
+  @override
+  String get videoRatioFourThree => '4:3';
+
+  @override
+  String get videoRatioSixteenNine => '16:9';
+
+  @override
+  String get playerSettings => '播放设置';
+
+  @override
+  String get doubleTapSeek => '双击跳转';
+
+  @override
+  String get playbackSpeed => '播放速度';
+
+  @override
+  String get mute => '静音';
+
+  @override
+  String get loopVideo => '循环播放';
 
   @override
   String get typeLabel => '类型';
@@ -1381,7 +1432,7 @@ class AppLocalizationsZhCn extends AppLocalizationsZh {
   String get noExternalPlayer => '未找到外部播放器 — 改用应用内播放';
 
   @override
-  String get openedExternalPlayer => '已在外部播放器中打开';
+  String get openedExternalPlayer => '已在外部打开';
 
   @override
   String get rate => '评分';
@@ -1874,6 +1925,57 @@ class AppLocalizationsZhCn extends AppLocalizationsZh {
 
   @override
   String get openExternal => '外部打开';
+
+  @override
+  String get previousMedia => '上一项';
+
+  @override
+  String get nextMedia => '下一项';
+
+  @override
+  String get play => '播放';
+
+  @override
+  String get pause => '暂停';
+
+  @override
+  String get portrait => '竖屏';
+
+  @override
+  String get landscape => '横屏';
+
+  @override
+  String get videoDisplayMode => '画面比例';
+
+  @override
+  String get videoFit => '适应';
+
+  @override
+  String get videoFill => '铺满';
+
+  @override
+  String get videoOriginal => '原始';
+
+  @override
+  String get videoRatioFourThree => '4:3';
+
+  @override
+  String get videoRatioSixteenNine => '16:9';
+
+  @override
+  String get playerSettings => '播放设置';
+
+  @override
+  String get doubleTapSeek => '双击跳转';
+
+  @override
+  String get playbackSpeed => '播放速度';
+
+  @override
+  String get mute => '静音';
+
+  @override
+  String get loopVideo => '循环播放';
 
   @override
   String get typeLabel => '类型';
@@ -2415,7 +2517,7 @@ class AppLocalizationsZhHk extends AppLocalizationsZh {
   String get noExternalPlayer => '找不到外部播放器 — 改用應用程式內播放';
 
   @override
-  String get openedExternalPlayer => '已在外部播放器開啟';
+  String get openedExternalPlayer => '已在外部開啟';
 
   @override
   String get rate => '評分';
@@ -2908,6 +3010,57 @@ class AppLocalizationsZhHk extends AppLocalizationsZh {
 
   @override
   String get openExternal => '以外部開啟';
+
+  @override
+  String get previousMedia => '上一項';
+
+  @override
+  String get nextMedia => '下一項';
+
+  @override
+  String get play => '播放';
+
+  @override
+  String get pause => '暫停';
+
+  @override
+  String get portrait => '直向';
+
+  @override
+  String get landscape => '橫向';
+
+  @override
+  String get videoDisplayMode => '畫面比例';
+
+  @override
+  String get videoFit => '適應';
+
+  @override
+  String get videoFill => '填滿';
+
+  @override
+  String get videoOriginal => '原始';
+
+  @override
+  String get videoRatioFourThree => '4:3';
+
+  @override
+  String get videoRatioSixteenNine => '16:9';
+
+  @override
+  String get playerSettings => '播放設定';
+
+  @override
+  String get doubleTapSeek => '雙擊跳轉';
+
+  @override
+  String get playbackSpeed => '播放速度';
+
+  @override
+  String get mute => '靜音';
+
+  @override
+  String get loopVideo => '循環播放';
 
   @override
   String get typeLabel => '類型';

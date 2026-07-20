@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../domain/enums.dart';
+import '../../domain/models/video_playback_settings.dart';
 import '../providers.dart';
 
 /// Non-security prefs (Display / Playback / Security timeout).
@@ -11,6 +12,7 @@ class AppSettings {
     this.albumColumns = 3,
     this.autoLockSeconds = 30,
     this.playerExternal = true,
+    this.playerSeekSeconds = 3,
     this.slideshowSeconds = 3,
     this.shuffleDefault = false,
     this.recycleRetentionDays = 7,
@@ -23,6 +25,7 @@ class AppSettings {
   final int albumColumns; // 3–4
   final int autoLockSeconds; // 0 = immediately
   final bool playerExternal;
+  final int playerSeekSeconds;
   final int slideshowSeconds;
   final bool shuffleDefault;
   final int recycleRetentionDays;
@@ -39,6 +42,7 @@ class AppSettings {
     int? albumColumns,
     int? autoLockSeconds,
     bool? playerExternal,
+    int? playerSeekSeconds,
     int? slideshowSeconds,
     bool? shuffleDefault,
     int? recycleRetentionDays,
@@ -51,6 +55,7 @@ class AppSettings {
       albumColumns: albumColumns ?? this.albumColumns,
       autoLockSeconds: autoLockSeconds ?? this.autoLockSeconds,
       playerExternal: playerExternal ?? this.playerExternal,
+      playerSeekSeconds: playerSeekSeconds ?? this.playerSeekSeconds,
       slideshowSeconds: slideshowSeconds ?? this.slideshowSeconds,
       shuffleDefault: shuffleDefault ?? this.shuffleDefault,
       recycleRetentionDays: recycleRetentionDays ?? this.recycleRetentionDays,
@@ -66,6 +71,7 @@ class SettingsController extends Notifier<AppSettings> {
   static const _kAlbum = 'album_columns';
   static const _kAutoLock = 'auto_lock_seconds';
   static const _kPlayer = 'player_external';
+  static const _kPlayerSeek = 'player_seek_seconds';
   static const _kSlideshow = 'slideshow_seconds';
   static const _kShuffle = 'shuffle_default';
   static const _kRecycle = 'recycle_retention_days';
@@ -86,6 +92,7 @@ class SettingsController extends Notifier<AppSettings> {
       albumColumns: p.getInt(_kAlbum) ?? 3,
       autoLockSeconds: p.getInt(_kAutoLock) ?? 30,
       playerExternal: p.getBool(_kPlayer) ?? true,
+      playerSeekSeconds: p.getInt(_kPlayerSeek) ?? 3,
       slideshowSeconds: p.getInt(_kSlideshow) ?? 3,
       shuffleDefault: p.getBool(_kShuffle) ?? false,
       recycleRetentionDays: p.getInt(_kRecycle) ?? 7,
@@ -113,6 +120,14 @@ class SettingsController extends Notifier<AppSettings> {
   Future<void> setPlayerExternal(bool v) async {
     state = state.copyWith(playerExternal: v);
     await _prefs.setBool(_kPlayer, v);
+  }
+
+  Future<void> setPlayerSeekSeconds(int seconds) async {
+    if (!videoSeekSecondOptions.contains(seconds)) {
+      throw ArgumentError.value(seconds, 'seconds');
+    }
+    state = state.copyWith(playerSeekSeconds: seconds);
+    await _prefs.setInt(_kPlayerSeek, seconds);
   }
 
   Future<void> setSlideshowSeconds(int s) async {

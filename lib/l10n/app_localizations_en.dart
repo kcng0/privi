@@ -355,7 +355,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get noExternalPlayer => 'No external player found — opening in-app';
 
   @override
-  String get openedExternalPlayer => 'Opened in external player';
+  String get openedExternalPlayer => 'Opened externally';
 
   @override
   String get rate => 'Rate';
@@ -858,6 +858,57 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get openExternal => 'Open external';
+
+  @override
+  String get previousMedia => 'Previous';
+
+  @override
+  String get nextMedia => 'Next';
+
+  @override
+  String get play => 'Play';
+
+  @override
+  String get pause => 'Pause';
+
+  @override
+  String get portrait => 'Portrait';
+
+  @override
+  String get landscape => 'Landscape';
+
+  @override
+  String get videoDisplayMode => 'Display mode';
+
+  @override
+  String get videoFit => 'Fit';
+
+  @override
+  String get videoFill => 'Fill screen';
+
+  @override
+  String get videoOriginal => 'Original';
+
+  @override
+  String get videoRatioFourThree => '4:3';
+
+  @override
+  String get videoRatioSixteenNine => '16:9';
+
+  @override
+  String get playerSettings => 'Player settings';
+
+  @override
+  String get doubleTapSeek => 'Double-tap seek';
+
+  @override
+  String get playbackSpeed => 'Playback speed';
+
+  @override
+  String get mute => 'Mute';
+
+  @override
+  String get loopVideo => 'Loop video';
 
   @override
   String get typeLabel => 'Type';
