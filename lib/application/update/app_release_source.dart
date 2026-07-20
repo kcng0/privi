@@ -10,5 +10,7 @@ final class AppRelease {
 
 /// Boundary for the source of full application releases.
 abstract interface class AppReleaseSource {
+  bool get supported;
+
   Future<AppRelease> readLatestRelease();
 }

@@ -117,6 +117,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
 
   Future<void> _openExternal() async {
     final item = _current;
+    if (!ref.read(externalPlayerCoordinatorProvider).supported) return;
     await ref.read(externalPlayerCoordinatorProvider).open(
           filePath: item.privatePath,
           mimeType: item.mimeType,
@@ -156,7 +157,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   Widget build(BuildContext context) {
     final item = _current;
     final vc = context.vaultColors;
-    final externalPref = ref.watch(settingsControllerProvider).playerExternal;
+    final externalPref = ref.watch(settingsControllerProvider).playerExternal &&
+        ref.watch(externalPlayerCoordinatorProvider).supported;
 
     return KeepVaultUnlocked(
       child: PopScope(

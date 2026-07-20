@@ -106,7 +106,10 @@ class PlayerController extends Notifier<PlayerUiState> {
   }
 
   /// Called when built-in video finishes or slideshow timer fires.
-  Future<void> onItemCompleted() => next();
+  Future<void> onItemCompleted() async {
+    if (!state.playing) return;
+    await next();
+  }
 
   Future<void> _onItemEntered() async {
     _slideTimer?.cancel();
@@ -116,12 +119,15 @@ class PlayerController extends Notifier<PlayerUiState> {
     final settings = ref.read(settingsControllerProvider);
 
     if (item.isVideo && settings.playerExternal) {
-      final ok = await ref.read(externalPlayerCoordinatorProvider).open(
-            filePath: item.privatePath,
-            mimeType: item.mimeType,
-          );
-      state = state.copyWith(playing: false, externalHandedOff: ok);
-      return;
+      final external = ref.read(externalPlayerCoordinatorProvider);
+      if (external.supported) {
+        final ok = await external.open(
+          filePath: item.privatePath,
+          mimeType: item.mimeType,
+        );
+        state = state.copyWith(playing: false, externalHandedOff: ok);
+        return;
+      }
     }
 
     if (!item.isVideo) {

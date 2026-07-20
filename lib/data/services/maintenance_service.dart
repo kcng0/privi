@@ -4,13 +4,13 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
+import '../../application/platform/vault_workflow.dart';
 import '../../core/constants.dart';
 import '../../domain/models/media_item.dart';
 import '../db/database.dart';
 import '../repositories/album_repository.dart';
 import '../repositories/media_repository.dart';
 import 'hide_naming.dart';
-import 'import_service.dart';
 import 'media_rename_service.dart';
 import 'media_store_service.dart';
 import 'vault_storage_service.dart';
@@ -53,10 +53,11 @@ class MaintenanceService {
     required MediaRepository media,
     required VaultStorageService storage,
     required AlbumRepository albums,
-    ImportService? import,
+    VaultWorkflow? import,
     MediaRenameService? renamer,
     MediaStoreService? mediaStore,
     Uuid? uuid,
+    bool sharedStorageEnabled = true,
   })  : _db = db,
         _media = media,
         _storage = storage,
@@ -64,16 +65,18 @@ class MaintenanceService {
         _import = import,
         _renamer = renamer ?? MediaRenameService(),
         _mediaStore = mediaStore ?? MediaStoreService(),
-        _uuid = uuid ?? const Uuid();
+        _uuid = uuid ?? const Uuid(),
+        _sharedStorageEnabled = sharedStorageEnabled;
 
   final AppDatabase _db;
   final MediaRepository _media;
   final VaultStorageService _storage;
   final AlbumRepository _albums;
-  final ImportService? _import;
+  final VaultWorkflow? _import;
   final MediaRenameService _renamer;
   final MediaStoreService _mediaStore;
   final Uuid _uuid;
+  final bool _sharedStorageEnabled;
 
   /// Returns a short summary for logging/snackbar.
   Future<String> runLaunchMaintenance({required int retentionDays}) async {
@@ -97,6 +100,20 @@ class MaintenanceService {
   }
 
   Future<bool> _vaultAccessible() async {
+    if (!_sharedStorageEnabled) {
+      try {
+        final root = await _storage.ensureVault();
+        await root.list(followLinks: false).first.timeout(
+              const Duration(seconds: 3),
+            );
+        return true;
+      } on StateError {
+        return true;
+      } catch (error) {
+        debugPrint('app-private vault accessibility probe: $error');
+        return false;
+      }
+    }
     if (!await _renamer.isExternalStorageManager()) return false;
     try {
       final root = await _storage.ensureHiddenRoot();
@@ -187,19 +204,21 @@ class MaintenanceService {
         // Reinstall recovery: resolve real capture time from vault file (EXIF /
         // video metadata). Never invent "now" as dateTaken.
         DateTime? dateTaken;
-        try {
-          final sec = await _mediaStore.resolveCaptureDateSec(
-            path: privatePath,
-            isVideo: isVideo,
-          );
-          if (sec != null && sec > 0) {
-            dateTaken = DateTime.fromMillisecondsSinceEpoch(
-              sec * 1000,
-              isUtc: true,
+        if (_sharedStorageEnabled) {
+          try {
+            final sec = await _mediaStore.resolveCaptureDateSec(
+              path: privatePath,
+              isVideo: isVideo,
             );
+            if (sec != null && sec > 0) {
+              dateTaken = DateTime.fromMillisecondsSinceEpoch(
+                sec * 1000,
+                isUtc: true,
+              );
+            }
+          } catch (e, stackTrace) {
+            debugPrint('recover capture date ${c.path}: $e\n$stackTrace');
           }
-        } catch (e, stackTrace) {
-          debugPrint('recover capture date ${c.path}: $e\n$stackTrace');
         }
         final sortKey = dateTaken ?? DateTime.utc(1970);
         final item = MediaItem(
@@ -258,13 +277,14 @@ class MaintenanceService {
             failed++;
           }
         }
-        try {
-          // ignore: depend_on_referenced_packages
-          await _mediaStore.scanPath(
-            HideNaming.defaultRestoreDir,
-          );
-        } catch (e, stackTrace) {
-          debugPrint('recover gallery scan: $e\n$stackTrace');
+        if (_sharedStorageEnabled) {
+          try {
+            await _mediaStore.scanPath(
+              HideNaming.defaultRestoreDir,
+            );
+          } catch (e, stackTrace) {
+            debugPrint('recover gallery scan: $e\n$stackTrace');
+          }
         }
         return VaultRecoveryResult(
           reindexed: unhid,
@@ -298,6 +318,16 @@ class MaintenanceService {
         skipped: 0,
         failed: 0,
         hadMedia: false,
+      );
+    }
+    if (!_sharedStorageEnabled) {
+      // The existing repair source is Android MediaStore/EXIF. iOS capture
+      // dates are persisted while PhotoKit still owns the source asset.
+      return CaptureDateRepairResult(
+        fixed: 0,
+        skipped: rows.length,
+        failed: 0,
+        hadMedia: true,
       );
     }
     var fixed = 0;
@@ -348,6 +378,9 @@ class MaintenanceService {
   Future<List<_OrphanCandidate>> _discoverOrphanFiles(
     Set<String> knownSet,
   ) async {
+    if (!_sharedStorageEnabled) {
+      return _discoverAppPrivateOrphanFiles(knownSet);
+    }
     final parents = <String>{};
 
     // Always scan the shared hide root (reinstall case: DB empty).
@@ -431,6 +464,34 @@ class MaintenanceService {
       } catch (e) {
         debugPrint('orphan scan dir $dirPath: $e');
       }
+    }
+    return out;
+  }
+
+  Future<List<_OrphanCandidate>> _discoverAppPrivateOrphanFiles(
+    Set<String> knownSet,
+  ) async {
+    final vault = await _storage.ensureVault();
+    final mediaRoot = Directory(p.join(vault.path, VaultPaths.mediaDir));
+    if (!await mediaRoot.exists()) return const [];
+
+    final out = <_OrphanCandidate>[];
+    await for (final entity in mediaRoot.list(
+      recursive: true,
+      followLinks: false,
+    )) {
+      if (entity is! File) continue;
+      final path = entity.path;
+      final name = p.basename(path);
+      if (!_looksLikeMedia(name) || knownSet.contains(_norm(path))) continue;
+      out.add(
+        _OrphanCandidate(
+          path: path,
+          name: HideNaming.displayName(name),
+          isVideo: _isVideoName(name),
+          folderName: HideNaming.sanitizeFolder(p.basename(entity.parent.path)),
+        ),
+      );
     }
     return out;
   }

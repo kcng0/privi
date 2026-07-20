@@ -21,17 +21,22 @@ class VaultBackupService {
     required AlbumRepository albums,
     required VaultStorageService storage,
     Uuid? uuid,
+    bool usePrivateMediaStorage = false,
   })  : _db = db,
         _media = media,
         _albums = albums,
         _storage = storage,
-        _uuid = uuid ?? const Uuid();
+        _uuid = uuid ?? const Uuid(),
+        _usePrivateMediaStorage = usePrivateMediaStorage;
 
   final AppDatabase _db;
   final MediaRepository _media;
   final AlbumRepository _albums;
   final VaultStorageService _storage;
   final Uuid _uuid;
+  final bool _usePrivateMediaStorage;
+
+  String get _platformName => _usePrivateMediaStorage ? 'ios' : 'android';
 
   static const manifestName = 'privi_manifest.json';
 
@@ -77,6 +82,14 @@ class VaultBackupService {
         'file': destName,
         'thumb': thumbDest,
         'originalPath': r.originalPath,
+        'source': r.sourcePlatformId == null
+            ? null
+            : {
+                'platform': _platformName,
+                'libraryId': r.sourcePlatformId,
+              },
+        'sourceRemovalPending': r.sourceRemovalPending,
+        'contentDigest': r.contentDigest,
         'originalName': r.originalName,
         'mimeType': r.mimeType,
         'isVideo': r.isVideo,
@@ -130,7 +143,7 @@ class VaultBackupService {
         .toList(growable: false);
 
     final manifest = {
-      'version': 3,
+      'version': 4,
       'exportedAt': DateTime.now().toUtc().toIso8601String(),
       'media': mediaJson,
       'albums': albumJson,
@@ -152,7 +165,7 @@ class VaultBackupService {
     }
     final map = jsonDecode(await man.readAsString()) as Map<String, dynamic>;
     final version = map['version'] as int? ?? 1;
-    if (version < 1 || version > 3) {
+    if (version < 1 || version > 4) {
       throw StateError('Unsupported vault manifest version: $version');
     }
     final mediaList =
@@ -184,13 +197,14 @@ class VaultBackupService {
       final originalPath = version >= 2
           ? _validatedOriginalPath(m['originalPath'] as String?)
           : null;
+      final source = version >= 4 ? _sourceMetadata(m['source']) : null;
       final sourceFolder = _sourceFolder(originalPath);
-      final hiddenPath = await _storage.hiddenDestPath(
+      final destination = await _restoreDestination(
         id: id,
         originalName: originalName,
         sourceFolder: sourceFolder,
       );
-      final hidden = File(hiddenPath);
+      final hidden = destination;
       if (!await hidden.exists() || await hidden.length() == 0) {
         await src.copy(hidden.path);
       }
@@ -228,6 +242,13 @@ class VaultBackupService {
         sizeBytes: restoredSize,
         thumbnailPath: thumbPath,
         deletedAt: DateTime.tryParse(m['deletedAt'] as String? ?? ''),
+        sourcePlatformId:
+            _sourceMatchesTarget(source) ? source?.libraryId : null,
+        sourceRemovalPending: _sourceMatchesTarget(source) &&
+            (version >= 4
+                ? m['sourceRemovalPending'] as bool? ?? false
+                : false),
+        contentDigest: version >= 4 ? m['contentDigest'] as String? : null,
       );
 
       await _media.insert(item);
@@ -246,6 +267,46 @@ class VaultBackupService {
   String _sourceFolder(String? originalPath) {
     if (originalPath == null || originalPath.trim().isEmpty) return 'Imported';
     return HideNaming.sanitizeFolder(p.basename(p.dirname(originalPath)));
+  }
+
+  Future<File> _restoreDestination({
+    required String id,
+    required String originalName,
+    required String sourceFolder,
+  }) async {
+    if (_usePrivateMediaStorage) {
+      return _storage.privateMediaFileFor(
+        id: id,
+        originalName: originalName,
+        sourceFolder: sourceFolder,
+      );
+    }
+    final path = await _storage.hiddenDestPath(
+      id: id,
+      originalName: originalName,
+      sourceFolder: sourceFolder,
+    );
+    return File(path);
+  }
+
+  ({String platform, String libraryId})? _sourceMetadata(Object? value) {
+    if (value == null) return null;
+    if (value is! Map<String, dynamic>) {
+      throw const FormatException('source must be an object');
+    }
+    final platform = value['platform'] as String?;
+    final libraryId = value['libraryId'] as String?;
+    if (platform == null ||
+        platform.trim().isEmpty ||
+        libraryId == null ||
+        libraryId.trim().isEmpty) {
+      throw const FormatException('source requires platform and libraryId');
+    }
+    return (platform: platform.trim(), libraryId: libraryId.trim());
+  }
+
+  bool _sourceMatchesTarget(({String platform, String libraryId})? source) {
+    return source?.platform.toLowerCase() == _platformName;
   }
 
   Future<Map<String, String>> _restoreV2Albums(

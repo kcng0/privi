@@ -19,12 +19,14 @@ final class AppUpdateCoordinator implements AppUpdateService {
 
   @override
   Future<AppUpdateCheck> checkForUpdate() async {
-    final release = await _releaseSource.readLatestRelease();
-    if (release.version > _currentVersion) {
-      return AppUpdateCheck.appReleaseAvailable(
-        version: release.version.toString(),
-        uri: release.uri,
-      );
+    if (_releaseSource.supported) {
+      final release = await _releaseSource.readLatestRelease();
+      if (release.version > _currentVersion) {
+        return AppUpdateCheck.appReleaseAvailable(
+          version: release.version.toString(),
+          uri: release.uri,
+        );
+      }
     }
     return _hotUpdates.checkForUpdate();
   }

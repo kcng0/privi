@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:photo_manager/photo_manager.dart';
 
+import '../../application/platform/visible_library.dart';
 import '../../core/media_thumbnail_spec.dart';
 import '../../domain/enums.dart';
 import 'hide_naming.dart';
@@ -13,6 +14,7 @@ import 'import/file_system_gateway.dart';
 import 'import_service.dart';
 import 'media_store_service.dart';
 import 'media_thumbnail_service.dart';
+import 'platform/android_visible_library_adapter.dart';
 
 class GalleryFolder {
   const GalleryFolder({
@@ -275,22 +277,26 @@ class GalleryService {
     FileSystemGateway? fileSystem,
     MediaStoreService? mediaStore,
     VisibleLibraryState? visibleState,
+    VisibleLibrary? library,
   })  : _assets = assetGateway ?? const PhotoManagerAssetGateway(),
         _thumbnails = thumbnailCache ??
             MediaThumbnailService(
               assetGateway: assetGateway ?? const PhotoManagerAssetGateway(),
             ),
         _ownsThumbnailCache = thumbnailCache == null,
-        _files = fileSystem ?? const IoFileSystemGateway(),
-        _mediaStore = mediaStore ?? MediaStoreService(),
-        _visibleState = visibleState ?? VisibleLibraryState();
+        _visibleState = visibleState ?? VisibleLibraryState(),
+        _library = library ??
+            AndroidVisibleLibraryAdapter(
+              assets: assetGateway ?? const PhotoManagerAssetGateway(),
+              files: fileSystem ?? const IoFileSystemGateway(),
+              mediaStore: mediaStore ?? MediaStoreService(),
+            );
 
   final AssetGateway _assets;
   final MediaThumbnailCache _thumbnails;
   final bool _ownsThumbnailCache;
-  final FileSystemGateway _files;
-  final MediaStoreService _mediaStore;
   final VisibleLibraryState _visibleState;
+  final VisibleLibrary _library;
 
   static const _cacheTtl = Duration(seconds: 45);
 
@@ -300,25 +306,6 @@ class GalleryService {
     if (_ownsThumbnailCache) _thumbnails.clear();
     _visibleState.dispose();
   }
-
-  RequestType _requestType(MediaKindFilter filter) {
-    return switch (filter) {
-      MediaKindFilter.image => RequestType.image,
-      MediaKindFilter.video => RequestType.video,
-    };
-  }
-
-  FilterOptionGroup get _filterOptions => FilterOptionGroup(
-        imageOption: const FilterOption(
-          sizeConstraint: SizeConstraint(ignoreSize: true),
-        ),
-        videoOption: const FilterOption(
-          sizeConstraint: SizeConstraint(ignoreSize: true),
-        ),
-        orders: [
-          const OrderOption(type: OrderOptionType.createDate, asc: false),
-        ],
-      );
 
   /// Loads the canonical poster used before and after a hide operation.
   Future<Uint8List?> mediaThumbnail(String assetId) =>
@@ -335,7 +322,7 @@ class GalleryService {
       );
 
   Future<PermissionState> requestPermission() {
-    return PhotoManager.requestPermissionExtend();
+    return _library.requestPermission();
   }
 
   Future<bool> hasPermission() async {
@@ -344,10 +331,10 @@ class GalleryService {
   }
 
   Future<PermissionState> permissionState() {
-    return PhotoManager.getPermissionState(
-      requestOption: const PermissionRequestOption(),
-    );
+    return _library.permissionState();
   }
+
+  Future<void> openSettings() => _library.openSettings();
 
   Future<void> clearFileCache() => _assets.clearFileCache();
 
@@ -406,14 +393,9 @@ class GalleryService {
         now.difference(_visibleState._pathCacheAt!) < _cacheTtl) {
       return cached;
     }
-    // hasAll: false — do not request the virtual Recent/All album at all.
-    // Visible is real device folders only (Camera, Screenshots, Downloads…).
-    final list = await PhotoManager.getAssetPathList(
-      type: _requestType(filter),
-      hasAll: false,
-      onlyAll: false,
-      filterOption: _filterOptions,
-    );
+    // Android keeps its real-folder-only query; iOS may expose a virtual All
+    // collection because PhotoKit albums do not map to filesystem folders.
+    final list = await _library.paths(filter);
     _visibleState._pathCache[filter] = list;
     _visibleState._pathCacheAt = now;
     return list;
@@ -472,21 +454,25 @@ class GalleryService {
   /// Fast folder list based on MediaStore counts and reconciled session state.
   Future<List<GalleryFolder>> listFolders(MediaKindFilter filter) async {
     final paths = await _paths(filter);
-    final rawCounts =
-        await Future.wait(paths.map((path) => path.assetCountAsync));
+    final rawCounts = await Future.wait(
+      paths.map(_library.assetCount),
+    );
 
     final folders = <GalleryFolder>[];
     for (var i = 0; i < paths.length; i++) {
       final path = paths[i];
       final folderName = path.name.isEmpty ? 'Album' : path.name;
-      // Never list virtual All/Recent albums — by flag or by display name.
-      // Previously `!path.isAll &&` exempted the isAll album, so devices that
-      // name it "Recent" still showed it on the Visible tab.
-      if (path.isAll || _isExcludedFolderName(folderName)) {
+      final isIncludedAll =
+          path.isAll && _library.capabilities.includesAllCollection;
+      // Android excludes virtual albums; PhotoKit's All collection is the
+      // explicit iOS entry point for assets that are not in a user album.
+      if ((!isIncludedAll && path.isAll) ||
+          (!isIncludedAll && _isExcludedFolderName(folderName))) {
         continue;
       }
       final raw = rawCounts[i];
-      final count = _visibleState._affectedPathIds.contains(path.id)
+      final count = _library.capabilities.filtersAssetTypesInDart ||
+              _visibleState._affectedPathIds.contains(path.id)
           ? await recountVisible(pathId: path.id, filter: filter)
           : raw;
       if (count <= 0) continue;
@@ -495,7 +481,7 @@ class GalleryService {
           id: path.id,
           name: folderName,
           count: count,
-          isAll: false,
+          isAll: isIncludedAll,
           coverEpoch: _visibleState._coverEpoch[path.id] ?? 0,
         ),
       );
@@ -525,7 +511,7 @@ class GalleryService {
     }
     if (path == null) return 0;
 
-    final total = await path.assetCountAsync;
+    final total = await _library.assetCount(path);
     if (total <= 0) return 0;
 
     var visible = 0;
@@ -533,10 +519,14 @@ class GalleryService {
     var page = 0;
     var seen = 0;
     while (seen < total) {
-      final assets = await path.getAssetListPaged(page: page, size: pageSize);
+      final assets = await _library.assetPage(
+        path,
+        page: page,
+        size: pageSize,
+      );
       if (assets.isEmpty) break;
       for (final a in assets) {
-        if (!_isExcluded(a)) visible++;
+        if (!_isExcluded(a) && _matchesFilter(a, filter)) visible++;
       }
       seen += assets.length;
       if (assets.length < pageSize) break;
@@ -562,10 +552,14 @@ class GalleryService {
       if (path == null) return null;
       const pageSize = 24;
       for (var page = 0; page < 8; page++) {
-        final assets = await path.getAssetListPaged(page: page, size: pageSize);
+        final assets = await _library.assetPage(
+          path,
+          page: page,
+          size: pageSize,
+        );
         if (assets.isEmpty) return null;
         for (final a in assets) {
-          if (_isExcluded(a)) continue;
+          if (_isExcluded(a) || !_matchesFilter(a, filter)) continue;
           final bytes = await mediaThumbnail(a.id);
           if (bytes != null) return bytes;
         }
@@ -594,12 +588,23 @@ class GalleryService {
     }
     if (path == null) return const [];
 
-    // Over-fetch a bit so filtering hidden items still fills a page.
-    final fetchSize = size + 40;
-    final assets = await path.getAssetListPaged(page: page, size: fetchSize);
+    // Android keeps its established over-fetch behavior. iOS scans raw mixed
+    // pages from the beginning so filtering media kinds cannot skip assets.
+    final assets = _library.capabilities.filtersAssetTypesInDart
+        ? await _filteredAssetPage(
+            path,
+            filter: filter,
+            page: page,
+            size: size,
+          )
+        : await _library.assetPage(
+            path,
+            page: page,
+            size: size + 40,
+          );
     final out = <GalleryAsset>[];
     for (final a in assets) {
-      if (_isExcluded(a)) continue;
+      if (_isExcluded(a) || !_matchesFilter(a, filter)) continue;
       final title = a.title ?? a.id;
       out.add(
         GalleryAsset(
@@ -615,6 +620,34 @@ class GalleryService {
     return out;
   }
 
+  Future<List<AssetEntity>> _filteredAssetPage(
+    AssetPathEntity path, {
+    required MediaKindFilter filter,
+    required int page,
+    required int size,
+  }) async {
+    final targetStart = page * size;
+    final out = <AssetEntity>[];
+    var matched = 0;
+    final rawPageSize = math.max(size + 40, 100);
+    for (var rawPage = 0;; rawPage++) {
+      final assets = await _library.assetPage(
+        path,
+        page: rawPage,
+        size: rawPageSize,
+      );
+      if (assets.isEmpty) break;
+      for (final asset in assets) {
+        if (_isExcluded(asset) || !_matchesFilter(asset, filter)) continue;
+        if (matched++ < targetStart) continue;
+        out.add(asset);
+        if (out.length >= size) return out;
+      }
+      if (assets.length < rawPageSize) break;
+    }
+    return out;
+  }
+
   Future<AssetEntity?> entity(String id) => AssetEntity.fromId(id);
 
   /// Resolve real filesystem paths for hide (not app-cache exports).
@@ -625,130 +658,31 @@ class GalleryService {
     if (assetIds.isEmpty) return const [];
     const concurrency = 6;
     final out = <ImportSource?>[];
-
-    Future<ImportSource?> one(String id) async {
-      try {
-        final info = await _assets.info(id).timeout(const Duration(seconds: 3));
-        if (info == null) return null;
-
-        final isVideo = info.isVideo;
-        final mime = info.mimeType ?? (isVideo ? 'video/mp4' : 'image/jpeg');
-
-        // Prefer native MediaStore DATA path (fast, no full file open).
-        final String? absPath =
-            await _mediaStore.resolveMediaPath(id: id, isVideo: isVideo);
-
-        String? resolvedPath;
-        if (absPath != null &&
-            absPath.isNotEmpty &&
-            await _files.exists(absPath)) {
-          resolvedPath = absPath;
-        } else {
-          // Short timeouts — skip rather than stall the batch.
-          try {
-            resolvedPath = (await _assets
-                    .entityFile(id)
-                    .timeout(const Duration(seconds: 4)))
-                ?.path;
-          } catch (e) {
-            debugPrint('entity.file timeout/fail $id: $e');
-          }
-          if (resolvedPath == null || !await _files.exists(resolvedPath)) {
-            try {
-              resolvedPath = (await _assets
-                      .originFile(id)
-                      .timeout(const Duration(seconds: 6)))
-                  ?.path;
-            } catch (e) {
-              debugPrint('originFile fail $id: $e');
-            }
-          }
-        }
-        if (resolvedPath == null || !await _files.exists(resolvedPath)) {
-          return null;
-        }
-        if (resolvedPath.startsWith('content:')) return null;
-        final path = resolvedPath;
-        final lower = path.toLowerCase();
-        if (lower.contains('/cache/') ||
-            lower.contains('/.thumbnails/') ||
-            lower.contains('/android/data/') ||
-            lower.contains('/app_flutter/')) {
-          debugPrint('PH_HIDE reject path $path');
-          return null;
-        }
-
-        var folder = sourceFolderName?.trim();
-        if (folder == null || folder.isEmpty) {
-          final rel = info.relativePath;
-          if (rel != null && rel.isNotEmpty) {
-            final parts = rel
-                .replaceAll('\\', '/')
-                .split('/')
-                .where((s) => s.isNotEmpty)
-                .toList();
-            folder = parts.isNotEmpty ? parts.last : null;
-          }
-        }
-        folder ??= p.basename(p.dirname(path));
-        if (folder.isEmpty) folder = 'Imported';
-        if (folder.toLowerCase() == 'download') folder = 'Downloads';
-
-        // Capture/create time only — never modified time (hide/unhide must not
-        // reshuffle "Newest first" vs system Gallery).
-        DateTime? dateTaken;
-        final createSec = await _assets.createDateSecond(id);
-        if (createSec != null && createSec > 0) {
-          dateTaken = DateTime.fromMillisecondsSinceEpoch(
-            createSec * 1000,
-            isUtc: true,
-          );
-        }
-        // Prefer native DATE_TAKEN / EXIF when photo_manager create is missing.
-        if (dateTaken == null) {
-          try {
-            final sec = await _mediaStore.resolveCaptureDateSec(
-              path: path,
-              mediaId: id,
-              isVideo: isVideo,
-            );
-            if (sec != null && sec > 0) {
-              dateTaken = DateTime.fromMillisecondsSinceEpoch(
-                sec * 1000,
-                isUtc: true,
-              );
-            }
-          } catch (error, stackTrace) {
-            debugPrint('resolve capture date $id: $error\n$stackTrace');
-          }
-        }
-
-        return ImportSource(
-          path: path,
-          name: info.title ?? p.basename(path),
-          mimeType: mime,
-          assetId: id,
-          sourceFolderName: folder,
-          dateTaken: dateTaken,
-        );
-      } catch (e) {
-        debugPrint('resolve $id: $e');
-        return null;
-      }
-    }
-
-    // Bounded parallelism keeps MediaStore responsive.
     for (var i = 0; i < assetIds.length; i += concurrency) {
       final chunk = assetIds.sublist(
         i,
         i + concurrency > assetIds.length ? assetIds.length : i + concurrency,
       );
-      final part = await Future.wait(chunk.map(one));
+      final part = await Future.wait(
+        chunk.map(
+          (id) => _library.resolveForHide(
+            id,
+            sourceFolderName: sourceFolderName,
+          ),
+        ),
+      );
       out.addAll(part);
     }
     return [
-      for (final s in out)
-        if (s != null) s,
+      for (final source in out)
+        if (source != null) source,
     ];
+  }
+
+  bool _matchesFilter(AssetEntity asset, MediaKindFilter filter) {
+    return switch (filter) {
+      MediaKindFilter.image => asset.type == AssetType.image,
+      MediaKindFilter.video => asset.type == AssetType.video,
+    };
   }
 }

@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
+
+import '../../application/platform/vault_workflow.dart';
 import '../../domain/models/media_item.dart';
 import '../repositories/album_repository.dart';
 import '../repositories/media_repository.dart';
@@ -26,7 +28,7 @@ export 'import/import_models.dart';
 /// Cancel is cooperative: checked between prep steps and **between native
 /// chunks**. A single in-flight native chunk cannot be aborted mid-call, so
 /// chunk size stays small enough that Cancel still feels responsive.
-class ImportService {
+class ImportService implements VaultWorkflow {
   ImportService({
     required VaultStorageService storage,
     required MediaRepository mediaRepository,
@@ -97,11 +99,13 @@ class ImportService {
   /// single bad video cannot stall the whole batch for minutes.
   static const int nativeBatchChunk = VaultRevealRunner.nativeBatchChunk;
 
+  @override
   Future<int> repairOutdatedVideoThumbnails() =>
       _thumbnailGenerator.repairOutdatedVideos();
 
   /// Generates and persists [item]'s poster on demand, returning its path.
   /// Used by the Invisible grid to fill videos hidden before generation ran.
+  @override
   Future<String?> ensureThumbnail(MediaItem item) =>
       _thumbnailGenerator.generateOne(
         ThumbnailJob(
@@ -111,6 +115,7 @@ class ImportService {
         ),
       );
 
+  @override
   Future<ImportProgress> importAll(
     List<ImportSource> sources, {
     void Function(ImportProgress progress)? onProgress,
@@ -352,6 +357,7 @@ class ImportService {
   }
 
   /// Unhide one item through the injected reveal pipeline.
+  @override
   Future<bool> reveal(
     MediaItem item, {
     bool clearGalleryCache = true,
@@ -365,6 +371,7 @@ class ImportService {
   }
 
   /// Batch unhide with chunk-level durability and cooperative cancellation.
+  @override
   Future<ImportProgress> revealAll(
     List<MediaItem> items, {
     void Function(ImportProgress progress)? onProgress,

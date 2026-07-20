@@ -20,6 +20,9 @@ class SettingsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final s = ref.watch(settingsControllerProvider);
     final lock = ref.watch(lockControllerProvider);
+    final privacyShield = ref.watch(privacyShieldProvider);
+    final externalPlaybackSupported =
+        ref.watch(externalPlayerGatewayProvider).supported;
     final appBuildInfo = ref.watch(appBuildInfoProvider);
     final versionAndPatch = [
       appBuildInfo.versionAndBuild,
@@ -104,19 +107,34 @@ class SettingsScreen extends ConsumerWidget {
             },
           ),
           SwitchListTile(
-            secondary: const Icon(Icons.screenshot_monitor_outlined),
-            title: Text(context.l10n.blockScreenshots),
+            secondary: Icon(
+              privacyShield.capabilities.screenshotsBlocked
+                  ? Icons.screenshot_monitor_outlined
+                  : Icons.privacy_tip_outlined,
+            ),
+            title: Text(
+              privacyShield.capabilities.screenshotsBlocked
+                  ? context.l10n.blockScreenshots
+                  : context.l10n.protectAppPreview,
+            ),
+            subtitle: privacyShield.capabilities.screenshotsBlocked
+                ? null
+                : Text(context.l10n.protectAppPreviewSubtitle),
             value: s.flagSecure,
             onChanged: (v) async {
               try {
-                await ref.read(secureWindowServiceProvider).setFlagSecure(v);
+                await ref.read(privacyShieldProvider).apply(v);
                 await notifier.setFlagSecure(v);
               } catch (e, stackTrace) {
-                debugPrint('FLAG_SECURE setting: $e\n$stackTrace');
+                debugPrint('privacy shield setting: $e\n$stackTrace');
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: Text(context.l10n.screenshotSettingFailed),
+                      content: Text(
+                        privacyShield.capabilities.screenshotsBlocked
+                            ? context.l10n.screenshotSettingFailed
+                            : context.l10n.privacySettingFailed,
+                      ),
                     ),
                   );
                 }
@@ -153,13 +171,20 @@ class SettingsScreen extends ConsumerWidget {
             },
           ),
           _SectionHeader(context.l10n.sectionPlayback),
-          SwitchListTile(
-            secondary: const Icon(Icons.open_in_new),
-            title: Text(context.l10n.preferExternalPlayer),
-            subtitle: Text(context.l10n.preferExternalPlayer),
-            value: s.playerExternal,
-            onChanged: notifier.setPlayerExternal,
-          ),
+          if (externalPlaybackSupported)
+            SwitchListTile(
+              secondary: const Icon(Icons.open_in_new),
+              title: Text(context.l10n.preferExternalPlayer),
+              subtitle: Text(context.l10n.preferExternalPlayer),
+              value: s.playerExternal,
+              onChanged: notifier.setPlayerExternal,
+            )
+          else
+            ListTile(
+              leading: const Icon(Icons.play_circle_outline),
+              title: Text(context.l10n.inAppPlayback),
+              subtitle: Text(context.l10n.externalPlaybackUnsupported),
+            ),
           ListTile(
             leading: const Icon(Icons.slideshow_outlined),
             title: Text(context.l10n.slideshowDelay),

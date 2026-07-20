@@ -502,6 +502,36 @@ abstract class AppLocalizations {
   /// **'Visible lists your photo or video folders. Grant permission to browse and hide them.'**
   String get allowGalleryAccessBody;
 
+  /// No description provided for @limitedPhotosAccess.
+  ///
+  /// In en, this message translates to:
+  /// **'Only selected Photos are available'**
+  String get limitedPhotosAccess;
+
+  /// No description provided for @mediaNotAvailableOffline.
+  ///
+  /// In en, this message translates to:
+  /// **'Original media is not available offline'**
+  String get mediaNotAvailableOffline;
+
+  /// No description provided for @sourceStillPresent.
+  ///
+  /// In en, this message translates to:
+  /// **'Private copy saved; source remains in Photos'**
+  String get sourceStillPresent;
+
+  /// No description provided for @privateCopyVerificationFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Private copy could not be verified'**
+  String get privateCopyVerificationFailed;
+
+  /// No description provided for @operationUnavailableOnPlatform.
+  ///
+  /// In en, this message translates to:
+  /// **'This action is unavailable on this platform'**
+  String get operationUnavailableOnPlatform;
+
   /// No description provided for @noPhotoFolders.
   ///
   /// In en, this message translates to:
@@ -1258,6 +1288,18 @@ abstract class AppLocalizations {
   /// **'FLAG_SECURE — hide content in recents'**
   String get blockScreenshotsSubtitle;
 
+  /// No description provided for @protectAppPreview.
+  ///
+  /// In en, this message translates to:
+  /// **'Protect app preview'**
+  String get protectAppPreview;
+
+  /// No description provided for @protectAppPreviewSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Hides app-switcher content; screenshots remain possible'**
+  String get protectAppPreviewSubtitle;
+
   /// No description provided for @mediaGridColumns.
   ///
   /// In en, this message translates to:
@@ -1275,6 +1317,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Prefer external player'**
   String get preferExternalPlayer;
+
+  /// No description provided for @inAppPlayback.
+  ///
+  /// In en, this message translates to:
+  /// **'In-app playback'**
+  String get inAppPlayback;
+
+  /// No description provided for @externalPlaybackUnsupported.
+  ///
+  /// In en, this message translates to:
+  /// **'External playback is unavailable'**
+  String get externalPlaybackUnsupported;
 
   /// No description provided for @shuffleByDefault.
   ///
@@ -1444,6 +1498,12 @@ abstract class AppLocalizations {
   /// **'Download and restart now?'**
   String get updateDownloadPrompt;
 
+  /// No description provided for @updateDownloadRelaunchPrompt.
+  ///
+  /// In en, this message translates to:
+  /// **'Download now? Reopen Privi to apply it.'**
+  String get updateDownloadRelaunchPrompt;
+
   /// No description provided for @appReleasePrompt.
   ///
   /// In en, this message translates to:
@@ -1479,6 +1539,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Restart failed. Reopen Privi.'**
   String get updateRestartFailed;
+
+  /// No description provided for @updateRelaunchRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Update downloaded. Reopen Privi to apply it.'**
+  String get updateRelaunchRequired;
 
   /// No description provided for @updatesUnavailable.
   ///
@@ -1863,6 +1929,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Could not update screenshot protection'**
   String get screenshotSettingFailed;
+
+  /// No description provided for @privacySettingFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not update app preview protection'**
+  String get privacySettingFailed;
 
   /// No description provided for @noOrphanVaultFiles.
   ///

@@ -27,6 +27,9 @@ final class GithubAppReleaseSource implements AppReleaseSource {
   final http.Client _client;
 
   @override
+  bool get supported => true;
+
+  @override
   Future<AppRelease> readLatestRelease() async {
     final response = await _client.get(
       latestReleaseUri,

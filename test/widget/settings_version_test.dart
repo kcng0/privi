@@ -72,6 +72,35 @@ void main() {
     expect(find.text('Restart failed. Reopen Privi.'), findsNothing);
   });
 
+  testWidgets('manual-relaunch platforms never request an automatic restart',
+      (tester) async {
+    final service = _FakeAppUpdateService(
+      status: AppUpdateStatus.hotUpdateAvailable,
+    );
+    final restart = _FakeAppRestartService(
+      automaticRestartSupported: false,
+    );
+    await _pumpSettings(tester, service, appRestartService: restart);
+    await tester.scrollUntilVisible(find.text('Check updates'), 500);
+
+    await tester.tap(find.text('Check updates'));
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(
+      find.text('Download now? Reopen Privi to apply it.'),
+      findsOneWidget,
+    );
+    await tester.tap(find.widgetWithText(FilledButton, 'Update'));
+    await tester.pumpAndSettle();
+
+    expect(service.downloadCalls, 1);
+    expect(restart.restartCalls, 0);
+    expect(
+      find.text('Update downloaded. Reopen Privi to apply it.'),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('ready update restarts without downloading again',
       (tester) async {
     final service = _FakeAppUpdateService(
@@ -264,9 +293,11 @@ class _FakeExternalUrlLauncher implements ExternalUrlLauncher {
 }
 
 class _FakeAppRestartService implements AppRestartService {
-  _FakeAppRestartService({this.error});
+  _FakeAppRestartService({this.error, this.automaticRestartSupported = true});
 
   final Object? error;
+  @override
+  final bool automaticRestartSupported;
   int restartCalls = 0;
 
   @override

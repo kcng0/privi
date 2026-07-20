@@ -18,7 +18,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.memory() : super(NativeDatabase.memory());
 
   @override
-  int get schemaVersion => 6;
+  int get schemaVersion => 7;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -45,6 +45,9 @@ class AppDatabase extends _$AppDatabase {
           if (from < 6) {
             await _ensureAlbumOrganizerSchema();
           }
+          if (from < 7) {
+            await _ensureSourceMetadataSchema();
+          }
         },
         beforeOpen: (details) async {
           await customStatement('PRAGMA foreign_keys = ON');
@@ -54,11 +57,15 @@ class AppDatabase extends _$AppDatabase {
           final repairedOriginalPath = await _ensureOriginalPathColumn();
           final repairedPinnedAt = await _ensureAlbumPinnedAtColumn();
           final repairedOrganizer = await _ensureAlbumOrganizerSchema();
-          if (repairedOriginalPath || repairedPinnedAt || repairedOrganizer) {
+          final repairedSourceMetadata = await _ensureSourceMetadataSchema();
+          if (repairedOriginalPath ||
+              repairedPinnedAt ||
+              repairedOrganizer ||
+              repairedSourceMetadata) {
             debugPrint(
-              'Database v6 safety repair applied: '
+              'Database v7 safety repair applied: '
               'original_path=$repairedOriginalPath, pinned_at=$repairedPinnedAt, '
-              'organizer=$repairedOrganizer',
+              'organizer=$repairedOrganizer, source_metadata=$repairedSourceMetadata',
             );
           }
           await _createPerfIndexes();
@@ -112,6 +119,32 @@ class AppDatabase extends _$AppDatabase {
       'sort_index INTEGER NULL, '
       'PRIMARY KEY(id))',
     );
+    return changed;
+  }
+
+  Future<bool> _ensureSourceMetadataSchema() async {
+    var changed = false;
+    final names = await _columnNames('media_items');
+    if (!names.contains('source_platform_id')) {
+      await customStatement(
+        'ALTER TABLE media_items ADD COLUMN source_platform_id TEXT NULL',
+      );
+      changed = true;
+    }
+    if (!names.contains('source_removal_pending')) {
+      await customStatement(
+        'ALTER TABLE media_items '
+        'ADD COLUMN source_removal_pending INTEGER NOT NULL DEFAULT 0 '
+        'CHECK (source_removal_pending IN (0, 1))',
+      );
+      changed = true;
+    }
+    if (!names.contains('content_digest')) {
+      await customStatement(
+        'ALTER TABLE media_items ADD COLUMN content_digest TEXT NULL',
+      );
+      changed = true;
+    }
     return changed;
   }
 
@@ -217,6 +250,20 @@ class AppDatabase extends _$AppDatabase {
   Future<MediaItemRow?> getMediaById(String id) =>
       (select(mediaItems)..where((t) => t.id.equals(id))).getSingleOrNull();
 
+  Future<MediaItemRow?> findMediaBySourcePlatformId(String sourcePlatformId) {
+    return (select(mediaItems)
+          ..where((t) => t.sourcePlatformId.equals(sourcePlatformId))
+          ..limit(1))
+        .getSingleOrNull();
+  }
+
+  Future<MediaItemRow?> findMediaByContentDigest(String contentDigest) {
+    return (select(mediaItems)
+          ..where((t) => t.contentDigest.equals(contentDigest))
+          ..limit(1))
+        .getSingleOrNull();
+  }
+
   Future<void> updateMediaRating(String id, int rating) {
     return (update(mediaItems)..where((t) => t.id.equals(id))).write(
       MediaItemsCompanion(rating: Value(rating.clamp(0, 3))),
@@ -226,6 +273,21 @@ class AppDatabase extends _$AppDatabase {
   Future<void> updateMediaThumbnail(String id, String? thumbnailPath) {
     return (update(mediaItems)..where((t) => t.id.equals(id))).write(
       MediaItemsCompanion(thumbnailPath: Value(thumbnailPath)),
+    );
+  }
+
+  Future<void> updateMediaSourceMetadata(
+    String id, {
+    String? sourcePlatformId,
+    required bool sourceRemovalPending,
+    String? contentDigest,
+  }) {
+    return (update(mediaItems)..where((t) => t.id.equals(id))).write(
+      MediaItemsCompanion(
+        sourcePlatformId: Value(sourcePlatformId),
+        sourceRemovalPending: Value(sourceRemovalPending),
+        contentDigest: Value(contentDigest),
+      ),
     );
   }
 

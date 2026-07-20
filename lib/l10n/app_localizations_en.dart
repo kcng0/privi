@@ -226,6 +226,25 @@ class AppLocalizationsEn extends AppLocalizations {
       'Visible lists your photo or video folders. Grant permission to browse and hide them.';
 
   @override
+  String get limitedPhotosAccess => 'Only selected Photos are available';
+
+  @override
+  String get mediaNotAvailableOffline =>
+      'Original media is not available offline';
+
+  @override
+  String get sourceStillPresent =>
+      'Private copy saved; source remains in Photos';
+
+  @override
+  String get privateCopyVerificationFailed =>
+      'Private copy could not be verified';
+
+  @override
+  String get operationUnavailableOnPlatform =>
+      'This action is unavailable on this platform';
+
+  @override
   String get noPhotoFolders => 'No photo folders found';
 
   @override
@@ -656,6 +675,13 @@ class AppLocalizationsEn extends AppLocalizations {
       'FLAG_SECURE — hide content in recents';
 
   @override
+  String get protectAppPreview => 'Protect app preview';
+
+  @override
+  String get protectAppPreviewSubtitle =>
+      'Hides app-switcher content; screenshots remain possible';
+
+  @override
   String get mediaGridColumns => 'Default grid columns';
 
   @override
@@ -663,6 +689,12 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get preferExternalPlayer => 'Prefer external player';
+
+  @override
+  String get inAppPlayback => 'In-app playback';
+
+  @override
+  String get externalPlaybackUnsupported => 'External playback is unavailable';
 
   @override
   String get shuffleByDefault => 'Shuffle by default';
@@ -757,6 +789,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get updateDownloadPrompt => 'Download and restart now?';
 
   @override
+  String get updateDownloadRelaunchPrompt =>
+      'Download now? Reopen Privi to apply it.';
+
+  @override
   String appReleasePrompt(String version) {
     return 'Privi $version is available on GitHub.';
   }
@@ -775,6 +811,10 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get updateRestartFailed => 'Restart failed. Reopen Privi.';
+
+  @override
+  String get updateRelaunchRequired =>
+      'Update downloaded. Reopen Privi to apply it.';
 
   @override
   String get updatesUnavailable => 'Updates unavailable';
@@ -988,6 +1028,9 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get screenshotSettingFailed =>
       'Could not update screenshot protection';
+
+  @override
+  String get privacySettingFailed => 'Could not update app preview protection';
 
   @override
   String get noOrphanVaultFiles => 'No vault files found';

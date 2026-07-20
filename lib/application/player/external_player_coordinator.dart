@@ -15,10 +15,13 @@ final class ExternalPlayerCoordinator {
   final ExternalPlayerGateway _player;
   final LockController _lock;
 
+  bool get supported => _player.supported;
+
   Future<bool> open({
     required String filePath,
     required String mimeType,
   }) async {
+    if (!_player.supported) return false;
     _lock.beginExternalPlayerHandoff();
     try {
       final launched = await _player.open(

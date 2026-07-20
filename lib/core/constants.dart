@@ -74,6 +74,9 @@ abstract final class VaultPaths {
   /// App-private thumbs/metadata (documents dir).
   static const String vaultDir = 'vault';
   static const String thumbsDir = 'thumbs';
+  static const String mediaDir = 'media';
+  static const String stagingDir = 'staging';
+  static const String shareStagingDir = 'share_staging';
   static const String nomedia = '.nomedia';
 
   /// Shared-storage hide root (dot folder + .nomedia).

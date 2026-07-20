@@ -1,4 +1,6 @@
 abstract interface class ExternalPlayerGateway {
+  bool get supported;
+
   Future<bool> open({
     required String filePath,
     required String mimeType,

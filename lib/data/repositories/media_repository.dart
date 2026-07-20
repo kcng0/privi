@@ -63,6 +63,9 @@ class MediaRepository {
       sizeBytes: item.sizeBytes,
       thumbnailPath: Value(item.thumbnailPath),
       deletedAt: Value(item.deletedAt),
+      sourcePlatformId: Value(item.sourcePlatformId),
+      sourceRemovalPending: Value(item.sourceRemovalPending),
+      contentDigest: Value(item.contentDigest),
     );
   }
 
@@ -74,6 +77,19 @@ class MediaRepository {
 
   Future<void> updateThumbnail(String id, String? thumbnailPath) =>
       _db.updateMediaThumbnail(id, thumbnailPath);
+
+  Future<void> updateSourceMetadata(
+    String id, {
+    String? sourcePlatformId,
+    required bool sourceRemovalPending,
+    String? contentDigest,
+  }) =>
+      _db.updateMediaSourceMetadata(
+        id,
+        sourcePlatformId: sourcePlatformId,
+        sourceRemovalPending: sourceRemovalPending,
+        contentDigest: contentDigest,
+      );
 
   Future<void> updateDates(
     String id, {
@@ -150,6 +166,21 @@ class MediaRepository {
   Future<bool> existsByPrivatePath(String path) =>
       _db.existsByPrivatePath(path);
 
+  Future<MediaItem?> findBySourcePlatformId(String sourcePlatformId) async {
+    final row = await _db.findMediaBySourcePlatformId(sourcePlatformId);
+    return row == null ? null : _map(row);
+  }
+
+  Future<MediaItem?> findByContentDigest(String contentDigest) async {
+    final row = await _db.findMediaByContentDigest(contentDigest);
+    return row == null ? null : _map(row);
+  }
+
+  Future<MediaItem?> findById(String id) async {
+    final row = await _db.getMediaById(id);
+    return row == null ? null : _map(row);
+  }
+
   MediaItem _map(MediaItemRow r) => MediaItem(
         id: r.id,
         privatePath: r.privatePath,
@@ -166,6 +197,9 @@ class MediaRepository {
         sizeBytes: r.sizeBytes,
         thumbnailPath: r.thumbnailPath,
         deletedAt: r.deletedAt,
+        sourcePlatformId: r.sourcePlatformId,
+        sourceRemovalPending: r.sourceRemovalPending,
+        contentDigest: r.contentDigest,
       );
 
   List<MediaItem> _mapList(List<MediaItemRow> rows) =>

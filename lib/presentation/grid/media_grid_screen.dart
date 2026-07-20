@@ -109,11 +109,12 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
     final preferExternal = ref.read(settingsControllerProvider).playerExternal;
 
     // Videos: prefer system app chooser when setting is on (default true).
-    if (item.isVideo && preferExternal) {
-      final ok = await ref.read(externalPlayerCoordinatorProvider).open(
-            filePath: item.privatePath,
-            mimeType: item.mimeType,
-          );
+    final external = ref.read(externalPlayerCoordinatorProvider);
+    if (item.isVideo && preferExternal && external.supported) {
+      final ok = await external.open(
+        filePath: item.privatePath,
+        mimeType: item.mimeType,
+      );
       if (ok) return;
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

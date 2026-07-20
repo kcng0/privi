@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:photo_manager/photo_manager.dart';
+import 'package:photo_manager/photo_manager.dart' show PermissionStateExt;
 
 import '../../application/gallery/gallery_controller.dart';
 import '../../application/import/import_controller.dart';
@@ -12,10 +12,10 @@ import '../../core/constants.dart';
 import '../../core/l10n.dart';
 import '../../core/theme/vault_colors.dart';
 import '../../data/services/import/import_models.dart';
-import '../../data/services/media_rename_service.dart';
 import '../../domain/enums.dart';
 import '../common/vault_sheet.dart';
 import '../import/import_progress_sheet.dart';
+import '../import/import_result_message.dart';
 import 'folder_cover_cache.dart';
 import 'visible_media_grid.dart';
 
@@ -76,6 +76,7 @@ class _VisibleFolderGridState extends ConsumerState<VisibleFolderGrid>
     final folders = ref.watch(galleryFoldersProvider);
     final filter = ref.watch(mediaKindFilterProvider);
     final viewMode = ref.watch(visibleFolderViewPreferencesProvider);
+    final visibleCapabilities = ref.watch(visibleLibraryProvider).capabilities;
     // Same Style setting as Invisible home mosaic (home ⋮ → Style).
     final cols = ref.watch(settingsControllerProvider).albumColumns;
 
@@ -89,7 +90,7 @@ class _VisibleFolderGridState extends ConsumerState<VisibleFolderGrid>
         if (!(state.isAuth || state.hasAccess)) {
           return _PermDenied(
             onRequest: () async {
-              await PhotoManager.openSetting();
+              await ref.read(galleryServiceProvider).openSettings();
               // When user returns, didChangeAppLifecycleState(resumed) refreshes.
               // Also invalidate now so a fast grant without full pause still works.
               _refreshPermissionAndFolders();
@@ -100,7 +101,7 @@ class _VisibleFolderGridState extends ConsumerState<VisibleFolderGrid>
               _refreshPermissionAndFolders();
               // If still denied after system sheet, open Settings once.
               if (!(next.isAuth || next.hasAccess)) {
-                await PhotoManager.openSetting();
+                await ref.read(galleryServiceProvider).openSettings();
               }
             },
           );
@@ -189,14 +190,15 @@ class _VisibleFolderGridState extends ConsumerState<VisibleFolderGrid>
                     },
                   );
 
-            return RefreshIndicator(
+            final galleryContent = RefreshIndicator(
               color: Theme.of(context).colorScheme.primary,
               onRefresh: () async {
                 FolderCoverCache.clear();
                 final gallery = ref.read(galleryServiceProvider);
                 gallery.apply(const VisibleFilterChanged());
                 try {
-                  await PhotoManager.clearFileCache()
+                  await gallery
+                      .clearFileCache()
                       .timeout(const Duration(seconds: 2));
                 } catch (_) {}
                 // Accurate recount per folder (single-album scans) so counts
@@ -220,6 +222,25 @@ class _VisibleFolderGridState extends ConsumerState<VisibleFolderGrid>
                 await ref.read(galleryFoldersProvider.future);
               },
               child: content,
+            );
+            if (!state.isLimited ||
+                !visibleCapabilities.showsLimitedAccessNotice) {
+              return galleryContent;
+            }
+            return Column(
+              children: [
+                MaterialBanner(
+                  content: Text(context.l10n.limitedPhotosAccess),
+                  actions: [
+                    TextButton(
+                      onPressed: () =>
+                          ref.read(galleryServiceProvider).openSettings(),
+                      child: Text(context.l10n.openSettings),
+                    ),
+                  ],
+                ),
+                Expanded(child: galleryContent),
+              ],
             );
           },
         );
@@ -276,9 +297,9 @@ Future<void> _hideFolder({
   );
   if (choice != 'hide' || !context.mounted) return;
 
-  final renamer = MediaRenameService();
-  final hasAllFiles = await renamer.isExternalStorageManager();
-  if (!hasAllFiles) {
+  final vaultAccess = ref.read(vaultAccessProvider);
+  final vaultReady = await vaultAccess.isReady();
+  if (!vaultReady && vaultAccess.requiresUserGrant) {
     if (!context.mounted) return;
     final go = await showDialog<bool>(
       context: context,
@@ -297,7 +318,7 @@ Future<void> _hideFolder({
         ],
       ),
     );
-    if (go == true) await renamer.openManageAllFilesSettings();
+    if (go == true) await vaultAccess.openSettings();
     return;
   }
   if (!context.mounted) return;
@@ -412,6 +433,12 @@ Future<void> _hideFolder({
       }
       if (summary.failed > 0) {
         msg.write(' · ${context.l10n.failedItems(summary.failed)}');
+      }
+      if (summary.errorCode == ImportErrorCode.needManageStorage) {
+        msg.write(' · ${context.l10n.permissionNeeded}');
+      } else {
+        final detail = importOutcomeDetail(context, summary.errorCode);
+        if (detail != null) msg.write(' · $detail');
       }
       messenger.showSnackBar(SnackBar(content: Text(msg.toString())));
     }

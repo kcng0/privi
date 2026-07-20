@@ -83,7 +83,8 @@ privi 是一个纯本地的 Android 私密媒体保险库（Flutter 个人应用
 ## 当前边界
 
 - 做：单机 Android、本地元数据、目录级备份/恢复。
-- 不做：云同步；iOS 发布；Visible 文件夹的应用侧元数据（评分/自定义顺序等）。
+- 不做：云同步；当前版本不做 iOS 发布；Visible 文件夹的应用侧元数据（评分/自定义顺序等）。
+- iOS 适配审计：见 `docs/05-review/ios-platform-compatibility-audit.md`；审计结论是 Flutter 业务层可复用，但当前 Android D5 隐藏、PhotoKit 权限、分享扩展、隐私保护、外部播放与发布链尚未形成 iOS 实现。
 
 ## 关键考量
 

@@ -8,6 +8,9 @@ final class PlatformAppRestartService implements AppRestartService {
   const PlatformAppRestartService();
 
   @override
+  bool get automaticRestartSupported => true;
+
+  @override
   Future<void> restart() async {
     final result = await Restart.restartApp(mode: RestartMode.process);
     if (result.success) return;

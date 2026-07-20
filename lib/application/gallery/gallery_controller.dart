@@ -19,6 +19,7 @@ final galleryServiceProvider = Provider<GalleryService>((ref) {
   final service = GalleryService(
     assetGateway: ref.watch(assetGatewayProvider),
     thumbnailCache: ref.watch(mediaThumbnailCacheProvider),
+    library: ref.watch(visibleLibraryProvider),
   );
   ref.onDispose(service.dispose);
   return service;

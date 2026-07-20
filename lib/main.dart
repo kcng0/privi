@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -11,10 +12,16 @@ import 'package:shorebird_code_push/shorebird_code_push.dart';
 import 'app.dart';
 import 'application/providers.dart';
 import 'application/settings/settings_controller.dart';
+import 'application/update/app_release_source.dart';
+import 'application/update/app_restart_service.dart';
 import 'application/update/app_update_coordinator.dart';
+import 'application/update/external_url_launcher.dart';
 import 'core/app_build_info.dart';
 import 'data/services/android_external_url_launcher.dart';
 import 'data/services/github_app_release_source.dart';
+import 'data/services/ios_app_release_source.dart';
+import 'data/services/ios_app_restart_service.dart';
+import 'data/services/ios_external_url_launcher.dart';
 import 'data/services/platform_app_restart_service.dart';
 import 'data/services/shorebird_app_update_service.dart';
 
@@ -25,13 +32,21 @@ Future<void> main() async {
   final hotUpdateService = ShorebirdAppUpdateService(
     updater: ShorebirdUpdater(),
   );
+  final currentVersion = Version.parse(packageInfo.version);
+  final AppReleaseSource releaseSource = Platform.isIOS
+      ? const IosAppReleaseSource()
+      : GithubAppReleaseSource(client: http.Client());
   final appUpdateService = AppUpdateCoordinator(
-    currentVersion: Version.parse(packageInfo.version),
-    releaseSource: GithubAppReleaseSource(client: http.Client()),
+    currentVersion: currentVersion,
+    releaseSource: releaseSource,
     hotUpdates: hotUpdateService,
   );
-  const appRestartService = PlatformAppRestartService();
-  const externalUrlLauncher = AndroidExternalUrlLauncher();
+  final AppRestartService appRestartService = Platform.isIOS
+      ? const IosAppRestartService()
+      : const PlatformAppRestartService();
+  final ExternalUrlLauncher externalUrlLauncher = Platform.isIOS
+      ? const IosExternalUrlLauncher()
+      : const AndroidExternalUrlLauncher();
   final appBuildInfo = AppBuildInfo(
     version: packageInfo.version,
     buildNumber: packageInfo.buildNumber,
@@ -52,7 +67,16 @@ Future<void> main() async {
   final settings = container.read(settingsControllerProvider);
 
   if (settings.flagSecure) {
-    await container.read(secureWindowServiceProvider).setFlagSecure(true);
+    try {
+      final capabilities =
+          await container.read(privacyShieldProvider).apply(true);
+      if (!capabilities.appSwitcherProtected) {
+        debugPrint('privacy shield unavailable: ${capabilities.diagnostic}');
+      }
+    } catch (error, stackTrace) {
+      debugPrint('privacy shield startup failed: $error\n$stackTrace');
+      rethrow;
+    }
   }
 
   WidgetsBinding.instance.addPostFrameCallback((_) {

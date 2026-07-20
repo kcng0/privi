@@ -21,6 +21,16 @@ class MediaItems extends Table {
   TextColumn get thumbnailPath => text().nullable()();
   DateTimeColumn get deletedAt => dateTime().nullable()();
 
+  /// Opaque source identity; iOS stores the PhotoKit localIdentifier here.
+  TextColumn get sourcePlatformId => text().nullable()();
+
+  /// A verified vault copy whose system-library source still exists.
+  BoolColumn get sourceRemovalPending =>
+      boolean().withDefault(const Constant(false))();
+
+  /// SHA-256 of the verified private media bytes.
+  TextColumn get contentDigest => text().nullable()();
+
   @override
   Set<Column<Object>> get primaryKey => {id};
 }
