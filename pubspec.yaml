@@ -5,7 +5,7 @@ description: >-
   playlist playback (built-in or VLC), and pattern/PIN + biometric lock.
   Dark theme only. MIT license.
 publish_to: "none" # personal app — never published to pub.dev
-version: 1.0.16+21
+version: 1.0.17+22
 
 # NOTE: version constraints below are sensible starting points. Run
 #   flutter pub get   (then optionally `flutter pub upgrade --major-versions`)
