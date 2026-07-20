@@ -6,6 +6,7 @@ import '../../domain/models/media_item.dart';
 import '../../domain/models/playlist.dart';
 import '../settings/settings_controller.dart';
 import 'external_player_coordinator.dart';
+import 'external_player_gateway.dart';
 
 class PlayerUiState {
   const PlayerUiState({
@@ -108,6 +109,14 @@ class PlayerController extends Notifier<PlayerUiState> {
   /// Called when built-in video finishes or slideshow timer fires.
   Future<void> onItemCompleted() async {
     if (!state.playing) return;
+    await next();
+  }
+
+  /// Advances only when the active playlist item was handed to an external
+  /// player and that player confirmed a natural completion.
+  Future<void> onExternalPlayerReturned(ExternalPlayerReturn result) async {
+    if (!state.externalHandedOff) return;
+    if (result != ExternalPlayerReturn.completed) return;
     await next();
   }
 

@@ -1,5 +1,6 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:privi/application/player/external_player_gateway.dart';
 import 'package:privi/data/services/intent_service.dart';
 
 void main() {
@@ -58,11 +59,16 @@ void main() {
     });
   });
 
-  test('clean return signal can only be consumed once', () async {
+  test('VLC completion return can only be consumed once', () async {
     final gateway = MethodChannelExternalPlayerGateway(channel: channel);
     addTearDown(gateway.dispose);
     final call = const StandardMethodCodec().encodeMethodCall(
-      const MethodCall('intent_returned_cleanly'),
+      const MethodCall('external_player_returned', {
+        'resultCode': -1,
+        'completionSupported': true,
+        'positionMs': 119500,
+        'durationMs': 120000,
+      }),
     );
 
     await messenger.handlePlatformMessage(
@@ -71,7 +77,117 @@ void main() {
       (ByteData? _) {},
     );
 
-    expect(gateway.takeCleanReturn(), isTrue);
-    expect(gateway.takeCleanReturn(), isFalse);
+    expect(gateway.takeReturn(), ExternalPlayerReturn.completed);
+    expect(gateway.takeReturn(), isNull);
+  });
+
+  test('early VLC Back is an interrupted return', () async {
+    final gateway = MethodChannelExternalPlayerGateway(channel: channel);
+    addTearDown(gateway.dispose);
+    final call = const StandardMethodCodec().encodeMethodCall(
+      const MethodCall('external_player_returned', {
+        'resultCode': -1,
+        'completionSupported': true,
+        'positionMs': 45000,
+        'durationMs': 120000,
+      }),
+    );
+
+    await messenger.handlePlatformMessage(
+      MethodChannelExternalPlayerGateway.channelName,
+      call,
+      (ByteData? _) {},
+    );
+
+    expect(gateway.takeReturn(), ExternalPlayerReturn.interrupted);
+  });
+
+  test('VLC reset-at-end result uses tracked playback duration', () async {
+    final gateway = MethodChannelExternalPlayerGateway(channel: channel);
+    addTearDown(gateway.dispose);
+    final call = const StandardMethodCodec().encodeMethodCall(
+      const MethodCall('external_player_returned', {
+        'resultCode': -1,
+        'completionSupported': true,
+        'positionMs': 0,
+        'durationMs': 0,
+        'expectedDurationMs': 120000,
+        'elapsedMs': 121000,
+      }),
+    );
+
+    await messenger.handlePlatformMessage(
+      MethodChannelExternalPlayerGateway.channelName,
+      call,
+      (ByteData? _) {},
+    );
+
+    expect(gateway.takeReturn(), ExternalPlayerReturn.completed);
+  });
+
+  test('Back during VLC startup does not look like reset-at-end', () async {
+    final gateway = MethodChannelExternalPlayerGateway(channel: channel);
+    addTearDown(gateway.dispose);
+    final call = const StandardMethodCodec().encodeMethodCall(
+      const MethodCall('external_player_returned', {
+        'resultCode': -1,
+        'completionSupported': true,
+        'positionMs': 0,
+        'durationMs': 0,
+        'expectedDurationMs': 120000,
+        'elapsedMs': 1000,
+      }),
+    );
+
+    await messenger.handlePlatformMessage(
+      MethodChannelExternalPlayerGateway.channelName,
+      call,
+      (ByteData? _) {},
+    );
+
+    expect(gateway.takeReturn(), ExternalPlayerReturn.interrupted);
+  });
+
+  test('return without VLC completion metadata is interrupted', () async {
+    final gateway = MethodChannelExternalPlayerGateway(channel: channel);
+    addTearDown(gateway.dispose);
+    final call = const StandardMethodCodec().encodeMethodCall(
+      const MethodCall('external_player_returned', {
+        'resultCode': 0,
+        'completionSupported': true,
+      }),
+    );
+
+    await messenger.handlePlatformMessage(
+      MethodChannelExternalPlayerGateway.channelName,
+      call,
+      (ByteData? _) {},
+    );
+
+    expect(gateway.takeReturn(), ExternalPlayerReturn.interrupted);
+  });
+
+  test('completion-shaped metadata from an unknown player is interrupted',
+      () async {
+    final gateway = MethodChannelExternalPlayerGateway(channel: channel);
+    addTearDown(gateway.dispose);
+    final call = const StandardMethodCodec().encodeMethodCall(
+      const MethodCall('external_player_returned', {
+        'resultCode': -1,
+        'completionSupported': false,
+        'positionMs': 119500,
+        'durationMs': 120000,
+        'expectedDurationMs': 120000,
+        'elapsedMs': 121000,
+      }),
+    );
+
+    await messenger.handlePlatformMessage(
+      MethodChannelExternalPlayerGateway.channelName,
+      call,
+      (ByteData? _) {},
+    );
+
+    expect(gateway.takeReturn(), ExternalPlayerReturn.interrupted);
   });
 }

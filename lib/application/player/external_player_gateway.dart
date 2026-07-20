@@ -1,3 +1,14 @@
+/// Outcome reported when an external media activity returns to Privi.
+enum ExternalPlayerReturn {
+  /// The player supplied position/duration values showing the item reached
+  /// the end of playback.
+  completed,
+
+  /// The activity returned before a confirmed natural completion (including
+  /// Back, Home/app switching, or a player without completion metadata).
+  interrupted,
+}
+
 abstract interface class ExternalPlayerGateway {
   bool get supported;
 
@@ -6,7 +17,7 @@ abstract interface class ExternalPlayerGateway {
     required String mimeType,
   });
 
-  /// Consumes the one-shot signal emitted when Android receives an activity
+  /// Consumes the one-shot result emitted when Android receives an activity
   /// result from the external player.
-  bool takeCleanReturn();
+  ExternalPlayerReturn? takeReturn();
 }

@@ -694,6 +694,18 @@ class VaultFileHandler(
             viewIntent,
             PackageManager.MATCH_DEFAULT_ONLY,
         )
+        // VLC exposes its playback position/duration in the activity result.
+        // Target it directly for videos so the Dart side can safely classify
+        // natural completion; images continue through the normal chooser.
+        if (mimeType.startsWith("video/", ignoreCase = true) &&
+            matches.any { it.activityInfo?.packageName == VLC_PACKAGE }
+        ) {
+            viewIntent.setPackage(VLC_PACKAGE)
+        }
         return viewIntent.takeIf { matches.isNotEmpty() }
+    }
+
+    private companion object {
+        const val VLC_PACKAGE = "org.videolan.vlc"
     }
 }
