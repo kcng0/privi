@@ -50,6 +50,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   @override
   void initState() {
     super.initState();
+    _playbackSpeed = ref.read(settingsControllerProvider).playerPlaybackSpeed;
     unawaited(VideoSystemUi.apply(false));
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(playerControllerProvider.notifier).start(
@@ -110,6 +111,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
   void _setPlaybackSpeed(double speed) {
     setState(() => _playbackSpeed = speed);
+    unawaited(
+      ref
+          .read(settingsControllerProvider.notifier)
+          .setPlayerPlaybackSpeed(speed),
+    );
     final video = _video;
     if (video != null) unawaited(video.setPlaybackSpeed(speed));
   }
@@ -601,6 +607,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
             value: value,
             landscape: landscape,
             fitMode: _fitMode,
+            title: ui.current?.originalName,
+            playlistPosition: playlist?.positionDisplay,
+            playlistLength: playlist?.length,
             hasPrevious: playlist?.hasPrev == true,
             hasNext: playlist?.hasNext == true,
             onPrevious: () => unawaited(

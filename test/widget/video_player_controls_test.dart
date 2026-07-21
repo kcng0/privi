@@ -93,6 +93,9 @@ void main() {
               value: value,
               landscape: true,
               fitMode: VideoFitMode.fit,
+              title: 'clip-03.mp4',
+              playlistPosition: 3,
+              playlistLength: 25,
               hasPrevious: true,
               hasNext: true,
               onPrevious: () {},
@@ -110,6 +113,8 @@ void main() {
 
     expect(find.text('0:15'), findsNothing);
     expect(find.text('2:00'), findsNothing);
+    expect(find.text('clip-03.mp4'), findsOneWidget);
+    expect(find.text('3/25'), findsOneWidget);
     expect(find.byIcon(Icons.skip_previous), findsOneWidget);
     expect(find.byIcon(Icons.pause), findsOneWidget);
     expect(find.byIcon(Icons.skip_next), findsOneWidget);
@@ -121,6 +126,7 @@ void main() {
 
   testWidgets('player settings remain usable on a short landscape screen',
       (tester) async {
+    double? selectedSpeed;
     tester.view.physicalSize = const Size(480, 240);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -139,7 +145,7 @@ void main() {
                   seekSeconds: 3,
                   onSeekSecondsChanged: (_) {},
                   playbackSpeed: 1,
-                  onPlaybackSpeedChanged: (_) {},
+                  onPlaybackSpeedChanged: (speed) => selectedSpeed = speed,
                   muted: false,
                   onMutedChanged: (_) {},
                   looping: false,
@@ -157,7 +163,16 @@ void main() {
 
     expect(find.text('Player settings'), findsOneWidget);
     expect(find.text('Double-tap seek'), findsOneWidget);
+    expect(find.text('Playback speed'), findsOneWidget);
+    expect(find.text('1x'), findsOneWidget);
     expect(find.byType(SingleChildScrollView), findsOneWidget);
+
+    final slider = tester.widget<Slider>(find.byType(Slider));
+    slider.onChanged!(1.5);
+    await tester.pump();
+
+    expect(selectedSpeed, 1.5);
+    expect(find.text('1.5x'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }
