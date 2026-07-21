@@ -17,6 +17,9 @@ class VideoBottomControls extends StatelessWidget {
     required this.value,
     required this.landscape,
     required this.fitMode,
+    this.title,
+    this.playlistPosition,
+    this.playlistLength,
     required this.hasPrevious,
     required this.hasNext,
     required this.onPrevious,
@@ -31,6 +34,9 @@ class VideoBottomControls extends StatelessWidget {
   final VideoPlayerValue value;
   final bool landscape;
   final VideoFitMode fitMode;
+  final String? title;
+  final int? playlistPosition;
+  final int? playlistLength;
   final bool hasPrevious;
   final bool hasNext;
   final VoidCallback onPrevious;
@@ -58,6 +64,10 @@ class VideoBottomControls extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              if (landscape &&
+                  (title != null ||
+                      (playlistPosition != null && playlistLength != null)))
+                _landscapeHeader(),
               SliderTheme(
                 data: SliderTheme.of(context).copyWith(
                   trackHeight: 3,
@@ -142,6 +152,41 @@ class VideoBottomControls extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _landscapeHeader() {
+    final hasProgress = playlistPosition != null && playlistLength != null;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+      child: Row(
+        children: [
+          if (title != null)
+            Expanded(
+              child: Text(
+                title!,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          if (hasProgress) ...[
+            if (title != null) const SizedBox(width: AppSpacing.sm),
+            Text(
+              '$playlistPosition/$playlistLength',
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 13,
+                fontFeatures: [FontFeature.tabularFigures()],
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -374,11 +419,11 @@ class _VideoSettingsSheetState extends State<_VideoSettingsSheet> {
                 ],
               ),
               Slider(
-                min: 0.5,
-                max: 2,
-                divisions: 6,
+                min: videoPlaybackSpeedOptions.first,
+                max: videoPlaybackSpeedOptions.last,
+                divisions: videoPlaybackSpeedOptions.length - 1,
                 value: _playbackSpeed,
-                label: '${_playbackSpeed}x',
+                label: formatPlaybackSpeed(_playbackSpeed),
                 onChanged: (value) {
                   setState(() => _playbackSpeed = value);
                   widget.onPlaybackSpeedChanged(value);

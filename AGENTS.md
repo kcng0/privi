@@ -53,10 +53,12 @@
   UI lifecycle are handled by overlapping widgets without one owner.
 - Correct approach: video owns horizontal drag/double-tap seeking; dedicated
   bottom buttons own Previous/Next; system Back hides visible controls before
-  exiting; landscape video hides top chrome; route disposal restores system UI
-  and supported orientations.
+  exiting; landscape video hides top chrome while its visible bottom controls
+  show the current media title and playlist position; route disposal restores
+  system UI and supported orientations.
 - Verification: cover two-step system Back and immediate top-bar Back, seek
-  direction/magnitude limits, narrow landscape controls, persisted seek time,
-  Viewer manual navigation, and absence of the Viewer delete action.
+  direction/magnitude limits, narrow landscape title/progress controls,
+  persisted seek time and playback speed, Viewer manual navigation, and absence
+  of the Viewer delete action.
 - Scope: built-in video playback in playlist and Viewer routes on Android and
   iOS. External-player completion remains governed by the separate invariant.

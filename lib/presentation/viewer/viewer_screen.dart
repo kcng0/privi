@@ -51,6 +51,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   @override
   void initState() {
     super.initState();
+    _playbackSpeed = ref.read(settingsControllerProvider).playerPlaybackSpeed;
     _index = widget.initialIndex.clamp(0, widget.items.length - 1);
     _page = PageController(initialPage: _index);
     unawaited(VideoSystemUi.apply(false));
@@ -198,6 +199,11 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
 
   void _setPlaybackSpeed(double speed) {
     setState(() => _playbackSpeed = speed);
+    unawaited(
+      ref
+          .read(settingsControllerProvider.notifier)
+          .setPlayerPlaybackSpeed(speed),
+    );
     final video = _video;
     if (video != null) unawaited(video.setPlaybackSpeed(speed));
   }
@@ -487,6 +493,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                 value: value,
                 landscape: landscape,
                 fitMode: _fitMode,
+                title: item.originalName,
+                playlistPosition: _index + 1,
+                playlistLength: widget.items.length,
                 hasPrevious: _hasPrevious,
                 hasNext: _hasNext,
                 onPrevious: () => unawaited(_showItem(_index - 1)),
