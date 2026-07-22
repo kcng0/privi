@@ -1378,6 +1378,270 @@ abstract class AppLocalizations {
   /// **'From a previous export folder'**
   String get importVaultSubtitle;
 
+  /// No description provided for @backupExportPickerTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose backup folder'**
+  String get backupExportPickerTitle;
+
+  /// No description provided for @backupRestorePickerTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose backup folder'**
+  String get backupRestorePickerTitle;
+
+  /// No description provided for @backupExportProgressTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Export vault'**
+  String get backupExportProgressTitle;
+
+  /// No description provided for @backupRestoreProgressTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Restore vault'**
+  String get backupRestoreProgressTitle;
+
+  /// No description provided for @backupExportCompleteTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Backup verified'**
+  String get backupExportCompleteTitle;
+
+  /// No description provided for @backupRestoreCompleteTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Restore complete'**
+  String get backupRestoreCompleteTitle;
+
+  /// No description provided for @backupExportErrorTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Export failed'**
+  String get backupExportErrorTitle;
+
+  /// No description provided for @backupRestoreErrorTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Restore failed'**
+  String get backupRestoreErrorTitle;
+
+  /// No description provided for @backupCancelledTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancelled'**
+  String get backupCancelledTitle;
+
+  /// No description provided for @backupCancelledBody.
+  ///
+  /// In en, this message translates to:
+  /// **'No changes saved.'**
+  String get backupCancelledBody;
+
+  /// No description provided for @backupCancelling.
+  ///
+  /// In en, this message translates to:
+  /// **'Finishing current file…'**
+  String get backupCancelling;
+
+  /// No description provided for @backupStagePreparing.
+  ///
+  /// In en, this message translates to:
+  /// **'Preparing'**
+  String get backupStagePreparing;
+
+  /// No description provided for @backupStageCheckingSource.
+  ///
+  /// In en, this message translates to:
+  /// **'Checking source'**
+  String get backupStageCheckingSource;
+
+  /// No description provided for @backupStageCopying.
+  ///
+  /// In en, this message translates to:
+  /// **'Copying media'**
+  String get backupStageCopying;
+
+  /// No description provided for @backupStageWritingManifest.
+  ///
+  /// In en, this message translates to:
+  /// **'Writing manifest'**
+  String get backupStageWritingManifest;
+
+  /// No description provided for @backupStageCheckingBackup.
+  ///
+  /// In en, this message translates to:
+  /// **'Checking backup'**
+  String get backupStageCheckingBackup;
+
+  /// No description provided for @backupStageRestoring.
+  ///
+  /// In en, this message translates to:
+  /// **'Restoring media'**
+  String get backupStageRestoring;
+
+  /// No description provided for @backupStageComplete.
+  ///
+  /// In en, this message translates to:
+  /// **'Complete'**
+  String get backupStageComplete;
+
+  /// No description provided for @backupProgressLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Backup progress'**
+  String get backupProgressLabel;
+
+  /// No description provided for @backupProgressCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{completed} / {total}'**
+  String backupProgressCount(int completed, int total);
+
+  /// No description provided for @backupItemCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} items'**
+  String backupItemCount(int count);
+
+  /// No description provided for @backupChecksumVerified.
+  ///
+  /// In en, this message translates to:
+  /// **'SHA-256 checked'**
+  String get backupChecksumVerified;
+
+  /// No description provided for @backupCheckedWithoutChecksum.
+  ///
+  /// In en, this message translates to:
+  /// **'Files checked · no checksums'**
+  String get backupCheckedWithoutChecksum;
+
+  /// No description provided for @backupUnknownItem.
+  ///
+  /// In en, this message translates to:
+  /// **'Unknown item'**
+  String get backupUnknownItem;
+
+  /// No description provided for @backupFolderSelectionFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t open folders. Try again.'**
+  String get backupFolderSelectionFailed;
+
+  /// No description provided for @backupManifestMissing.
+  ///
+  /// In en, this message translates to:
+  /// **'No Privi manifest was found.'**
+  String get backupManifestMissing;
+
+  /// No description provided for @backupManifestMalformed.
+  ///
+  /// In en, this message translates to:
+  /// **'The backup manifest is not valid.'**
+  String get backupManifestMalformed;
+
+  /// No description provided for @backupManifestMalformedItem.
+  ///
+  /// In en, this message translates to:
+  /// **'Invalid manifest item: {name}'**
+  String backupManifestMalformedItem(String name);
+
+  /// No description provided for @backupVersionUnsupported.
+  ///
+  /// In en, this message translates to:
+  /// **'This backup version is not supported.'**
+  String get backupVersionUnsupported;
+
+  /// No description provided for @backupSourceMissing.
+  ///
+  /// In en, this message translates to:
+  /// **'Source file is missing: {name}'**
+  String backupSourceMissing(String name);
+
+  /// No description provided for @backupSourceUnreadable.
+  ///
+  /// In en, this message translates to:
+  /// **'Source file cannot be read: {name}'**
+  String backupSourceUnreadable(String name);
+
+  /// No description provided for @backupSourceEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'Source file is empty: {name}'**
+  String backupSourceEmpty(String name);
+
+  /// No description provided for @backupSourceChanged.
+  ///
+  /// In en, this message translates to:
+  /// **'Source changed during export: {name}'**
+  String backupSourceChanged(String name);
+
+  /// No description provided for @backupPayloadMissing.
+  ///
+  /// In en, this message translates to:
+  /// **'Backup file is missing: {name}'**
+  String backupPayloadMissing(String name);
+
+  /// No description provided for @backupPayloadUnreadable.
+  ///
+  /// In en, this message translates to:
+  /// **'Backup file cannot be read: {name}'**
+  String backupPayloadUnreadable(String name);
+
+  /// No description provided for @backupPayloadEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'Backup file is empty: {name}'**
+  String backupPayloadEmpty(String name);
+
+  /// No description provided for @backupPayloadLengthMismatch.
+  ///
+  /// In en, this message translates to:
+  /// **'Backup file size does not match: {name}'**
+  String backupPayloadLengthMismatch(String name);
+
+  /// No description provided for @backupPayloadDigestMismatch.
+  ///
+  /// In en, this message translates to:
+  /// **'Backup file checksum does not match: {name}'**
+  String backupPayloadDigestMismatch(String name);
+
+  /// No description provided for @backupUnsafePath.
+  ///
+  /// In en, this message translates to:
+  /// **'Unsafe backup path: {name}'**
+  String backupUnsafePath(String name);
+
+  /// No description provided for @backupDestinationConflict.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose an empty folder. Existing item: {name}'**
+  String backupDestinationConflict(String name);
+
+  /// No description provided for @backupExportWriteFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not write the backup. Check folder access and free space.'**
+  String get backupExportWriteFailed;
+
+  /// No description provided for @backupRestoreWriteFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not restore the backup. Check storage access and free space.'**
+  String get backupRestoreWriteFailed;
+
+  /// No description provided for @backupExportFailedGeneric.
+  ///
+  /// In en, this message translates to:
+  /// **'Export failed. Check the source files and try again.'**
+  String get backupExportFailedGeneric;
+
+  /// No description provided for @backupRestoreFailedGeneric.
+  ///
+  /// In en, this message translates to:
+  /// **'Restore failed. Check the backup and try again.'**
+  String get backupRestoreFailedGeneric;
+
   /// No description provided for @scanOrphans.
   ///
   /// In en, this message translates to:
@@ -1570,29 +1834,11 @@ abstract class AppLocalizations {
   /// **'Author: {author}'**
   String authorLabel(String author);
 
-  /// No description provided for @exportFailed.
-  ///
-  /// In en, this message translates to:
-  /// **'Export failed: {error}'**
-  String exportFailed(String error);
-
-  /// No description provided for @importFailed.
-  ///
-  /// In en, this message translates to:
-  /// **'Import failed: {error}'**
-  String importFailed(String error);
-
   /// No description provided for @scanFailed.
   ///
   /// In en, this message translates to:
   /// **'Scan failed: {error}'**
   String scanFailed(String error);
-
-  /// No description provided for @exportedMedia.
-  ///
-  /// In en, this message translates to:
-  /// **'Exported {count} media files + manifest'**
-  String exportedMedia(int count);
 
   /// No description provided for @playing.
   ///

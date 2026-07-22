@@ -1,0 +1,58 @@
+{
+  "version": 4,
+  "exportedAt": "2026-07-20T12:00:00.000Z",
+  "media": [
+    {
+      "id": "historical-v4-media-id",
+      "file": "historical-v4-media-id.jpg",
+      "thumb": null,
+      "originalPath": "/storage/emulated/0/DCIM/Camera/historical-v4.jpg",
+      "source": {
+        "platform": "ios",
+        "libraryId": "historical-photo-kit-id"
+      },
+      "sourceRemovalPending": true,
+      "contentDigest": "t9yiPn8g7IlJphaKnBQQE3Lww75_y7OoyYeeo3lp02w=",
+      "originalName": "historical-v4.jpg",
+      "mimeType": "image/jpeg",
+      "isVideo": false,
+      "width": 200,
+      "height": 120,
+      "durationMs": null,
+      "rating": 3,
+      "dateAdded": "2026-07-20T11:00:00.000Z",
+      "dateTaken": "2026-07-20T10:00:00.000Z",
+      "sizeBytes": 20,
+      "deletedAt": null
+    }
+  ],
+  "albums": [
+    {
+      "id": "historical-v4-album-id",
+      "name": "Historical V4",
+      "isSystem": false,
+      "coverMediaId": "historical-v4-media-id",
+      "createdAt": "2026-07-20T09:30:00.000Z",
+      "systemKind": null,
+      "pinnedAt": "2026-07-20T09:45:00.000Z",
+      "rating": 3,
+      "sortIndex": 2,
+      "groupId": "historical-v4-group-id"
+    }
+  ],
+  "albumGroups": [
+    {
+      "id": "historical-v4-group-id",
+      "name": "Historical Archive",
+      "createdAt": "2026-07-20T09:00:00.000Z",
+      "sortIndex": 0
+    }
+  ],
+  "membership": [
+    {
+      "albumId": "historical-v4-album-id",
+      "mediaId": "historical-v4-media-id",
+      "addedAt": "2026-07-20T11:30:00.000Z"
+    }
+  ]
+}

@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -57,6 +58,16 @@ import 'update/external_url_launcher.dart';
 final sharedPreferencesProvider = Provider<SharedPreferences>((ref) {
   throw UnimplementedError('sharedPreferencesProvider must be overridden');
 });
+
+typedef VaultBackupDirectoryPicker = Future<String?> Function(
+  String dialogTitle,
+);
+
+final vaultBackupDirectoryPickerProvider = Provider<VaultBackupDirectoryPicker>(
+  (ref) => (dialogTitle) => FilePicker.platform.getDirectoryPath(
+        dialogTitle: dialogTitle,
+      ),
+);
 
 final appBuildInfoProvider = Provider<AppBuildInfo>((ref) {
   throw UnimplementedError('appBuildInfoProvider must be overridden');
@@ -210,7 +221,7 @@ final importServiceProvider = Provider<VaultWorkflow>((ref) {
   return ref.watch(vaultWorkflowProvider);
 });
 
-final vaultBackupServiceProvider = Provider<VaultBackupService>((ref) {
+final vaultBackupServiceProvider = Provider<VaultBackupOperations>((ref) {
   return VaultBackupService(
     db: ref.watch(databaseProvider),
     media: ref.watch(mediaRepositoryProvider),

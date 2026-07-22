@@ -1,7 +1,7 @@
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../application/backup/vault_backup_controller.dart';
 import '../../application/lock/biometric_ui.dart';
 import '../../application/lock/lock_controller.dart';
 import '../../application/providers.dart';
@@ -9,8 +9,10 @@ import '../../application/settings/settings_controller.dart';
 import '../../core/constants.dart';
 import '../../core/l10n.dart';
 import '../../data/services/maintenance_service.dart';
+import '../../data/services/vault_backup_service.dart';
 import '../lock/pattern_lock.dart';
 import 'app_update_tile.dart';
+import 'vault_backup_progress_dialog.dart';
 
 /// Full settings — security, display, playback, storage export/import.
 class SettingsScreen extends ConsumerWidget {
@@ -24,6 +26,9 @@ class SettingsScreen extends ConsumerWidget {
     final externalPlaybackSupported =
         ref.watch(externalPlayerGatewayProvider).supported;
     final appBuildInfo = ref.watch(appBuildInfoProvider);
+    final backupBusy = ref.watch(
+      vaultBackupControllerProvider.select((state) => state.busy),
+    );
     final versionAndPatch = [
       appBuildInfo.versionAndBuild,
       if (appBuildInfo.patchNumber case final patchNumber?)
@@ -274,16 +279,30 @@ class SettingsScreen extends ConsumerWidget {
             onTap: () => _emptyRecycle(context, ref),
           ),
           ListTile(
+            key: const ValueKey('settings-export-vault'),
             leading: const Icon(Icons.upload_file_outlined),
             title: Text(context.l10n.exportVault),
             subtitle: Text(context.l10n.exportVaultSubtitle),
-            onTap: () => _export(context, ref),
+            onTap: backupBusy
+                ? null
+                : () => _startBackup(
+                      context,
+                      ref,
+                      VaultBackupOperation.export,
+                    ),
           ),
           ListTile(
+            key: const ValueKey('settings-restore-vault'),
             leading: const Icon(Icons.download_outlined),
             title: Text(context.l10n.importVault),
             subtitle: Text(context.l10n.importVaultSubtitle),
-            onTap: () => _importBackup(context, ref),
+            onTap: backupBusy
+                ? null
+                : () => _startBackup(
+                      context,
+                      ref,
+                      VaultBackupOperation.restore,
+                    ),
           ),
           _SectionHeader(context.l10n.sectionAbout),
           ListTile(
@@ -772,48 +791,141 @@ class SettingsScreen extends ConsumerWidget {
     }
   }
 
-  Future<void> _export(BuildContext context, WidgetRef ref) async {
-    final dir = await FilePicker.platform.getDirectoryPath(
-      dialogTitle: 'Export vault to folder',
-    );
-    if (dir == null) return;
+  Future<void> _startBackup(
+    BuildContext context,
+    WidgetRef ref,
+    VaultBackupOperation operation,
+  ) async {
+    final controller = ref.read(vaultBackupControllerProvider.notifier);
+    final restoring = operation == VaultBackupOperation.restore;
+    final pickerTitle = restoring
+        ? context.l10n.backupRestorePickerTitle
+        : context.l10n.backupExportPickerTitle;
+    final bool started;
     try {
-      final n =
-          await ref.read(vaultBackupServiceProvider).exportToDirectory(dir);
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(context.l10n.exportedMedia(n))),
-        );
-      }
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(context.l10n.exportFailed('$e'))),
-        );
-      }
+      final selectDirectory = ref.read(vaultBackupDirectoryPickerProvider);
+      started = await controller.selectDirectoryAndStart(
+        operation: operation,
+        selectDirectory: () => selectDirectory(pickerTitle),
+      );
+    } catch (error, stackTrace) {
+      debugPrint(
+        'vault backup directory selection failed: $error\n$stackTrace',
+      );
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(context.l10n.backupFolderSelectionFailed)),
+      );
+      return;
     }
+    if (!started || !context.mounted) return;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => Consumer(
+        builder: (context, dialogRef, _) {
+          final state = dialogRef.watch(vaultBackupControllerProvider);
+          final notifier =
+              dialogRef.read(vaultBackupControllerProvider.notifier);
+          return VaultBackupProgressDialog(
+            state: state,
+            text: _backupDialogText(context, restoring: restoring),
+            onCancel: notifier.cancel,
+            onRetry: notifier.retry,
+            onClose: () => Navigator.pop(dialogContext),
+          );
+        },
+      ),
+    );
+    if (!ref.read(vaultBackupControllerProvider).busy) controller.dismiss();
   }
 
-  Future<void> _importBackup(BuildContext context, WidgetRef ref) async {
-    final dir = await FilePicker.platform.getDirectoryPath(
-      dialogTitle: 'Import vault from folder',
+  VaultBackupDialogText _backupDialogText(
+    BuildContext context, {
+    required bool restoring,
+  }) {
+    final l10n = context.l10n;
+    return VaultBackupDialogText(
+      operationTitle: restoring
+          ? l10n.backupRestoreProgressTitle
+          : l10n.backupExportProgressTitle,
+      completedTitle: restoring
+          ? l10n.backupRestoreCompleteTitle
+          : l10n.backupExportCompleteTitle,
+      cancelledTitle: l10n.backupCancelledTitle,
+      cancelledBody: l10n.backupCancelledBody,
+      errorTitle: restoring
+          ? l10n.backupRestoreErrorTitle
+          : l10n.backupExportErrorTitle,
+      cancel: l10n.cancel,
+      cancelling: l10n.backupCancelling,
+      close: l10n.close,
+      retry: l10n.retry,
+      checksumVerified: l10n.backupChecksumVerified,
+      checkedWithoutChecksum: l10n.backupCheckedWithoutChecksum,
+      progressLabel: l10n.backupProgressLabel,
+      stageLabel: (stage) => switch (stage) {
+        VaultBackupStage.preparing => l10n.backupStagePreparing,
+        VaultBackupStage.checkingSource => l10n.backupStageCheckingSource,
+        VaultBackupStage.copying => l10n.backupStageCopying,
+        VaultBackupStage.writingManifest => l10n.backupStageWritingManifest,
+        VaultBackupStage.checkingBackup => l10n.backupStageCheckingBackup,
+        VaultBackupStage.restoring => l10n.backupStageRestoring,
+        VaultBackupStage.completed => l10n.backupStageComplete,
+      },
+      itemCount: l10n.backupItemCount,
+      totalSize: _formatBytes,
+      progressCount: l10n.backupProgressCount,
+      errorMessage: (error) => _backupErrorMessage(
+        context,
+        error,
+        restoring: restoring,
+      ),
     );
-    if (dir == null) return;
-    try {
-      final n =
-          await ref.read(vaultBackupServiceProvider).importFromDirectory(dir);
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(context.l10n.restoredItems(n))),
-        );
-      }
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(context.l10n.importFailed('$e'))),
-        );
-      }
+  }
+
+  String _backupErrorMessage(
+    BuildContext context,
+    Object error, {
+    required bool restoring,
+  }) {
+    final l10n = context.l10n;
+    if (error is! VaultBackupException) {
+      return restoring
+          ? l10n.backupRestoreFailedGeneric
+          : l10n.backupExportFailedGeneric;
     }
+    final item = error.fileName ?? l10n.backupUnknownItem;
+    return switch (error.code) {
+      VaultBackupErrorCode.manifestMissing => l10n.backupManifestMissing,
+      VaultBackupErrorCode.malformedManifest => error.fileName == null
+          ? l10n.backupManifestMalformed
+          : l10n.backupManifestMalformedItem(item),
+      VaultBackupErrorCode.unsupportedManifestVersion =>
+        l10n.backupVersionUnsupported,
+      VaultBackupErrorCode.sourceMissing => l10n.backupSourceMissing(item),
+      VaultBackupErrorCode.sourceUnreadable =>
+        l10n.backupSourceUnreadable(item),
+      VaultBackupErrorCode.sourceEmpty => l10n.backupSourceEmpty(item),
+      VaultBackupErrorCode.sourceChanged => l10n.backupSourceChanged(item),
+      VaultBackupErrorCode.payloadMissing => l10n.backupPayloadMissing(item),
+      VaultBackupErrorCode.payloadUnreadable =>
+        l10n.backupPayloadUnreadable(item),
+      VaultBackupErrorCode.payloadEmpty => l10n.backupPayloadEmpty(item),
+      VaultBackupErrorCode.payloadLengthMismatch =>
+        l10n.backupPayloadLengthMismatch(item),
+      VaultBackupErrorCode.payloadDigestMismatch =>
+        l10n.backupPayloadDigestMismatch(item),
+      VaultBackupErrorCode.unsafePath => l10n.backupUnsafePath(item),
+      VaultBackupErrorCode.destinationConflict =>
+        l10n.backupDestinationConflict(item),
+      VaultBackupErrorCode.destinationWriteFailed ||
+      VaultBackupErrorCode.databaseWriteFailed =>
+        restoring
+            ? l10n.backupRestoreWriteFailed
+            : l10n.backupExportWriteFailed,
+    };
   }
 
   String _localeLabel(BuildContext context, String code) {

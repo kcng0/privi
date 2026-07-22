@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:privi/application/backup/vault_backup_controller.dart';
 import 'package:privi/application/lock/lock_controller.dart';
 import 'package:privi/application/providers.dart';
 import 'package:privi/application/update/app_restart_service.dart';
@@ -8,6 +9,7 @@ import 'package:privi/application/update/app_update_service.dart';
 import 'package:privi/application/update/external_url_launcher.dart';
 import 'package:privi/core/app_build_info.dart';
 import 'package:privi/core/constants.dart';
+import 'package:privi/data/services/vault_backup_service.dart';
 import 'package:privi/domain/enums.dart';
 import 'package:privi/l10n/app_localizations.dart';
 import 'package:privi/presentation/settings/settings_screen.dart';
@@ -200,6 +202,77 @@ void main() {
     expect(launcher.openedUris, [releaseUri]);
     expect(service.downloadCalls, 0);
   });
+
+  testWidgets('backup entries are disabled while one workflow is active',
+      (tester) async {
+    await _pumpSettings(
+      tester,
+      _FakeAppUpdateService(),
+      backupBusy: true,
+    );
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('settings-export-vault')),
+      500,
+    );
+
+    final exportTile = tester.widget<ListTile>(
+      find.byKey(const ValueKey('settings-export-vault')),
+    );
+    final restoreTile = tester.widget<ListTile>(
+      find.byKey(const ValueKey('settings-restore-vault')),
+    );
+    expect(exportTile.onTap, isNull);
+    expect(restoreTile.onTap, isNull);
+  });
+
+  testWidgets('backup directory picker failure remains visible',
+      (tester) async {
+    await _pumpSettings(
+      tester,
+      _FakeAppUpdateService(),
+      backupDirectoryPicker: (_) async {
+        throw StateError('picker unavailable');
+      },
+    );
+    final exportTile = find.byKey(const ValueKey('settings-export-vault'));
+    await tester.scrollUntilVisible(exportTile, 500);
+
+    await tester.tap(exportTile);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.text("Couldn't open folders. Try again."), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('malformed backup identifies the failed item and stage',
+      (tester) async {
+    await _pumpSettings(
+      tester,
+      _FakeAppUpdateService(),
+      backupDirectoryPicker: (_) async => '/backup',
+      backupOperations: const _RestoreFailureOperations(
+        VaultBackupException(
+          VaultBackupErrorCode.malformedManifest,
+          fileName: 'missing-album-id',
+          stage: VaultBackupStage.checkingBackup,
+        ),
+      ),
+    );
+    final restoreTile = find.byKey(const ValueKey('settings-restore-vault'));
+    await tester.scrollUntilVisible(restoreTile, 500);
+
+    await tester.tap(restoreTile);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Checking backup'), findsOneWidget);
+    expect(
+      find.text('Invalid manifest item: missing-album-id'),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('vault-backup-retry')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }
 
 Future<void> _pumpSettings(
@@ -207,6 +280,9 @@ Future<void> _pumpSettings(
   AppUpdateService appUpdateService, {
   AppRestartService? appRestartService,
   ExternalUrlLauncher? externalUrlLauncher,
+  VaultBackupDirectoryPicker? backupDirectoryPicker,
+  VaultBackupOperations? backupOperations,
+  bool backupBusy = false,
 }) async {
   SharedPreferences.setMockInitialValues({});
   final preferences = await SharedPreferences.getInstance();
@@ -231,6 +307,16 @@ Future<void> _pumpSettings(
         appUpdateServiceProvider.overrideWithValue(appUpdateService),
         lockControllerProvider.overrideWith(_UnlockedLock.new),
         vaultSizeBytesProvider.overrideWith((ref) async => 0),
+        if (backupDirectoryPicker != null)
+          vaultBackupDirectoryPickerProvider.overrideWithValue(
+            backupDirectoryPicker,
+          ),
+        if (backupOperations != null)
+          vaultBackupServiceProvider.overrideWithValue(backupOperations),
+        if (backupBusy)
+          vaultBackupControllerProvider.overrideWith(
+            _BusyVaultBackupController.new,
+          ),
       ],
       child: const MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -240,6 +326,38 @@ Future<void> _pumpSettings(
     ),
   );
   await tester.pumpAndSettle();
+}
+
+class _BusyVaultBackupController extends VaultBackupController {
+  @override
+  VaultBackupUiState build() => const VaultBackupUiState(
+        operation: VaultBackupOperation.export,
+        status: VaultBackupUiStatus.selectingDirectory,
+      );
+}
+
+final class _RestoreFailureOperations implements VaultBackupOperations {
+  const _RestoreFailureOperations(this.error);
+
+  final Object error;
+
+  @override
+  Future<VaultBackupResult> exportToDirectory(
+    String destinationDirectory, {
+    VaultBackupSession? session,
+    VaultBackupProgressCallback? onProgress,
+  }) {
+    throw UnsupportedError('Export is not used by this test.');
+  }
+
+  @override
+  Future<VaultBackupResult> importFromDirectory(
+    String sourceDirectory, {
+    VaultBackupSession? session,
+    VaultBackupProgressCallback? onProgress,
+  }) async {
+    throw error;
+  }
 }
 
 class _FakeAppUpdateService implements AppUpdateService {
