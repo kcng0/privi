@@ -6,7 +6,7 @@ privi 是一个纯本地的 Android 私密媒体保险库（Flutter 个人应用
 
 ## 当前状态与重点
 
-- 版本 1.0.18+23；通过 GitHub Releases 提供 Android APK。
+- 版本 1.0.19+24；通过 GitHub Releases 提供 Android APK。
 - 首页两个页签：**Visible**（系统相册文件夹，经 photo_manager 读 MediaStore）与 **Invisible**（保险库相册，Drift 数据库）。隐藏 = 拷入 vault + 尽力删除原件；取消隐藏反向恢复。
 - 元数据在 Drift(SQLite) **schema v7**；媒体字节在磁盘 vault 目录；新备份为
   "媒体文件 + JSON manifest v5"，每个 payload 记录长度与 SHA-256。
