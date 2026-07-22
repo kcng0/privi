@@ -429,6 +429,73 @@
   "exportVaultSubtitle": "Media + metadata to a folder",
   "importVault": "Import vault…",
   "importVaultSubtitle": "From a previous export folder",
+  "backupExportPickerTitle": "Choose backup folder",
+  "backupRestorePickerTitle": "Choose backup folder",
+  "backupExportProgressTitle": "Export vault",
+  "backupRestoreProgressTitle": "Restore vault",
+  "backupExportCompleteTitle": "Backup verified",
+  "backupRestoreCompleteTitle": "Restore complete",
+  "backupExportErrorTitle": "Export failed",
+  "backupRestoreErrorTitle": "Restore failed",
+  "backupCancelledTitle": "Cancelled",
+  "backupCancelledBody": "No changes saved.",
+  "backupCancelling": "Finishing current file…",
+  "backupStagePreparing": "Preparing",
+  "backupStageCheckingSource": "Checking source",
+  "backupStageCopying": "Copying media",
+  "backupStageWritingManifest": "Writing manifest",
+  "backupStageCheckingBackup": "Checking backup",
+  "backupStageRestoring": "Restoring media",
+  "backupStageComplete": "Complete",
+  "backupProgressLabel": "Backup progress",
+  "backupProgressCount": "{completed} / {total}",
+  "@backupProgressCount": {
+    "placeholders": {
+      "completed": { "type": "int" },
+      "total": { "type": "int" }
+    }
+  },
+  "backupItemCount": "{count} items",
+  "@backupItemCount": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "backupChecksumVerified": "SHA-256 checked",
+  "backupCheckedWithoutChecksum": "Files checked · no checksums",
+  "backupUnknownItem": "Unknown item",
+  "backupFolderSelectionFailed": "Couldn't open folders. Try again.",
+  "backupManifestMissing": "No Privi manifest was found.",
+  "backupManifestMalformed": "The backup manifest is not valid.",
+  "backupManifestMalformedItem": "Invalid manifest item: {name}",
+  "backupVersionUnsupported": "This backup version is not supported.",
+  "backupSourceMissing": "Source file is missing: {name}",
+  "backupSourceUnreadable": "Source file cannot be read: {name}",
+  "backupSourceEmpty": "Source file is empty: {name}",
+  "backupSourceChanged": "Source changed during export: {name}",
+  "backupPayloadMissing": "Backup file is missing: {name}",
+  "backupPayloadUnreadable": "Backup file cannot be read: {name}",
+  "backupPayloadEmpty": "Backup file is empty: {name}",
+  "backupPayloadLengthMismatch": "Backup file size does not match: {name}",
+  "backupPayloadDigestMismatch": "Backup file checksum does not match: {name}",
+  "backupUnsafePath": "Unsafe backup path: {name}",
+  "backupDestinationConflict": "Choose an empty folder. Existing item: {name}",
+  "@backupSourceMissing": { "placeholders": { "name": { "type": "String" } } },
+  "@backupSourceUnreadable": { "placeholders": { "name": { "type": "String" } } },
+  "@backupSourceEmpty": { "placeholders": { "name": { "type": "String" } } },
+  "@backupSourceChanged": { "placeholders": { "name": { "type": "String" } } },
+  "@backupPayloadMissing": { "placeholders": { "name": { "type": "String" } } },
+  "@backupPayloadUnreadable": { "placeholders": { "name": { "type": "String" } } },
+  "@backupPayloadEmpty": { "placeholders": { "name": { "type": "String" } } },
+  "@backupPayloadLengthMismatch": { "placeholders": { "name": { "type": "String" } } },
+  "@backupPayloadDigestMismatch": { "placeholders": { "name": { "type": "String" } } },
+  "@backupUnsafePath": { "placeholders": { "name": { "type": "String" } } },
+  "@backupDestinationConflict": { "placeholders": { "name": { "type": "String" } } },
+  "@backupManifestMalformedItem": { "placeholders": { "name": { "type": "String" } } },
+  "backupExportWriteFailed": "Could not write the backup. Check folder access and free space.",
+  "backupRestoreWriteFailed": "Could not restore the backup. Check storage access and free space.",
+  "backupExportFailedGeneric": "Export failed. Check the source files and try again.",
+  "backupRestoreFailedGeneric": "Restore failed. Check the backup and try again.",
   "scanOrphans": "Scan orphan hidden files",
   "scanningOrphans": "Scanning for orphan hidden files…",
   "recoverVault": "Recover vault after reinstall",
@@ -489,35 +556,11 @@
       }
     }
   },
-  "exportFailed": "Export failed: {error}",
-  "@exportFailed": {
-    "placeholders": {
-      "error": {
-        "type": "String"
-      }
-    }
-  },
-  "importFailed": "Import failed: {error}",
-  "@importFailed": {
-    "placeholders": {
-      "error": {
-        "type": "String"
-      }
-    }
-  },
   "scanFailed": "Scan failed: {error}",
   "@scanFailed": {
     "placeholders": {
       "error": {
         "type": "String"
-      }
-    }
-  },
-  "exportedMedia": "Exported {count} media files + manifest",
-  "@exportedMedia": {
-    "placeholders": {
-      "count": {
-        "type": "int"
       }
     }
   },

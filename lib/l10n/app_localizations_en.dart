@@ -721,6 +721,172 @@ class AppLocalizationsEn extends AppLocalizations {
   String get importVaultSubtitle => 'From a previous export folder';
 
   @override
+  String get backupExportPickerTitle => 'Choose backup folder';
+
+  @override
+  String get backupRestorePickerTitle => 'Choose backup folder';
+
+  @override
+  String get backupExportProgressTitle => 'Export vault';
+
+  @override
+  String get backupRestoreProgressTitle => 'Restore vault';
+
+  @override
+  String get backupExportCompleteTitle => 'Backup verified';
+
+  @override
+  String get backupRestoreCompleteTitle => 'Restore complete';
+
+  @override
+  String get backupExportErrorTitle => 'Export failed';
+
+  @override
+  String get backupRestoreErrorTitle => 'Restore failed';
+
+  @override
+  String get backupCancelledTitle => 'Cancelled';
+
+  @override
+  String get backupCancelledBody => 'No changes saved.';
+
+  @override
+  String get backupCancelling => 'Finishing current file…';
+
+  @override
+  String get backupStagePreparing => 'Preparing';
+
+  @override
+  String get backupStageCheckingSource => 'Checking source';
+
+  @override
+  String get backupStageCopying => 'Copying media';
+
+  @override
+  String get backupStageWritingManifest => 'Writing manifest';
+
+  @override
+  String get backupStageCheckingBackup => 'Checking backup';
+
+  @override
+  String get backupStageRestoring => 'Restoring media';
+
+  @override
+  String get backupStageComplete => 'Complete';
+
+  @override
+  String get backupProgressLabel => 'Backup progress';
+
+  @override
+  String backupProgressCount(int completed, int total) {
+    return '$completed / $total';
+  }
+
+  @override
+  String backupItemCount(int count) {
+    return '$count items';
+  }
+
+  @override
+  String get backupChecksumVerified => 'SHA-256 checked';
+
+  @override
+  String get backupCheckedWithoutChecksum => 'Files checked · no checksums';
+
+  @override
+  String get backupUnknownItem => 'Unknown item';
+
+  @override
+  String get backupFolderSelectionFailed =>
+      'Couldn\'t open folders. Try again.';
+
+  @override
+  String get backupManifestMissing => 'No Privi manifest was found.';
+
+  @override
+  String get backupManifestMalformed => 'The backup manifest is not valid.';
+
+  @override
+  String backupManifestMalformedItem(String name) {
+    return 'Invalid manifest item: $name';
+  }
+
+  @override
+  String get backupVersionUnsupported =>
+      'This backup version is not supported.';
+
+  @override
+  String backupSourceMissing(String name) {
+    return 'Source file is missing: $name';
+  }
+
+  @override
+  String backupSourceUnreadable(String name) {
+    return 'Source file cannot be read: $name';
+  }
+
+  @override
+  String backupSourceEmpty(String name) {
+    return 'Source file is empty: $name';
+  }
+
+  @override
+  String backupSourceChanged(String name) {
+    return 'Source changed during export: $name';
+  }
+
+  @override
+  String backupPayloadMissing(String name) {
+    return 'Backup file is missing: $name';
+  }
+
+  @override
+  String backupPayloadUnreadable(String name) {
+    return 'Backup file cannot be read: $name';
+  }
+
+  @override
+  String backupPayloadEmpty(String name) {
+    return 'Backup file is empty: $name';
+  }
+
+  @override
+  String backupPayloadLengthMismatch(String name) {
+    return 'Backup file size does not match: $name';
+  }
+
+  @override
+  String backupPayloadDigestMismatch(String name) {
+    return 'Backup file checksum does not match: $name';
+  }
+
+  @override
+  String backupUnsafePath(String name) {
+    return 'Unsafe backup path: $name';
+  }
+
+  @override
+  String backupDestinationConflict(String name) {
+    return 'Choose an empty folder. Existing item: $name';
+  }
+
+  @override
+  String get backupExportWriteFailed =>
+      'Could not write the backup. Check folder access and free space.';
+
+  @override
+  String get backupRestoreWriteFailed =>
+      'Could not restore the backup. Check storage access and free space.';
+
+  @override
+  String get backupExportFailedGeneric =>
+      'Export failed. Check the source files and try again.';
+
+  @override
+  String get backupRestoreFailedGeneric =>
+      'Restore failed. Check the backup and try again.';
+
+  @override
   String get scanOrphans => 'Scan orphan hidden files';
 
   @override
@@ -831,23 +997,8 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String exportFailed(String error) {
-    return 'Export failed: $error';
-  }
-
-  @override
-  String importFailed(String error) {
-    return 'Import failed: $error';
-  }
-
-  @override
   String scanFailed(String error) {
     return 'Scan failed: $error';
-  }
-
-  @override
-  String exportedMedia(int count) {
-    return 'Exported $count media files + manifest';
   }
 
   @override

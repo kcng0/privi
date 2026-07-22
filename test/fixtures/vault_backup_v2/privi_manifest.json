@@ -1,0 +1,68 @@
+{
+  "version": 2,
+  "exportedAt": "2026-07-17T12:00:00.000Z",
+  "media": [
+    {
+      "id": "historical-v2-media-id",
+      "file": "historical-v2-media-id.jpg",
+      "thumb": null,
+      "originalPath": "/storage/emulated/0/DCIM/Camera/historical-v2.jpg",
+      "originalName": "historical-v2.jpg",
+      "mimeType": "image/jpeg",
+      "isVideo": false,
+      "width": 120,
+      "height": 80,
+      "durationMs": null,
+      "rating": 1,
+      "dateAdded": "2026-07-17T11:00:00.000Z",
+      "dateTaken": "2026-07-17T10:00:00.000Z",
+      "sizeBytes": 20,
+      "deletedAt": null
+    }
+  ],
+  "albums": [
+    {
+      "id": "sys-all-media",
+      "name": "All Media",
+      "isSystem": true,
+      "coverMediaId": null,
+      "createdAt": "2026-07-17T09:00:00.000Z",
+      "systemKind": "all",
+      "pinnedAt": null
+    },
+    {
+      "id": "sys-favorites",
+      "name": "Favorites",
+      "isSystem": true,
+      "coverMediaId": null,
+      "createdAt": "2026-07-17T09:00:00.000Z",
+      "systemKind": "favorites",
+      "pinnedAt": null
+    },
+    {
+      "id": "sys-recycle-bin",
+      "name": "Recycle Bin",
+      "isSystem": true,
+      "coverMediaId": null,
+      "createdAt": "2026-07-17T09:00:00.000Z",
+      "systemKind": "recycle",
+      "pinnedAt": null
+    },
+    {
+      "id": "historical-v2-album-id",
+      "name": "Historical V2",
+      "isSystem": false,
+      "coverMediaId": "historical-v2-media-id",
+      "createdAt": "2026-07-17T09:30:00.000Z",
+      "systemKind": null,
+      "pinnedAt": "2026-07-17T09:45:00.000Z"
+    }
+  ],
+  "membership": [
+    {
+      "albumId": "historical-v2-album-id",
+      "mediaId": "historical-v2-media-id",
+      "addedAt": "2026-07-17T11:30:00.000Z"
+    }
+  ]
+}

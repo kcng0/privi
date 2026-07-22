@@ -309,6 +309,10 @@ class AppDatabase extends _$AppDatabase {
     return (select(mediaItems)..where((t) => t.deletedAt.isNull())).get();
   }
 
+  Future<List<MediaItemRow>> listRecycleBinRows() {
+    return (select(mediaItems)..where((t) => t.deletedAt.isNotNull())).get();
+  }
+
   Future<void> updateMediaRatings(List<String> ids, int rating) async {
     if (ids.isEmpty) return;
     final r = rating.clamp(0, 3);

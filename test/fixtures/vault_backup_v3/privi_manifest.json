@@ -1,0 +1,52 @@
+{
+  "version": 3,
+  "exportedAt": "2026-07-19T12:00:00.000Z",
+  "media": [
+    {
+      "id": "historical-v3-media-id",
+      "file": "historical-v3-media-id.jpg",
+      "thumb": null,
+      "originalPath": "/storage/emulated/0/DCIM/Camera/historical-v3.jpg",
+      "originalName": "historical-v3.jpg",
+      "mimeType": "image/jpeg",
+      "isVideo": false,
+      "width": 160,
+      "height": 90,
+      "durationMs": null,
+      "rating": 2,
+      "dateAdded": "2026-07-19T11:00:00.000Z",
+      "dateTaken": "2026-07-19T10:00:00.000Z",
+      "sizeBytes": 20,
+      "deletedAt": null
+    }
+  ],
+  "albums": [
+    {
+      "id": "historical-v3-album-id",
+      "name": "Historical V3",
+      "isSystem": false,
+      "coverMediaId": "historical-v3-media-id",
+      "createdAt": "2026-07-19T09:30:00.000Z",
+      "systemKind": null,
+      "pinnedAt": "2026-07-19T09:45:00.000Z",
+      "rating": 2,
+      "sortIndex": 4,
+      "groupId": "historical-v3-group-id"
+    }
+  ],
+  "albumGroups": [
+    {
+      "id": "historical-v3-group-id",
+      "name": "Historical Trips",
+      "createdAt": "2026-07-19T09:00:00.000Z",
+      "sortIndex": 1
+    }
+  ],
+  "membership": [
+    {
+      "albumId": "historical-v3-album-id",
+      "mediaId": "historical-v3-media-id",
+      "addedAt": "2026-07-19T11:30:00.000Z"
+    }
+  ]
+}

@@ -707,6 +707,166 @@ class AppLocalizationsZh extends AppLocalizations {
   String get importVaultSubtitle => '从先前的导出文件夹导入';
 
   @override
+  String get backupExportPickerTitle => '选择备份文件夹';
+
+  @override
+  String get backupRestorePickerTitle => '选择备份文件夹';
+
+  @override
+  String get backupExportProgressTitle => '导出保险库';
+
+  @override
+  String get backupRestoreProgressTitle => '恢复保险库';
+
+  @override
+  String get backupExportCompleteTitle => '备份已验证';
+
+  @override
+  String get backupRestoreCompleteTitle => '恢复完成';
+
+  @override
+  String get backupExportErrorTitle => '导出失败';
+
+  @override
+  String get backupRestoreErrorTitle => '恢复失败';
+
+  @override
+  String get backupCancelledTitle => '已取消';
+
+  @override
+  String get backupCancelledBody => '未保存任何更改。';
+
+  @override
+  String get backupCancelling => '正在完成当前文件…';
+
+  @override
+  String get backupStagePreparing => '正在准备';
+
+  @override
+  String get backupStageCheckingSource => '正在检查源文件';
+
+  @override
+  String get backupStageCopying => '正在复制媒体';
+
+  @override
+  String get backupStageWritingManifest => '正在写入清单';
+
+  @override
+  String get backupStageCheckingBackup => '正在检查备份';
+
+  @override
+  String get backupStageRestoring => '正在恢复媒体';
+
+  @override
+  String get backupStageComplete => '已完成';
+
+  @override
+  String get backupProgressLabel => '备份进度';
+
+  @override
+  String backupProgressCount(int completed, int total) {
+    return '$completed / $total';
+  }
+
+  @override
+  String backupItemCount(int count) {
+    return '$count 项';
+  }
+
+  @override
+  String get backupChecksumVerified => '已检查 SHA-256';
+
+  @override
+  String get backupCheckedWithoutChecksum => '文件已检查 · 无校验值';
+
+  @override
+  String get backupUnknownItem => '未知项目';
+
+  @override
+  String get backupFolderSelectionFailed => '无法打开文件夹，请重试';
+
+  @override
+  String get backupManifestMissing => '未找到 Privi 备份清单。';
+
+  @override
+  String get backupManifestMalformed => '备份清单无效。';
+
+  @override
+  String backupManifestMalformedItem(String name) {
+    return '清单项目无效：$name';
+  }
+
+  @override
+  String get backupVersionUnsupported => '不支持此备份版本。';
+
+  @override
+  String backupSourceMissing(String name) {
+    return '源文件缺失：$name';
+  }
+
+  @override
+  String backupSourceUnreadable(String name) {
+    return '无法读取源文件：$name';
+  }
+
+  @override
+  String backupSourceEmpty(String name) {
+    return '源文件为空：$name';
+  }
+
+  @override
+  String backupSourceChanged(String name) {
+    return '导出期间源文件发生变化：$name';
+  }
+
+  @override
+  String backupPayloadMissing(String name) {
+    return '备份文件缺失：$name';
+  }
+
+  @override
+  String backupPayloadUnreadable(String name) {
+    return '无法读取备份文件：$name';
+  }
+
+  @override
+  String backupPayloadEmpty(String name) {
+    return '备份文件为空：$name';
+  }
+
+  @override
+  String backupPayloadLengthMismatch(String name) {
+    return '备份文件大小不符：$name';
+  }
+
+  @override
+  String backupPayloadDigestMismatch(String name) {
+    return '备份文件校验值不符：$name';
+  }
+
+  @override
+  String backupUnsafePath(String name) {
+    return '备份路径不安全：$name';
+  }
+
+  @override
+  String backupDestinationConflict(String name) {
+    return '请选择空文件夹。已有项目：$name';
+  }
+
+  @override
+  String get backupExportWriteFailed => '无法写入备份，请检查文件夹权限和剩余空间。';
+
+  @override
+  String get backupRestoreWriteFailed => '无法恢复备份，请检查存储权限和剩余空间。';
+
+  @override
+  String get backupExportFailedGeneric => '导出失败，请检查源文件后重试。';
+
+  @override
+  String get backupRestoreFailedGeneric => '恢复失败，请检查备份后重试。';
+
+  @override
   String get scanOrphans => '扫描孤立隐藏文件';
 
   @override
@@ -813,23 +973,8 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
-  String exportFailed(String error) {
-    return '导出失败：$error';
-  }
-
-  @override
-  String importFailed(String error) {
-    return '导入失败：$error';
-  }
-
-  @override
   String scanFailed(String error) {
     return '扫描失败：$error';
-  }
-
-  @override
-  String exportedMedia(int count) {
-    return '已导出 $count 个媒体文件及清单';
   }
 
   @override
@@ -1792,6 +1937,166 @@ class AppLocalizationsZhCn extends AppLocalizationsZh {
   String get importVaultSubtitle => '从先前的导出文件夹导入';
 
   @override
+  String get backupExportPickerTitle => '选择备份文件夹';
+
+  @override
+  String get backupRestorePickerTitle => '选择备份文件夹';
+
+  @override
+  String get backupExportProgressTitle => '导出保险库';
+
+  @override
+  String get backupRestoreProgressTitle => '恢复保险库';
+
+  @override
+  String get backupExportCompleteTitle => '备份已验证';
+
+  @override
+  String get backupRestoreCompleteTitle => '恢复完成';
+
+  @override
+  String get backupExportErrorTitle => '导出失败';
+
+  @override
+  String get backupRestoreErrorTitle => '恢复失败';
+
+  @override
+  String get backupCancelledTitle => '已取消';
+
+  @override
+  String get backupCancelledBody => '未保存任何更改。';
+
+  @override
+  String get backupCancelling => '正在完成当前文件…';
+
+  @override
+  String get backupStagePreparing => '正在准备';
+
+  @override
+  String get backupStageCheckingSource => '正在检查源文件';
+
+  @override
+  String get backupStageCopying => '正在复制媒体';
+
+  @override
+  String get backupStageWritingManifest => '正在写入清单';
+
+  @override
+  String get backupStageCheckingBackup => '正在检查备份';
+
+  @override
+  String get backupStageRestoring => '正在恢复媒体';
+
+  @override
+  String get backupStageComplete => '已完成';
+
+  @override
+  String get backupProgressLabel => '备份进度';
+
+  @override
+  String backupProgressCount(int completed, int total) {
+    return '$completed / $total';
+  }
+
+  @override
+  String backupItemCount(int count) {
+    return '$count 项';
+  }
+
+  @override
+  String get backupChecksumVerified => '已检查 SHA-256';
+
+  @override
+  String get backupCheckedWithoutChecksum => '文件已检查 · 无校验值';
+
+  @override
+  String get backupUnknownItem => '未知项目';
+
+  @override
+  String get backupFolderSelectionFailed => '无法打开文件夹，请重试';
+
+  @override
+  String get backupManifestMissing => '未找到 Privi 备份清单。';
+
+  @override
+  String get backupManifestMalformed => '备份清单无效。';
+
+  @override
+  String backupManifestMalformedItem(String name) {
+    return '清单项目无效：$name';
+  }
+
+  @override
+  String get backupVersionUnsupported => '不支持此备份版本。';
+
+  @override
+  String backupSourceMissing(String name) {
+    return '源文件缺失：$name';
+  }
+
+  @override
+  String backupSourceUnreadable(String name) {
+    return '无法读取源文件：$name';
+  }
+
+  @override
+  String backupSourceEmpty(String name) {
+    return '源文件为空：$name';
+  }
+
+  @override
+  String backupSourceChanged(String name) {
+    return '导出期间源文件发生变化：$name';
+  }
+
+  @override
+  String backupPayloadMissing(String name) {
+    return '备份文件缺失：$name';
+  }
+
+  @override
+  String backupPayloadUnreadable(String name) {
+    return '无法读取备份文件：$name';
+  }
+
+  @override
+  String backupPayloadEmpty(String name) {
+    return '备份文件为空：$name';
+  }
+
+  @override
+  String backupPayloadLengthMismatch(String name) {
+    return '备份文件大小不符：$name';
+  }
+
+  @override
+  String backupPayloadDigestMismatch(String name) {
+    return '备份文件校验值不符：$name';
+  }
+
+  @override
+  String backupUnsafePath(String name) {
+    return '备份路径不安全：$name';
+  }
+
+  @override
+  String backupDestinationConflict(String name) {
+    return '请选择空文件夹。已有项目：$name';
+  }
+
+  @override
+  String get backupExportWriteFailed => '无法写入备份，请检查文件夹权限和剩余空间。';
+
+  @override
+  String get backupRestoreWriteFailed => '无法恢复备份，请检查存储权限和剩余空间。';
+
+  @override
+  String get backupExportFailedGeneric => '导出失败，请检查源文件后重试。';
+
+  @override
+  String get backupRestoreFailedGeneric => '恢复失败，请检查备份后重试。';
+
+  @override
   String get scanOrphans => '扫描孤立隐藏文件';
 
   @override
@@ -1898,23 +2203,8 @@ class AppLocalizationsZhCn extends AppLocalizationsZh {
   }
 
   @override
-  String exportFailed(String error) {
-    return '导出失败：$error';
-  }
-
-  @override
-  String importFailed(String error) {
-    return '导入失败：$error';
-  }
-
-  @override
   String scanFailed(String error) {
     return '扫描失败：$error';
-  }
-
-  @override
-  String exportedMedia(int count) {
-    return '已导出 $count 个媒体文件及清单';
   }
 
   @override
@@ -2877,6 +3167,166 @@ class AppLocalizationsZhHk extends AppLocalizationsZh {
   String get importVaultSubtitle => '從先前的匯出資料夾匯入';
 
   @override
+  String get backupExportPickerTitle => '選擇備份資料夾';
+
+  @override
+  String get backupRestorePickerTitle => '選擇備份資料夾';
+
+  @override
+  String get backupExportProgressTitle => '匯出保險庫';
+
+  @override
+  String get backupRestoreProgressTitle => '還原保險庫';
+
+  @override
+  String get backupExportCompleteTitle => '備份已驗證';
+
+  @override
+  String get backupRestoreCompleteTitle => '還原完成';
+
+  @override
+  String get backupExportErrorTitle => '匯出失敗';
+
+  @override
+  String get backupRestoreErrorTitle => '還原失敗';
+
+  @override
+  String get backupCancelledTitle => '已取消';
+
+  @override
+  String get backupCancelledBody => '未儲存任何變更。';
+
+  @override
+  String get backupCancelling => '正在完成目前檔案…';
+
+  @override
+  String get backupStagePreparing => '正在準備';
+
+  @override
+  String get backupStageCheckingSource => '正在檢查來源檔案';
+
+  @override
+  String get backupStageCopying => '正在複製媒體';
+
+  @override
+  String get backupStageWritingManifest => '正在寫入清單';
+
+  @override
+  String get backupStageCheckingBackup => '正在檢查備份';
+
+  @override
+  String get backupStageRestoring => '正在還原媒體';
+
+  @override
+  String get backupStageComplete => '已完成';
+
+  @override
+  String get backupProgressLabel => '備份進度';
+
+  @override
+  String backupProgressCount(int completed, int total) {
+    return '$completed / $total';
+  }
+
+  @override
+  String backupItemCount(int count) {
+    return '$count 項';
+  }
+
+  @override
+  String get backupChecksumVerified => '已檢查 SHA-256';
+
+  @override
+  String get backupCheckedWithoutChecksum => '檔案已檢查 · 無校驗值';
+
+  @override
+  String get backupUnknownItem => '未知項目';
+
+  @override
+  String get backupFolderSelectionFailed => '無法開啟資料夾，請重試';
+
+  @override
+  String get backupManifestMissing => '找不到 Privi 備份清單。';
+
+  @override
+  String get backupManifestMalformed => '備份清單無效。';
+
+  @override
+  String backupManifestMalformedItem(String name) {
+    return '清單項目無效：$name';
+  }
+
+  @override
+  String get backupVersionUnsupported => '不支援此備份版本。';
+
+  @override
+  String backupSourceMissing(String name) {
+    return '來源檔案遺失：$name';
+  }
+
+  @override
+  String backupSourceUnreadable(String name) {
+    return '無法讀取來源檔案：$name';
+  }
+
+  @override
+  String backupSourceEmpty(String name) {
+    return '來源檔案是空的：$name';
+  }
+
+  @override
+  String backupSourceChanged(String name) {
+    return '匯出期間來源檔案發生變化：$name';
+  }
+
+  @override
+  String backupPayloadMissing(String name) {
+    return '備份檔案遺失：$name';
+  }
+
+  @override
+  String backupPayloadUnreadable(String name) {
+    return '無法讀取備份檔案：$name';
+  }
+
+  @override
+  String backupPayloadEmpty(String name) {
+    return '備份檔案是空的：$name';
+  }
+
+  @override
+  String backupPayloadLengthMismatch(String name) {
+    return '備份檔案大小不符：$name';
+  }
+
+  @override
+  String backupPayloadDigestMismatch(String name) {
+    return '備份檔案校驗值不符：$name';
+  }
+
+  @override
+  String backupUnsafePath(String name) {
+    return '備份路徑不安全：$name';
+  }
+
+  @override
+  String backupDestinationConflict(String name) {
+    return '請選擇空資料夾。已有項目：$name';
+  }
+
+  @override
+  String get backupExportWriteFailed => '無法寫入備份，請檢查資料夾權限和剩餘空間。';
+
+  @override
+  String get backupRestoreWriteFailed => '無法還原備份，請檢查儲存權限和剩餘空間。';
+
+  @override
+  String get backupExportFailedGeneric => '匯出失敗，請檢查來源檔案後重試。';
+
+  @override
+  String get backupRestoreFailedGeneric => '還原失敗，請檢查備份後重試。';
+
+  @override
   String get scanOrphans => '掃描孤立隱藏檔案';
 
   @override
@@ -2983,23 +3433,8 @@ class AppLocalizationsZhHk extends AppLocalizationsZh {
   }
 
   @override
-  String exportFailed(String error) {
-    return '匯出失敗：$error';
-  }
-
-  @override
-  String importFailed(String error) {
-    return '匯入失敗：$error';
-  }
-
-  @override
   String scanFailed(String error) {
     return '掃描失敗：$error';
-  }
-
-  @override
-  String exportedMedia(int count) {
-    return '已匯出 $count 個媒體檔案及清單';
   }
 
   @override
