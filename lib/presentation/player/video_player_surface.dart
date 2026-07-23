@@ -170,10 +170,13 @@ class VideoGestureSurface extends StatefulWidget {
 }
 
 class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
+  static const _fastForwardSpeed = 2.0;
+
   Offset? _doubleTapPosition;
   Duration? _dragStartPosition;
   Duration? _dragTarget;
   double _dragPixels = 0;
+  double? _speedBeforeFastForward;
   _SeekFeedback? _feedback;
   Timer? _feedbackTimer;
 
@@ -181,6 +184,7 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
   void didUpdateWidget(VideoGestureSurface oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.controller != widget.controller) {
+      _restorePlaybackSpeed(oldWidget.controller);
       _feedbackTimer?.cancel();
       _feedback = null;
       _dragStartPosition = null;
@@ -191,8 +195,28 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
 
   @override
   void dispose() {
+    _restorePlaybackSpeed(widget.controller);
     _feedbackTimer?.cancel();
     super.dispose();
+  }
+
+  void _startFastForward(LongPressStartDetails details) {
+    if (_speedBeforeFastForward != null) return;
+    _speedBeforeFastForward = widget.controller.value.playbackSpeed;
+    unawaited(widget.controller.setPlaybackSpeed(_fastForwardSpeed));
+    setState(() {});
+  }
+
+  void _stopFastForward() {
+    _restorePlaybackSpeed(widget.controller);
+    if (mounted) setState(() {});
+  }
+
+  void _restorePlaybackSpeed(VideoPlayerController controller) {
+    final speed = _speedBeforeFastForward;
+    if (speed == null) return;
+    _speedBeforeFastForward = null;
+    unawaited(controller.setPlaybackSpeed(speed));
   }
 
   Future<void> _handleDoubleTap() async {
@@ -287,6 +311,9 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
       onTap: widget.onTap,
       onDoubleTapDown: (details) => _doubleTapPosition = details.localPosition,
       onDoubleTap: () => unawaited(_handleDoubleTap()),
+      onLongPressStart: _startFastForward,
+      onLongPressEnd: (_) => _stopFastForward(),
+      onLongPressCancel: _stopFastForward,
       onHorizontalDragStart: _handleDragStart,
       onHorizontalDragUpdate: _handleDragUpdate,
       onHorizontalDragEnd: (details) => unawaited(_handleDragEnd(details)),
@@ -295,6 +322,18 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
         fit: StackFit.expand,
         children: [
           widget.child,
+          if (_speedBeforeFastForward != null)
+            const IgnorePointer(
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: SafeArea(
+                  child: Padding(
+                    padding: EdgeInsets.only(top: 16),
+                    child: _FastForwardFeedback(),
+                  ),
+                ),
+              ),
+            ),
           if (_feedback case final feedback?)
             IgnorePointer(
               child: Align(
@@ -337,6 +376,32 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
                 ),
               ),
             ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FastForwardFeedback extends StatelessWidget {
+  const _FastForwardFeedback();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xE61C1C1E),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.fast_forward, color: Colors.white, size: 22),
+          SizedBox(width: 6),
+          Text(
+            '2x',
+            style: TextStyle(color: Colors.white, fontSize: 14),
+          ),
         ],
       ),
     );

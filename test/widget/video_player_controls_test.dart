@@ -5,6 +5,8 @@ import 'package:privi/presentation/player/video_player_controls.dart';
 import 'package:privi/presentation/player/video_player_surface.dart';
 import 'package:video_player/video_player.dart';
 
+const _longPressDuration = Duration(milliseconds: 500);
+
 void main() {
   test('swipe seek follows direction, magnitude, and duration limits', () {
     const duration = Duration(minutes: 20);
@@ -67,6 +69,67 @@ void main() {
     expect(formatVideoDelta(const Duration(seconds: -3)), '-0:03');
     expect(formatPlaybackSpeed(1), '1x');
     expect(formatPlaybackSpeed(1.25), '1.25x');
+  });
+
+  testWidgets('long press fast-forwards at 2x until release', (tester) async {
+    final controller = VideoPlayerController.networkUrl(
+      Uri.parse('https://example.com/video.mp4'),
+    );
+    addTearDown(controller.dispose);
+    await controller.setPlaybackSpeed(1.25);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: VideoGestureSurface(
+          controller: controller,
+          seekSeconds: 3,
+          onTap: () {},
+          child: const ColoredBox(color: Colors.black),
+        ),
+      ),
+    );
+
+    final gesture = await tester
+        .startGesture(tester.getCenter(find.byType(VideoGestureSurface)));
+    await tester.pump(_longPressDuration);
+
+    expect(controller.value.playbackSpeed, 2);
+    expect(find.text('2x'), findsOneWidget);
+
+    await gesture.up();
+    await tester.pump();
+
+    expect(controller.value.playbackSpeed, 1.25);
+    expect(find.text('2x'), findsNothing);
+  });
+
+  testWidgets('cancelled long press restores playback speed', (tester) async {
+    final controller = VideoPlayerController.networkUrl(
+      Uri.parse('https://example.com/video.mp4'),
+    );
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: VideoGestureSurface(
+          controller: controller,
+          seekSeconds: 3,
+          onTap: () {},
+          child: const ColoredBox(color: Colors.black),
+        ),
+      ),
+    );
+
+    final gesture = await tester
+        .startGesture(tester.getCenter(find.byType(VideoGestureSurface)));
+    await tester.pump(_longPressDuration);
+    expect(controller.value.playbackSpeed, 2);
+
+    await gesture.cancel();
+    await tester.pump();
+
+    expect(controller.value.playbackSpeed, 1);
+    expect(find.text('2x'), findsNothing);
   });
 
   testWidgets('landscape controls hide time labels without overflowing',
