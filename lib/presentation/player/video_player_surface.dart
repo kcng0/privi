@@ -56,6 +56,10 @@ String formatVideoDelta(Duration duration) {
   return '$sign${formatVideoTime(duration)}';
 }
 
+String formatVideoProgress(Duration position, Duration duration) {
+  return '${formatVideoTime(position)}/${formatVideoTime(duration)}';
+}
+
 abstract final class VideoSystemUi {
   static Future<void> apply(bool immersive) {
     return SystemChrome.setEnabledSystemUIMode(
@@ -423,7 +427,10 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
                           Padding(
                             padding: const EdgeInsets.symmetric(vertical: 3),
                             child: Text(
-                              formatVideoTime(_previewPosition!),
+                              formatVideoProgress(
+                                _previewPosition!,
+                                widget.controller.value.duration,
+                              ),
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 12,
@@ -481,7 +488,10 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
                         const SizedBox(width: 8),
                         Text(
                           '${formatVideoDelta(feedback.delta)}  '
-                          '${formatVideoTime(feedback.target)}',
+                          '${formatVideoProgress(
+                            feedback.target,
+                            widget.controller.value.duration,
+                          )}',
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 14,
