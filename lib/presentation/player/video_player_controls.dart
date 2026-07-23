@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
@@ -31,6 +32,7 @@ class VideoBottomControls extends StatefulWidget {
     required this.onToggleOrientation,
     required this.onChooseFit,
     required this.onOpenSettings,
+    this.onPreviewFrameRequested,
   });
 
   final VideoPlayerValue value;
@@ -48,6 +50,7 @@ class VideoBottomControls extends StatefulWidget {
   final VoidCallback onToggleOrientation;
   final VoidCallback onChooseFit;
   final VoidCallback onOpenSettings;
+  final Future<Uint8List?> Function(Duration position)? onPreviewFrameRequested;
 
   @override
   State<VideoBottomControls> createState() => _VideoBottomControlsState();
@@ -56,6 +59,19 @@ class VideoBottomControls extends StatefulWidget {
 class _VideoBottomControlsState extends State<VideoBottomControls> {
   double? _scrubPositionMs;
   bool _scrubbing = false;
+  Timer? _previewTimer;
+  Uint8List? _previewFrame;
+  Duration? _previewPosition;
+  Duration? _pendingPreviewPosition;
+  bool _previewInFlight = false;
+  int _previewGeneration = 0;
+
+  @override
+  void dispose() {
+    _previewGeneration++;
+    _previewTimer?.cancel();
+    super.dispose();
+  }
 
   Future<void> _finishScrub(double positionMs) async {
     await widget.onSeek(Duration(milliseconds: positionMs.round()));
@@ -63,8 +79,50 @@ class _VideoBottomControlsState extends State<VideoBottomControls> {
       setState(() {
         _scrubbing = false;
         _scrubPositionMs = null;
+        _clearPreview();
       });
     }
+  }
+
+  void _schedulePreview(double positionMs) {
+    if (widget.onPreviewFrameRequested == null) return;
+    _pendingPreviewPosition = Duration(milliseconds: positionMs.round());
+    if (_previewInFlight || (_previewTimer?.isActive ?? false)) return;
+    _previewTimer = Timer(const Duration(milliseconds: 110), _requestPreview);
+  }
+
+  void _requestPreview() {
+    final request = widget.onPreviewFrameRequested;
+    final position = _pendingPreviewPosition;
+    if (request == null || position == null || !mounted) return;
+    _pendingPreviewPosition = null;
+    _previewInFlight = true;
+    final generation = ++_previewGeneration;
+    unawaited(() async {
+      try {
+        final frame = await request(position);
+        if (!mounted || generation != _previewGeneration) return;
+        setState(() {
+          _previewFrame = frame;
+          _previewPosition = position;
+        });
+      } finally {
+        _previewInFlight = false;
+        if (_pendingPreviewPosition != null && mounted) {
+          _previewTimer =
+              Timer(const Duration(milliseconds: 40), _requestPreview);
+        }
+      }
+    }());
+  }
+
+  void _clearPreview() {
+    _previewGeneration++;
+    _previewTimer?.cancel();
+    _previewTimer = null;
+    _pendingPreviewPosition = null;
+    _previewFrame = null;
+    _previewPosition = null;
   }
 
   @override
@@ -78,115 +136,133 @@ class _VideoBottomControlsState extends State<VideoBottomControls> {
             .toDouble();
     return SafeArea(
       top: false,
-      child: Material(
-        color: Colors.black.withValues(alpha: 0.78),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(8, 4, 8, 6),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (widget.landscape &&
-                  (widget.title != null ||
-                      (widget.playlistPosition != null &&
-                          widget.playlistLength != null)))
-                _landscapeHeader(),
-              SliderTheme(
-                data: SliderTheme.of(context).copyWith(
-                  trackHeight: 3,
-                  thumbShape: const RoundSliderThumbShape(
-                    enabledThumbRadius: 6,
-                  ),
-                  overlayShape: const RoundSliderOverlayShape(
-                    overlayRadius: 14,
-                  ),
-                ),
-                child: Slider(
-                  min: 0,
-                  max: durationMs <= 0 ? 1 : durationMs,
-                  value: durationMs <= 0 ? 0 : positionMs,
-                  onChanged: durationMs <= 0
-                      ? null
-                      : (next) => setState(() => _scrubPositionMs = next),
-                  onChangeStart: durationMs <= 0
-                      ? null
-                      : (next) => setState(() {
-                            _scrubbing = true;
-                            _scrubPositionMs = next;
-                          }),
-                  onChangeEnd: durationMs <= 0
-                      ? null
-                      : (next) => unawaited(_finishScrub(next)),
-                ),
-              ),
-              if (!widget.landscape)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      _timeLabel(
-                        formatVideoTime(
-                          _scrubbing
-                              ? Duration(milliseconds: positionMs.round())
-                              : value.position,
-                        ),
-                      ),
-                      _timeLabel(formatVideoTime(value.duration)),
-                    ],
-                  ),
-                ),
-              const SizedBox(height: AppSpacing.xs),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      child: Stack(
+        clipBehavior: Clip.none,
+        alignment: Alignment.topCenter,
+        children: [
+          Material(
+            color: Colors.black.withValues(alpha: 0.78),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(8, 4, 8, 6),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  _iconButton(
-                    context,
-                    icon: Icons.skip_previous,
-                    tooltip: context.l10n.previousMedia,
-                    onPressed: widget.hasPrevious ? widget.onPrevious : null,
+                  if (widget.landscape &&
+                      (widget.title != null ||
+                          (widget.playlistPosition != null &&
+                              widget.playlistLength != null)))
+                    _landscapeHeader(),
+                  SliderTheme(
+                    data: SliderTheme.of(context).copyWith(
+                      trackHeight: 3,
+                      thumbShape: const RoundSliderThumbShape(
+                        enabledThumbRadius: 6,
+                      ),
+                      overlayShape: const RoundSliderOverlayShape(
+                        overlayRadius: 14,
+                      ),
+                    ),
+                    child: Slider(
+                      min: 0,
+                      max: durationMs <= 0 ? 1 : durationMs,
+                      value: durationMs <= 0 ? 0 : positionMs,
+                      onChanged: durationMs <= 0
+                          ? null
+                          : (next) {
+                              setState(() => _scrubPositionMs = next);
+                              _schedulePreview(next);
+                            },
+                      onChangeStart: durationMs <= 0
+                          ? null
+                          : (next) => setState(() {
+                                _scrubbing = true;
+                                _scrubPositionMs = next;
+                              }),
+                      onChangeEnd: durationMs <= 0
+                          ? null
+                          : (next) => unawaited(_finishScrub(next)),
+                    ),
                   ),
-                  _iconButton(
-                    context,
-                    icon: value.isPlaying ? Icons.pause : Icons.play_arrow,
-                    tooltip: value.isPlaying
-                        ? context.l10n.pause
-                        : context.l10n.play,
-                    onPressed: widget.onPlayPause,
-                    size: 30,
-                  ),
-                  _iconButton(
-                    context,
-                    icon: Icons.skip_next,
-                    tooltip: context.l10n.nextMedia,
-                    onPressed: widget.hasNext ? widget.onNext : null,
-                  ),
-                  _iconButton(
-                    context,
-                    icon: widget.landscape
-                        ? Icons.stay_current_portrait
-                        : Icons.stay_current_landscape,
-                    tooltip: widget.landscape
-                        ? context.l10n.portrait
-                        : context.l10n.landscape,
-                    onPressed: widget.onToggleOrientation,
-                  ),
-                  _iconButton(
-                    context,
-                    icon: videoFitModeIcon(widget.fitMode),
-                    tooltip: context.l10n.videoDisplayMode,
-                    onPressed: widget.onChooseFit,
-                  ),
-                  _iconButton(
-                    context,
-                    icon: Icons.settings_outlined,
-                    tooltip: context.l10n.playerSettings,
-                    onPressed: widget.onOpenSettings,
+                  if (!widget.landscape)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          _timeLabel(
+                            formatVideoTime(
+                              _scrubbing
+                                  ? Duration(milliseconds: positionMs.round())
+                                  : value.position,
+                            ),
+                          ),
+                          _timeLabel(formatVideoTime(value.duration)),
+                        ],
+                      ),
+                    ),
+                  const SizedBox(height: AppSpacing.xs),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      _iconButton(
+                        context,
+                        icon: Icons.skip_previous,
+                        tooltip: context.l10n.previousMedia,
+                        onPressed:
+                            widget.hasPrevious ? widget.onPrevious : null,
+                      ),
+                      _iconButton(
+                        context,
+                        icon: value.isPlaying ? Icons.pause : Icons.play_arrow,
+                        tooltip: value.isPlaying
+                            ? context.l10n.pause
+                            : context.l10n.play,
+                        onPressed: widget.onPlayPause,
+                        size: 30,
+                      ),
+                      _iconButton(
+                        context,
+                        icon: Icons.skip_next,
+                        tooltip: context.l10n.nextMedia,
+                        onPressed: widget.hasNext ? widget.onNext : null,
+                      ),
+                      _iconButton(
+                        context,
+                        icon: widget.landscape
+                            ? Icons.stay_current_portrait
+                            : Icons.stay_current_landscape,
+                        tooltip: widget.landscape
+                            ? context.l10n.portrait
+                            : context.l10n.landscape,
+                        onPressed: widget.onToggleOrientation,
+                      ),
+                      _iconButton(
+                        context,
+                        icon: videoFitModeIcon(widget.fitMode),
+                        tooltip: context.l10n.videoDisplayMode,
+                        onPressed: widget.onChooseFit,
+                      ),
+                      _iconButton(
+                        context,
+                        icon: Icons.settings_outlined,
+                        tooltip: context.l10n.playerSettings,
+                        onPressed: widget.onOpenSettings,
+                      ),
+                    ],
                   ),
                 ],
               ),
-            ],
+            ),
           ),
-        ),
+          if (_previewFrame != null && _previewPosition != null)
+            Positioned(
+              top: -132,
+              child: _VideoFramePreview(
+                frame: _previewFrame!,
+                position: _previewPosition!,
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -319,6 +395,51 @@ String _fitLabel(BuildContext context, VideoFitMode mode) {
     VideoFitMode.ratio4x3 => context.l10n.videoRatioFourThree,
     VideoFitMode.ratio16x9 => context.l10n.videoRatioSixteenNine,
   };
+}
+
+class _VideoFramePreview extends StatelessWidget {
+  const _VideoFramePreview({required this.frame, required this.position});
+
+  final Uint8List frame;
+  final Duration position;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xE61C1C1E),
+        border: Border.all(color: Colors.white54),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(3),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Image.memory(
+              frame,
+              key: const Key('video-frame-preview'),
+              width: 180,
+              height: 101,
+              fit: BoxFit.cover,
+              gaplessPlayback: true,
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 3),
+              child: Text(
+                formatVideoTime(position),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontFeatures: [FontFeature.tabularFigures()],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 Future<void> showVideoSettingsSheet(

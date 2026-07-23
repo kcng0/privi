@@ -158,12 +158,14 @@ class VideoGestureSurface extends StatefulWidget {
     required this.seekSeconds,
     required this.onTap,
     required this.child,
+    this.onPreviewFrameRequested,
   });
 
   final VideoPlayerController controller;
   final int seekSeconds;
   final VoidCallback onTap;
   final Widget child;
+  final Future<Uint8List?> Function(Duration position)? onPreviewFrameRequested;
 
   @override
   State<VideoGestureSurface> createState() => _VideoGestureSurfaceState();
@@ -181,6 +183,12 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
   late final ValueNotifier<_SeekFeedback?> _feedbackNotifier =
       ValueNotifier<_SeekFeedback?>(null);
   Timer? _feedbackTimer;
+  Timer? _previewTimer;
+  Uint8List? _previewFrame;
+  Duration? _previewPosition;
+  Duration? _pendingPreviewPosition;
+  bool _previewInFlight = false;
+  int _previewGeneration = 0;
 
   @override
   void didUpdateWidget(VideoGestureSurface oldWidget) {
@@ -193,6 +201,7 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
       _dragTarget = null;
       _dragPixels = 0;
       _resumeAfterDrag = false;
+      _clearPreview();
     }
   }
 
@@ -200,6 +209,7 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
   void dispose() {
     _restorePlaybackSpeed(widget.controller);
     _feedbackTimer?.cancel();
+    _previewTimer?.cancel();
     _feedbackNotifier.dispose();
     super.dispose();
   }
@@ -252,6 +262,7 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
     _dragTarget = _dragStartPosition;
     _dragPixels = 0;
     _resumeAfterDrag = widget.controller.value.isPlaying;
+    _clearPreviewAndRebuild();
     if (_resumeAfterDrag) unawaited(widget.controller.pause());
   }
 
@@ -271,6 +282,7 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
       widget.controller.value.duration,
     );
     _dragTarget = target;
+    _schedulePreview(target);
     _showFeedback(
       _SeekFeedback(
         delta: target - start,
@@ -288,6 +300,7 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
     _dragPixels = 0;
     final resume = _resumeAfterDrag;
     _resumeAfterDrag = false;
+    _clearPreviewAndRebuild();
     if (target != null) await widget.controller.seekTo(target);
     if (resume) await widget.controller.play();
     _scheduleFeedbackHide();
@@ -299,6 +312,7 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
     _dragPixels = 0;
     final resume = _resumeAfterDrag;
     _resumeAfterDrag = false;
+    _clearPreviewAndRebuild();
     if (resume) unawaited(widget.controller.play());
     _scheduleFeedbackHide();
   }
@@ -314,6 +328,53 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
     _feedbackTimer = Timer(const Duration(milliseconds: 750), () {
       if (mounted) _feedbackNotifier.value = null;
     });
+  }
+
+  void _schedulePreview(Duration position) {
+    if (widget.onPreviewFrameRequested == null) return;
+    _pendingPreviewPosition = position;
+    if (_previewInFlight || (_previewTimer?.isActive ?? false)) return;
+    _previewTimer = Timer(const Duration(milliseconds: 110), _requestPreview);
+  }
+
+  void _requestPreview() {
+    final request = widget.onPreviewFrameRequested;
+    final position = _pendingPreviewPosition;
+    if (request == null || position == null || !mounted) return;
+    _pendingPreviewPosition = null;
+    _previewInFlight = true;
+    final generation = ++_previewGeneration;
+    unawaited(() async {
+      try {
+        final frame = await request(position);
+        if (!mounted || generation != _previewGeneration) return;
+        setState(() {
+          _previewFrame = frame;
+          _previewPosition = position;
+        });
+      } finally {
+        _previewInFlight = false;
+        if (_pendingPreviewPosition != null && mounted) {
+          _previewTimer =
+              Timer(const Duration(milliseconds: 40), _requestPreview);
+        }
+      }
+    }());
+  }
+
+  void _clearPreview() {
+    _previewGeneration++;
+    _previewTimer?.cancel();
+    _previewTimer = null;
+    _pendingPreviewPosition = null;
+    _previewFrame = null;
+    _previewPosition = null;
+  }
+
+  void _clearPreviewAndRebuild() {
+    final hadPreview = _previewFrame != null;
+    _clearPreview();
+    if (hadPreview && mounted) setState(() {});
   }
 
   @override
@@ -334,6 +395,51 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
         fit: StackFit.expand,
         children: [
           widget.child,
+          if (_previewFrame != null && _previewPosition != null)
+            IgnorePointer(
+              child: Align(
+                alignment: Alignment.center,
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 92),
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: const Color(0xE61C1C1E),
+                      border: Border.all(color: Colors.white54),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(3),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Image.memory(
+                            _previewFrame!,
+                            key: const Key('video-frame-preview'),
+                            width: 220,
+                            height: 124,
+                            fit: BoxFit.cover,
+                            gaplessPlayback: true,
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 3),
+                            child: Text(
+                              formatVideoTime(_previewPosition!),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontFeatures: [
+                                  FontFeature.tabularFigures(),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
           if (_speedBeforeFastForward != null)
             const IgnorePointer(
               child: Align(

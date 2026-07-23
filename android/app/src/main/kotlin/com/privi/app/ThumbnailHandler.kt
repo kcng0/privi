@@ -6,10 +6,35 @@ import android.media.ThumbnailUtils
 import android.os.Build
 import android.util.Size
 import java.io.File
+import java.io.ByteArrayOutputStream
 import java.io.FileOutputStream
 
 /** Extracts video poster frames using the same platform API as the system gallery. */
 class ThumbnailHandler {
+    fun extractVideoFrame(path: String, timeUs: Long, maxSize: Int): ByteArray? {
+        val src = File(path)
+        if (!src.exists() || src.length() <= 0L) return null
+        var retriever: MediaMetadataRetriever? = null
+        return try {
+            retriever = MediaMetadataRetriever()
+            retriever.setDataSource(path)
+            val frame = retriever.getFrameAtTime(
+                timeUs,
+                MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+            ) ?: return null
+            val scaled = scaleDown(frame, maxSize.coerceAtLeast(1))
+            val output = ByteArrayOutputStream()
+            scaled.compress(Bitmap.CompressFormat.JPEG, 78, output)
+            if (scaled !== frame) scaled.recycle()
+            frame.recycle()
+            output.toByteArray()
+        } catch (e: Exception) {
+            android.util.Log.w("Privi", "videoFrameAtTime: $e")
+            null
+        } finally {
+            try { retriever?.release() } catch (_: Exception) {}
+        }
+    }
     /**
      * Extract a JPEG still from a local video file for vault grid thumbnails.
      *
