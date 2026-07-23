@@ -192,9 +192,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     await video.setPlaybackSpeed(_playbackSpeed);
   }
 
-  void _seekTo(Duration position) {
+  Future<void> _seekTo(Duration position) async {
     final video = _video;
-    if (video != null) unawaited(video.seekTo(position));
+    if (video != null) await video.seekTo(position);
   }
 
   void _setPlaybackSpeed(double speed) {

@@ -189,9 +189,9 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen> {
     await video.setPlaybackSpeed(_playbackSpeed);
   }
 
-  void _seekTo(Duration position) {
+  Future<void> _seekTo(Duration position) async {
     final video = _video;
-    if (video != null) unawaited(video.seekTo(position));
+    if (video != null) await video.seekTo(position);
   }
 
   Future<void> _openSettings() async {

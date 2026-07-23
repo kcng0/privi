@@ -176,8 +176,10 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
   Duration? _dragStartPosition;
   Duration? _dragTarget;
   double _dragPixels = 0;
+  bool _resumeAfterDrag = false;
   double? _speedBeforeFastForward;
-  _SeekFeedback? _feedback;
+  late final ValueNotifier<_SeekFeedback?> _feedbackNotifier =
+      ValueNotifier<_SeekFeedback?>(null);
   Timer? _feedbackTimer;
 
   @override
@@ -186,10 +188,11 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
     if (oldWidget.controller != widget.controller) {
       _restorePlaybackSpeed(oldWidget.controller);
       _feedbackTimer?.cancel();
-      _feedback = null;
+      _feedbackNotifier.value = null;
       _dragStartPosition = null;
       _dragTarget = null;
       _dragPixels = 0;
+      _resumeAfterDrag = false;
     }
   }
 
@@ -197,6 +200,7 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
   void dispose() {
     _restorePlaybackSpeed(widget.controller);
     _feedbackTimer?.cancel();
+    _feedbackNotifier.dispose();
     super.dispose();
   }
 
@@ -247,6 +251,8 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
     _dragStartPosition = widget.controller.value.position;
     _dragTarget = _dragStartPosition;
     _dragPixels = 0;
+    _resumeAfterDrag = widget.controller.value.isPlaying;
+    if (_resumeAfterDrag) unawaited(widget.controller.pause());
   }
 
   void _handleDragUpdate(DragUpdateDetails details) {
@@ -280,7 +286,10 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
     _dragStartPosition = null;
     _dragTarget = null;
     _dragPixels = 0;
+    final resume = _resumeAfterDrag;
+    _resumeAfterDrag = false;
     if (target != null) await widget.controller.seekTo(target);
+    if (resume) await widget.controller.play();
     _scheduleFeedbackHide();
   }
 
@@ -288,19 +297,22 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
     _dragStartPosition = null;
     _dragTarget = null;
     _dragPixels = 0;
+    final resume = _resumeAfterDrag;
+    _resumeAfterDrag = false;
+    if (resume) unawaited(widget.controller.play());
     _scheduleFeedbackHide();
   }
 
   void _showFeedback(_SeekFeedback feedback, {required bool autoHide}) {
     if (!mounted) return;
-    setState(() => _feedback = feedback);
+    _feedbackNotifier.value = feedback;
     if (autoHide) _scheduleFeedbackHide();
   }
 
   void _scheduleFeedbackHide() {
     _feedbackTimer?.cancel();
     _feedbackTimer = Timer(const Duration(milliseconds: 750), () {
-      if (mounted) setState(() => _feedback = null);
+      if (mounted) _feedbackNotifier.value = null;
     });
   }
 
@@ -334,14 +346,14 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
                 ),
               ),
             ),
-          if (_feedback case final feedback?)
-            IgnorePointer(
-              child: Align(
-                alignment: feedback.alignment,
-                child: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 120),
+          ValueListenableBuilder<_SeekFeedback?>(
+            valueListenable: _feedbackNotifier,
+            builder: (context, feedback, _) {
+              if (feedback == null) return const SizedBox.shrink();
+              return IgnorePointer(
+                child: Align(
+                  alignment: feedback.alignment,
                   child: Container(
-                    key: ValueKey('${feedback.delta}-${feedback.target}'),
                     padding: const EdgeInsets.symmetric(
                       horizontal: 14,
                       vertical: 10,
@@ -374,8 +386,9 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
                     ),
                   ),
                 ),
-              ),
-            ),
+              );
+            },
+          ),
         ],
       ),
     );
