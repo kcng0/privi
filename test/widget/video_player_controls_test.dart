@@ -70,6 +70,13 @@ void main() {
     );
     expect(formatVideoTime(const Duration(seconds: 65)), '1:05');
     expect(formatVideoTime(const Duration(hours: 1, seconds: 2)), '1:00:02');
+    expect(
+      formatVideoProgress(
+        const Duration(hours: 1, minutes: 2, seconds: 3),
+        const Duration(hours: 2, minutes: 3, seconds: 4),
+      ),
+      '1:02:03/2:03:04',
+    );
     expect(formatVideoDelta(const Duration(seconds: -3)), '-0:03');
     expect(formatPlaybackSpeed(1), '1x');
     expect(formatPlaybackSpeed(1.25), '1.25x');
@@ -212,7 +219,7 @@ void main() {
     await tester.pump();
 
     expect(seeks, isEmpty);
-    expect(find.text('0:30'), findsOneWidget);
+    expect(find.text('0:30/2:00'), findsOneWidget);
 
     slider = tester.widget<Slider>(find.byType(Slider));
     slider.onChangeEnd!(30000);
@@ -277,7 +284,7 @@ void main() {
     await tester.pump();
 
     expect(find.byKey(const Key('video-frame-preview')), findsOneWidget);
-    expect(find.text('1:00'), findsWidgets);
+    expect(find.text('1:00/2:00'), findsWidgets);
 
     slider = tester.widget<Slider>(find.byType(Slider));
     slider.onChangeEnd!(60000);

@@ -30,6 +30,12 @@ import '../import/import_result_message.dart';
 import 'folder_cover_cache.dart';
 import 'gallery_preview_screen.dart';
 
+List<GalleryAsset> visibleVideoPlaylist(
+  Iterable<GalleryAsset> items,
+) {
+  return List.unmodifiable(items.where((item) => item.isVideo));
+}
+
 /// Visible folder browser (hide flow).
 ///
 /// Tap opens media; long-press selects for Hide / Share / Delete.
@@ -198,12 +204,14 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
     }
 
     if (!mounted) return;
+    final previewItems =
+        a.isVideo ? visibleVideoPlaylist(_visibleItems) : <GalleryAsset>[a];
+    final previewIndex = previewItems.indexWhere((item) => item.id == a.id);
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => GalleryPreviewScreen(
-          assetId: a.id,
-          title: a.title,
-          isVideo: a.isVideo,
+          items: previewItems,
+          initialIndex: previewIndex < 0 ? 0 : previewIndex,
         ),
       ),
     );
@@ -633,12 +641,6 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
           label: context.l10n.share,
           onTap: _shareSelected,
         ),
-        FloatingActionItem(
-          icon: Icons.delete_outline,
-          label: context.l10n.delete,
-          destructive: true,
-          onTap: _deleteSelected,
-        ),
       ],
     );
   }
@@ -796,6 +798,12 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
                                     icon: Icons.visibility_off,
                                     label: context.l10n.hide,
                                     onTap: _hideSelected,
+                                  ),
+                                  FloatingActionItem(
+                                    icon: Icons.delete_outline,
+                                    label: context.l10n.delete,
+                                    destructive: true,
+                                    onTap: _deleteSelected,
                                   ),
                                   FloatingActionItem(
                                     icon: Icons.more_horiz,

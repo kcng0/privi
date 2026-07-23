@@ -26,7 +26,22 @@ MediaItem _image(String id) => MediaItem(
       sizeBytes: 1,
     );
 
-Widget _app(ProviderContainer container) => UncontrolledProviderScope(
+MediaItem _video(String id) => MediaItem(
+      id: id,
+      privatePath: '/tmp/$id.mp4',
+      originalName: '$id.mp4',
+      mimeType: 'video/mp4',
+      isVideo: true,
+      rating: 0,
+      dateAdded: DateTime(2026),
+      sizeBytes: 1,
+    );
+
+Widget _app(
+  ProviderContainer container, {
+  List<MediaItem>? items,
+}) =>
+    UncontrolledProviderScope(
       container: container,
       child: MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -38,7 +53,7 @@ Widget _app(ProviderContainer container) => UncontrolledProviderScope(
                 onPressed: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
                     builder: (_) => PlayerScreen(
-                      items: [_image('one'), _image('two')],
+                      items: items ?? [_image('one'), _image('two')],
                       title: 'Folder',
                     ),
                   ),
@@ -106,6 +121,30 @@ void main() {
 
     await tester.tap(find.byIcon(Icons.arrow_back));
     await tester.pump();
+    await tester.pump();
+
+    expect(find.byType(PlayerScreen), findsNothing);
+    expect(container.read(playerControllerProvider).playlist, isNull);
+  });
+
+  testWidgets('system Back exits video playback immediately', (tester) async {
+    SharedPreferences.setMockInitialValues({'player_external': false});
+    final preferences = await SharedPreferences.getInstance();
+    final container = ProviderContainer(
+      overrides: [
+        sharedPreferencesProvider.overrideWithValue(preferences),
+        lockControllerProvider.overrideWith(_UnlockedLock.new),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(_app(container, items: [_video('one')]));
+    await tester.tap(find.text('Open'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byType(PlayerScreen), findsOneWidget);
+    await tester.binding.handlePopRoute();
     await tester.pump();
 
     expect(find.byType(PlayerScreen), findsNothing);

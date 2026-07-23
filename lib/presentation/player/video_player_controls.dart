@@ -187,16 +187,15 @@ class _VideoBottomControlsState extends State<VideoBottomControls> {
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 8),
                       child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           _timeLabel(
-                            formatVideoTime(
+                            formatVideoProgress(
                               _scrubbing
                                   ? Duration(milliseconds: positionMs.round())
                                   : value.position,
+                              value.duration,
                             ),
                           ),
-                          _timeLabel(formatVideoTime(value.duration)),
                         ],
                       ),
                     ),
@@ -260,6 +259,7 @@ class _VideoBottomControlsState extends State<VideoBottomControls> {
               child: _VideoFramePreview(
                 frame: _previewFrame!,
                 position: _previewPosition!,
+                duration: value.duration,
               ),
             ),
         ],
@@ -398,10 +398,15 @@ String _fitLabel(BuildContext context, VideoFitMode mode) {
 }
 
 class _VideoFramePreview extends StatelessWidget {
-  const _VideoFramePreview({required this.frame, required this.position});
+  const _VideoFramePreview({
+    required this.frame,
+    required this.position,
+    required this.duration,
+  });
 
   final Uint8List frame;
   final Duration position;
+  final Duration duration;
 
   @override
   Widget build(BuildContext context) {
@@ -427,7 +432,7 @@ class _VideoFramePreview extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 3),
               child: Text(
-                formatVideoTime(position),
+                formatVideoProgress(position, duration),
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 12,
