@@ -7,6 +7,7 @@ import 'package:photo_manager/photo_manager.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../application/settings/settings_controller.dart';
+import '../../data/services/gallery_service.dart';
 import '../../data/services/video_frame_service.dart';
 import '../common/keep_vault_unlocked.dart';
 import '../player/video_player_controls.dart';
@@ -16,14 +17,12 @@ import '../player/video_player_surface.dart';
 class GalleryPreviewScreen extends ConsumerStatefulWidget {
   const GalleryPreviewScreen({
     super.key,
-    required this.assetId,
-    required this.title,
-    required this.isVideo,
-  });
+    required this.items,
+    required this.initialIndex,
+  }) : assert(items.length > 0);
 
-  final String assetId;
-  final String title;
-  final bool isVideo;
+  final List<GalleryAsset> items;
+  final int initialIndex;
 
   @override
   ConsumerState<GalleryPreviewScreen> createState() =>
@@ -36,6 +35,8 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen> {
   String? _error;
   bool _loading = true;
   bool _chrome = true;
+  late int _index;
+  int _loadRequest = 0;
   bool _programmaticPopAllowed = false;
   bool _muted = false;
   bool _looping = false;
@@ -46,14 +47,28 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen> {
   @override
   void initState() {
     super.initState();
+    _index = widget.initialIndex.clamp(0, widget.items.length - 1);
     _playbackSpeed = ref.read(settingsControllerProvider).playerPlaybackSpeed;
     unawaited(VideoSystemUi.apply(false));
-    _load();
+    _loadCurrent();
   }
 
-  Future<void> _load() async {
+  GalleryAsset get _current => widget.items[_index];
+  bool get _hasPrevious => _index > 0;
+  bool get _hasNext => _index < widget.items.length - 1;
+
+  Future<void> _loadCurrent() async {
+    final request = ++_loadRequest;
+    await _stopVideo();
+    if (!mounted) return;
+    setState(() {
+      _loading = true;
+      _error = null;
+      _file = null;
+    });
     try {
-      final entity = await AssetEntity.fromId(widget.assetId);
+      final entity = await AssetEntity.fromId(_current.id);
+      if (!mounted || request != _loadRequest) return;
       if (entity == null) {
         setState(() {
           _error = 'Media not found';
@@ -62,6 +77,7 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen> {
         return;
       }
       final file = await entity.file;
+      if (!mounted || request != _loadRequest) return;
       if (file == null || !await file.exists()) {
         setState(() {
           _error = 'Could not open file';
@@ -69,14 +85,14 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen> {
         });
         return;
       }
-      if (widget.isVideo) {
+      if (_current.isVideo) {
         final c = VideoPlayerController.file(file);
         await c.initialize();
         await c.setLooping(_looping);
         await c.setVolume(_muted ? 0 : 1);
         await c.setPlaybackSpeed(_playbackSpeed);
         await c.play();
-        if (!mounted) {
+        if (!mounted || request != _loadRequest) {
           await c.dispose();
           return;
         }
@@ -86,19 +102,25 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen> {
           _loading = false;
         });
       } else {
-        if (!mounted) return;
+        if (!mounted || request != _loadRequest) return;
         setState(() {
           _file = file;
           _loading = false;
         });
       }
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || request != _loadRequest) return;
       setState(() {
         _error = '$e';
         _loading = false;
       });
     }
+  }
+
+  Future<void> _showItem(int index) async {
+    if (index < 0 || index >= widget.items.length || index == _index) return;
+    setState(() => _index = index);
+    await _loadCurrent();
   }
 
   Future<void> _stopVideo() async {
@@ -217,10 +239,7 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen> {
   void _exit() {
     final video = _video;
     if (video != null) unawaited(video.pause());
-    setState(() {
-      _chrome = false;
-      _programmaticPopAllowed = true;
-    });
+    setState(() => _programmaticPopAllowed = true);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) Navigator.of(context).pop();
     });
@@ -229,11 +248,11 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen> {
   @override
   Widget build(BuildContext context) {
     final landscape = _isLandscape(context);
-    final immersive = landscape && widget.isVideo;
+    final immersive = landscape && _current.isVideo;
     _syncSystemUi(immersive);
     return KeepVaultUnlocked(
       child: PopScope(
-        canPop: !_chrome || _programmaticPopAllowed,
+        canPop: _current.isVideo || !_chrome || _programmaticPopAllowed,
         onPopInvokedWithResult: (didPop, _) async {
           if (!didPop) {
             if (mounted && _chrome) setState(() => _chrome = false);
@@ -249,7 +268,7 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen> {
               _content(),
               if (_chrome && !immersive) _topBar(),
               if (_chrome &&
-                  widget.isVideo &&
+                  _current.isVideo &&
                   _video != null &&
                   _video!.value.isInitialized)
                 _videoBottomBar(landscape),
@@ -272,7 +291,7 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen> {
         child: Text(_error!, style: const TextStyle(color: Colors.white70)),
       );
     }
-    if (widget.isVideo && video != null && video.value.isInitialized) {
+    if (_current.isVideo && video != null && video.value.isInitialized) {
       return VideoGestureSurface(
         controller: video,
         seekSeconds: ref.watch(settingsControllerProvider).playerSeekSeconds,
@@ -308,7 +327,7 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen> {
                 ),
                 Expanded(
                   child: Text(
-                    widget.title,
+                    _current.title,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(color: Colors.white),
@@ -332,13 +351,15 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen> {
           value: value,
           landscape: landscape,
           fitMode: _fitMode,
-          title: widget.title,
-          hasPrevious: false,
-          hasNext: false,
-          onPrevious: () {},
+          title: _current.title,
+          playlistPosition: _index + 1,
+          playlistLength: widget.items.length,
+          hasPrevious: _hasPrevious,
+          hasNext: _hasNext,
+          onPrevious: () => unawaited(_showItem(_index - 1)),
           onSeek: _seekTo,
           onPlayPause: _togglePlayPause,
-          onNext: () {},
+          onNext: () => unawaited(_showItem(_index + 1)),
           onToggleOrientation: () => unawaited(_toggleOrientation(context)),
           onChooseFit: () => unawaited(_chooseFit()),
           onOpenSettings: () => unawaited(_openSettings()),

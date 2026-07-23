@@ -320,7 +320,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
 
     return KeepVaultUnlocked(
       child: PopScope(
-        canPop: !_chrome || _programmaticPopAllowed,
+        canPop: item.isVideo || !_chrome || _programmaticPopAllowed,
         onPopInvokedWithResult: (didPop, _) async {
           if (!didPop) {
             if (mounted && _chrome) setState(() => _chrome = false);

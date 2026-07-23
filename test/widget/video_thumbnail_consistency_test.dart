@@ -98,6 +98,48 @@ void main() {
     expect(find.byIcon(Icons.play_circle_fill), findsNothing);
   });
 
+  testWidgets('Visible selection exposes Delete directly', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final preferences = await SharedPreferences.getInstance();
+    final gallery = _GalleryWithOneVideo();
+    addTearDown(gallery.dispose);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          sharedPreferencesProvider.overrideWithValue(preferences),
+          galleryServiceProvider.overrideWithValue(gallery),
+        ],
+        child: MaterialApp(
+          theme: AppTheme.dark,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: const VisibleMediaGrid(pathId: 'videos', title: 'Videos'),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.longPress(find.byIcon(Icons.play_arrow));
+    await tester.pump();
+
+    expect(find.byIcon(Icons.delete_outline), findsOneWidget);
+    expect(find.text('Delete'), findsOneWidget);
+  });
+
+  test('Visible video preview playlist contains only folder videos', () {
+    const items = [
+      GalleryAsset(id: 'photo', isVideo: false, title: 'photo.jpg'),
+      GalleryAsset(id: 'first', isVideo: true, title: 'first.mp4'),
+      GalleryAsset(id: 'second', isVideo: true, title: 'second.mp4'),
+    ];
+
+    expect(
+      visibleVideoPlaylist(items).map((item) => item.id),
+      ['first', 'second'],
+    );
+  });
+
   testWidgets('Invisible video uses the shared duration badge', (tester) async {
     final item = MediaItem(
       id: 'invisible-video',
