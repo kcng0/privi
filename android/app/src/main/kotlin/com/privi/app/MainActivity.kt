@@ -169,6 +169,21 @@ class MainActivity : FlutterFragmentActivity() {
                             }
                         }
                     }
+                    "videoFrameAtTime" -> {
+                        val path = call.argument<String>("path")
+                        val timeUs = call.argument<Number>("timeUs")?.toLong()
+                        if (path.isNullOrEmpty() || timeUs == null) {
+                            result.success(null)
+                        } else {
+                            runIo(result) {
+                                thumbnails.extractVideoFrame(
+                                    path,
+                                    timeUs,
+                                    call.argument<Int>("maxSize") ?: 220,
+                                )
+                            }
+                        }
+                    }
                     else -> result.notImplemented()
                 }
             }

@@ -1,3 +1,7 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:privi/l10n/app_localizations.dart';
@@ -215,6 +219,71 @@ void main() {
     await tester.pump();
 
     expect(seeks, [const Duration(seconds: 30)]);
+  });
+
+  testWidgets('progress scrub throttles and shows the latest frame preview',
+      (tester) async {
+    final requests = <Duration>[];
+    final responses = <Completer<Uint8List>>[];
+    final png = base64Decode(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=',
+    );
+    const value = VideoPlayerValue(
+      duration: Duration(minutes: 2),
+      position: Duration(seconds: 15),
+      isInitialized: true,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: VideoBottomControls(
+            value: value,
+            landscape: false,
+            fitMode: VideoFitMode.fit,
+            hasPrevious: false,
+            hasNext: false,
+            onPrevious: () {},
+            onSeek: (_) async {},
+            onPlayPause: () {},
+            onNext: () {},
+            onToggleOrientation: () {},
+            onChooseFit: () {},
+            onOpenSettings: () {},
+            onPreviewFrameRequested: (position) {
+              requests.add(position);
+              final response = Completer<Uint8List>();
+              responses.add(response);
+              return response.future;
+            },
+          ),
+        ),
+      ),
+    );
+
+    var slider = tester.widget<Slider>(find.byType(Slider));
+    slider.onChangeStart!(15000);
+    slider.onChanged!(30000);
+    slider.onChanged!(45000);
+    slider.onChanged!(60000);
+    await tester.pump(const Duration(milliseconds: 109));
+    expect(requests, isEmpty);
+
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(requests, [const Duration(seconds: 60)]);
+    responses.single.complete(png);
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byKey(const Key('video-frame-preview')), findsOneWidget);
+    expect(find.text('1:00'), findsWidgets);
+
+    slider = tester.widget<Slider>(find.byType(Slider));
+    slider.onChangeEnd!(60000);
+    await tester.pump();
+    await tester.pump();
+    expect(find.byKey(const Key('video-frame-preview')), findsNothing);
   });
 
   testWidgets('landscape controls hide time labels without overflowing',

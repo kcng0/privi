@@ -7,6 +7,7 @@ import 'package:photo_manager/photo_manager.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../application/settings/settings_controller.dart';
+import '../../data/services/video_frame_service.dart';
 import '../common/keep_vault_unlocked.dart';
 import '../player/video_player_controls.dart';
 import '../player/video_player_surface.dart';
@@ -276,6 +277,10 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen> {
         controller: video,
         seekSeconds: ref.watch(settingsControllerProvider).playerSeekSeconds,
         onTap: () => setState(() => _chrome = !_chrome),
+        onPreviewFrameRequested: (position) => VideoFrameService().frameAtTime(
+          path: _file!.path,
+          position: position,
+        ),
         child: VideoViewport(controller: video, fitMode: _fitMode),
       );
     }
@@ -337,6 +342,11 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen> {
           onToggleOrientation: () => unawaited(_toggleOrientation(context)),
           onChooseFit: () => unawaited(_chooseFit()),
           onOpenSettings: () => unawaited(_openSettings()),
+          onPreviewFrameRequested: (position) =>
+              VideoFrameService().frameAtTime(
+            path: _file!.path,
+            position: position,
+          ),
         ),
       ),
     );

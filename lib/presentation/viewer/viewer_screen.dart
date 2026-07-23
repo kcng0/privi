@@ -13,6 +13,7 @@ import '../../application/settings/settings_controller.dart';
 import '../../core/constants.dart';
 import '../../core/l10n.dart';
 import '../../core/theme/vault_colors.dart';
+import '../../data/services/video_frame_service.dart';
 import '../../domain/models/media_item.dart';
 import '../common/heart_rating_bar.dart';
 import '../common/keep_vault_unlocked.dart';
@@ -424,6 +425,10 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       controller: video,
       seekSeconds: ref.watch(settingsControllerProvider).playerSeekSeconds,
       onTap: () => setState(() => _chrome = !_chrome),
+      onPreviewFrameRequested: (position) => VideoFrameService().frameAtTime(
+        path: _current.privatePath,
+        position: position,
+      ),
       child: VideoViewport(controller: video, fitMode: _fitMode),
     );
   }
@@ -506,6 +511,11 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                     unawaited(_toggleOrientation(context)),
                 onChooseFit: () => unawaited(_chooseFit()),
                 onOpenSettings: () => unawaited(_openSettings()),
+                onPreviewFrameRequested: (position) =>
+                    VideoFrameService().frameAtTime(
+                  path: item.privatePath,
+                  position: position,
+                ),
               );
             },
           ),

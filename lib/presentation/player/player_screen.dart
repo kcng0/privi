@@ -9,6 +9,7 @@ import '../../application/player/external_player_coordinator.dart';
 import '../../application/player/player_controller.dart';
 import '../../application/settings/settings_controller.dart';
 import '../../core/l10n.dart';
+import '../../data/services/video_frame_service.dart';
 import '../../domain/models/media_item.dart';
 import '../common/keep_vault_unlocked.dart';
 import 'video_player_controls.dart';
@@ -474,6 +475,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       controller: c,
       seekSeconds: ref.watch(settingsControllerProvider).playerSeekSeconds,
       onTap: () => setState(() => _chrome = !_chrome),
+      onPreviewFrameRequested: (position) => VideoFrameService().frameAtTime(
+        path: item.privatePath,
+        position: position,
+      ),
       child: VideoViewport(
         controller: c,
         fitMode: _fitMode,
@@ -595,6 +600,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   Widget _videoBottomBar(PlayerUiState ui, bool landscape) {
     final video = _video;
     final playlist = ui.playlist;
+    final item = ui.current;
     if (video == null || !video.value.isInitialized) {
       return const SizedBox.shrink();
     }
@@ -624,6 +630,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
             onToggleOrientation: () => unawaited(_toggleOrientation(context)),
             onChooseFit: () => unawaited(_chooseFit()),
             onOpenSettings: () => unawaited(_openSettings(ui)),
+            onPreviewFrameRequested: item == null
+                ? null
+                : (position) => VideoFrameService().frameAtTime(
+                      path: item.privatePath,
+                      position: position,
+                    ),
           );
         },
       ),
