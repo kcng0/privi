@@ -132,6 +132,91 @@ void main() {
     expect(find.text('2x'), findsNothing);
   });
 
+  testWidgets('drag feedback does not rebuild the video child', (tester) async {
+    final controller = VideoPlayerController.networkUrl(
+      Uri.parse('https://example.com/video.mp4'),
+    );
+    addTearDown(controller.dispose);
+    controller.value = const VideoPlayerValue(
+      duration: Duration(minutes: 2),
+      position: Duration(seconds: 15),
+    );
+    var childBuilds = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: VideoGestureSurface(
+          controller: controller,
+          seekSeconds: 3,
+          onTap: () {},
+          child: Builder(
+            builder: (_) {
+              childBuilds++;
+              return const ColoredBox(color: Colors.black);
+            },
+          ),
+        ),
+      ),
+    );
+
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.byType(VideoGestureSurface)),
+    );
+    await gesture.moveBy(const Offset(80, 0));
+    await tester.pump();
+
+    expect(childBuilds, 1);
+
+    await gesture.up();
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('progress scrub seeks once when released', (tester) async {
+    final seeks = <Duration>[];
+    const value = VideoPlayerValue(
+      duration: Duration(minutes: 2),
+      position: Duration(seconds: 15),
+      isInitialized: true,
+      isPlaying: true,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: VideoBottomControls(
+            value: value,
+            landscape: false,
+            fitMode: VideoFitMode.fit,
+            hasPrevious: false,
+            hasNext: false,
+            onPrevious: () {},
+            onSeek: (position) async => seeks.add(position),
+            onPlayPause: () {},
+            onNext: () {},
+            onToggleOrientation: () {},
+            onChooseFit: () {},
+            onOpenSettings: () {},
+          ),
+        ),
+      ),
+    );
+
+    var slider = tester.widget<Slider>(find.byType(Slider));
+    slider.onChangeStart!(15000);
+    slider.onChanged!(30000);
+    await tester.pump();
+
+    expect(seeks, isEmpty);
+    expect(find.text('0:30'), findsOneWidget);
+
+    slider = tester.widget<Slider>(find.byType(Slider));
+    slider.onChangeEnd!(30000);
+    await tester.pump();
+
+    expect(seeks, [const Duration(seconds: 30)]);
+  });
+
   testWidgets('landscape controls hide time labels without overflowing',
       (tester) async {
     tester.view.physicalSize = const Size(320, 240);
@@ -162,7 +247,7 @@ void main() {
               hasPrevious: true,
               hasNext: true,
               onPrevious: () {},
-              onSeek: (_) {},
+              onSeek: (_) async {},
               onPlayPause: () {},
               onNext: () {},
               onToggleOrientation: () {},

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
@@ -11,7 +13,7 @@ String formatPlaybackSpeed(double speed) {
   return '${text}x';
 }
 
-class VideoBottomControls extends StatelessWidget {
+class VideoBottomControls extends StatefulWidget {
   const VideoBottomControls({
     super.key,
     required this.value,
@@ -40,7 +42,7 @@ class VideoBottomControls extends StatelessWidget {
   final bool hasPrevious;
   final bool hasNext;
   final VoidCallback onPrevious;
-  final ValueChanged<Duration> onSeek;
+  final Future<void> Function(Duration) onSeek;
   final VoidCallback onPlayPause;
   final VoidCallback onNext;
   final VoidCallback onToggleOrientation;
@@ -48,11 +50,30 @@ class VideoBottomControls extends StatelessWidget {
   final VoidCallback onOpenSettings;
 
   @override
+  State<VideoBottomControls> createState() => _VideoBottomControlsState();
+}
+
+class _VideoBottomControlsState extends State<VideoBottomControls> {
+  double? _scrubPositionMs;
+  bool _scrubbing = false;
+
+  Future<void> _finishScrub(double positionMs) async {
+    await widget.onSeek(Duration(milliseconds: positionMs.round()));
+    if (mounted) {
+      setState(() {
+        _scrubbing = false;
+        _scrubPositionMs = null;
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final value = widget.value;
     final durationMs = value.duration.inMilliseconds.toDouble();
     final positionMs = durationMs <= 0
         ? 0.0
-        : value.position.inMilliseconds
+        : (_scrubPositionMs ?? value.position.inMilliseconds)
             .clamp(0, value.duration.inMilliseconds)
             .toDouble();
     return SafeArea(
@@ -64,9 +85,10 @@ class VideoBottomControls extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (landscape &&
-                  (title != null ||
-                      (playlistPosition != null && playlistLength != null)))
+              if (widget.landscape &&
+                  (widget.title != null ||
+                      (widget.playlistPosition != null &&
+                          widget.playlistLength != null)))
                 _landscapeHeader(),
               SliderTheme(
                 data: SliderTheme.of(context).copyWith(
@@ -84,18 +106,31 @@ class VideoBottomControls extends StatelessWidget {
                   value: durationMs <= 0 ? 0 : positionMs,
                   onChanged: durationMs <= 0
                       ? null
-                      : (next) => onSeek(
-                            Duration(milliseconds: next.round()),
-                          ),
+                      : (next) => setState(() => _scrubPositionMs = next),
+                  onChangeStart: durationMs <= 0
+                      ? null
+                      : (next) => setState(() {
+                            _scrubbing = true;
+                            _scrubPositionMs = next;
+                          }),
+                  onChangeEnd: durationMs <= 0
+                      ? null
+                      : (next) => unawaited(_finishScrub(next)),
                 ),
               ),
-              if (!landscape)
+              if (!widget.landscape)
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 8),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      _timeLabel(formatVideoTime(value.position)),
+                      _timeLabel(
+                        formatVideoTime(
+                          _scrubbing
+                              ? Duration(milliseconds: positionMs.round())
+                              : value.position,
+                        ),
+                      ),
                       _timeLabel(formatVideoTime(value.duration)),
                     ],
                   ),
@@ -108,7 +143,7 @@ class VideoBottomControls extends StatelessWidget {
                     context,
                     icon: Icons.skip_previous,
                     tooltip: context.l10n.previousMedia,
-                    onPressed: hasPrevious ? onPrevious : null,
+                    onPressed: widget.hasPrevious ? widget.onPrevious : null,
                   ),
                   _iconButton(
                     context,
@@ -116,36 +151,36 @@ class VideoBottomControls extends StatelessWidget {
                     tooltip: value.isPlaying
                         ? context.l10n.pause
                         : context.l10n.play,
-                    onPressed: onPlayPause,
+                    onPressed: widget.onPlayPause,
                     size: 30,
                   ),
                   _iconButton(
                     context,
                     icon: Icons.skip_next,
                     tooltip: context.l10n.nextMedia,
-                    onPressed: hasNext ? onNext : null,
+                    onPressed: widget.hasNext ? widget.onNext : null,
                   ),
                   _iconButton(
                     context,
-                    icon: landscape
+                    icon: widget.landscape
                         ? Icons.stay_current_portrait
                         : Icons.stay_current_landscape,
-                    tooltip: landscape
+                    tooltip: widget.landscape
                         ? context.l10n.portrait
                         : context.l10n.landscape,
-                    onPressed: onToggleOrientation,
+                    onPressed: widget.onToggleOrientation,
                   ),
                   _iconButton(
                     context,
-                    icon: videoFitModeIcon(fitMode),
+                    icon: videoFitModeIcon(widget.fitMode),
                     tooltip: context.l10n.videoDisplayMode,
-                    onPressed: onChooseFit,
+                    onPressed: widget.onChooseFit,
                   ),
                   _iconButton(
                     context,
                     icon: Icons.settings_outlined,
                     tooltip: context.l10n.playerSettings,
-                    onPressed: onOpenSettings,
+                    onPressed: widget.onOpenSettings,
                   ),
                 ],
               ),
@@ -157,15 +192,16 @@ class VideoBottomControls extends StatelessWidget {
   }
 
   Widget _landscapeHeader() {
-    final hasProgress = playlistPosition != null && playlistLength != null;
+    final hasProgress =
+        widget.playlistPosition != null && widget.playlistLength != null;
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
       child: Row(
         children: [
-          if (title != null)
+          if (widget.title != null)
             Expanded(
               child: Text(
-                title!,
+                widget.title!,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
@@ -176,9 +212,9 @@ class VideoBottomControls extends StatelessWidget {
               ),
             ),
           if (hasProgress) ...[
-            if (title != null) const SizedBox(width: AppSpacing.sm),
+            if (widget.title != null) const SizedBox(width: AppSpacing.sm),
             Text(
-              '$playlistPosition/$playlistLength',
+              '${widget.playlistPosition}/${widget.playlistLength}',
               style: const TextStyle(
                 color: Colors.white70,
                 fontSize: 13,

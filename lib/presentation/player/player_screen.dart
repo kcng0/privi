@@ -126,9 +126,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     if (video != null) unawaited(video.setVolume(muted ? 0 : 1));
   }
 
-  void _seekTo(Duration position) {
+  Future<void> _seekTo(Duration position) async {
     final video = _video;
-    if (video != null) unawaited(video.seekTo(position));
+    if (video != null) await video.seekTo(position);
   }
 
   Future<void> _openSettings(PlayerUiState ui) async {
