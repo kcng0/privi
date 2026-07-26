@@ -6,7 +6,7 @@ privi 是一个纯本地的 Android 私密媒体保险库（Flutter 个人应用
 
 ## 当前状态与重点
 
-- 版本 1.0.19+24；通过 GitHub Releases 提供 Android APK。
+- 版本 1.0.22+27；通过 GitHub Releases 提供 Android APK。
 - 首页两个页签：**Visible**（系统相册文件夹，经 photo_manager 读 MediaStore）与 **Invisible**（保险库相册，Drift 数据库）。隐藏 = 拷入 vault + 尽力删除原件；取消隐藏反向恢复。
 - 元数据在 Drift(SQLite) **schema v7**；媒体字节在磁盘 vault 目录；新备份为
   "媒体文件 + JSON manifest v5"，每个 payload 记录长度与 SHA-256。
@@ -124,6 +124,7 @@ privi 是一个纯本地的 Android 私密媒体保险库（Flutter 个人应用
 ## 质量约束与取舍
 
 - **可靠性/可恢复性**：认证覆盖层必须位于应用 Navigator 之上；锁定期间保持 Navigator 挂载并禁用指针/焦点/语义；所有私有路由被覆盖（AGENTS.md；有回归测试）。
+- **内建播放可靠性**：播放列表的视频 controller 创建、切换、预加载与释放必须串行执行，并在每个异步边界后校验最新请求；任何时刻最多保留当前视频和一个预加载视频，初始化失败必须显示可重试错误而不是无限黑屏。
 - **数据完整性**：rating 不变量 0–3 在仓库边界 clamp；删除相册不删媒体；解散合集不删相册或媒体；purge 同时清文件+缩略图+行+membership+封面引用。
 - **兼容性**：备份导入向后兼容旧 manifest 版本；对未知的更高版本硬校验拒绝。
 - **备份可靠性/可恢复性**：新导出只有在所有源存在、流式副本长度与 SHA-256、
@@ -141,6 +142,8 @@ privi 是一个纯本地的 Android 私密媒体保险库（Flutter 个人应用
 - `lib/application/media/album_list_preferences.dart`、`visible_folder_view_preferences.dart`（两个首页形态偏好及隔离 key）。
 - `lib/application/media/media_view_preferences.dart`（多级排序校验与 JSON 持久化模式）。
 - `lib/core/utils/media_query_utils.dart`（客户端多级比较器与选择规则）。
+- `lib/presentation/player/player_screen.dart`、`test/widget/player_screen_video_switch_test.dart`
+  （内建播放 controller 生命周期、快速连续切换与 shuffle 回归）。
 - `lib/data/services/vault_backup_service.dart` 及其 `vault_backup_*` parts（manifest v5、
   稳定快照、流式校验、restore preflight 与旧版兼容）。
 - `test/data/vault_backup_service_test.dart`、`test/fixtures/vault_backup_v2/`–`v4/`
