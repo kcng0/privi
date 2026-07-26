@@ -62,3 +62,22 @@
   of the Viewer delete action.
 - Scope: built-in video playback in playlist and Viewer routes on Android and
   iOS. External-player completion remains governed by the separate invariant.
+
+## Built-in playlist controller lifecycle invariant
+
+- Trigger signal: repeatedly pressing Previous/Next eventually leaves the
+  built-in playlist player on a permanent loading or black screen.
+- Root cause: current-video synchronization and next-video preloading run as
+  overlapping async tasks, allowing stale controllers to overwrite newer state
+  or remain undisposed until Android exhausts decoder/surface resources.
+- Correct approach: serialize all playlist video-controller operations, use
+  latest-request identity checks after every async boundary, and dispose every
+  stale or failed controller. Keep at most the current and one preloaded
+  controller alive; render a controller only when its media id matches the
+  playlist cursor, and expose initialization failures with Retry.
+- Verification: hold the first controller in initialization, press Next
+  repeatedly in ordered and shuffle modes, and confirm no second controller is
+  created until the first operation settles. Confirm stale work is released,
+  live controllers never exceed current plus preload, and failures do not
+  remain as an indefinite spinner.
+- Scope: built-in playlist video playback and preloading on Android and iOS.
