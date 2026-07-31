@@ -494,6 +494,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     });
   }
 
+  void _toggleChrome() => setState(() => _chrome = !_chrome);
+
+  void _hideChrome() {
+    if (_chrome) setState(() => _chrome = false);
+  }
+
   void _maybeAdvanceOnVideoEnd(VideoPlayerController c, String itemId) {
     if (!mounted) return;
     if (!ref.read(playerControllerProvider).playing) return;
@@ -559,29 +565,34 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           ref.read(playerControllerProvider.notifier).stop();
           await _cancelVideoOperationsAndDispose();
         },
-        child: Scaffold(
-          backgroundColor: Colors.black,
-          body: Stack(
-            fit: StackFit.expand,
-            children: [
-              if (item == null)
-                Center(
-                  child: Text(
-                    context.l10n.emptyPlaylist,
-                    style: const TextStyle(color: Colors.white54),
-                  ),
-                )
-              else if (item.isVideo)
-                _buildVideo(item, ui)
-              else
-                _buildImage(item),
-              if (_chrome && !immersive)
-                _topBar(ui, pl?.positionDisplay ?? 0, pl?.length ?? 0),
-              if (_chrome && builtInVideo)
-                _videoBottomBar(ui, landscape)
-              else if (_chrome)
-                _bottomBar(ui, landscape),
-            ],
+        child: AutoHideVideoControls(
+          enabled: item?.isVideo == true,
+          visible: _chrome,
+          onHide: _hideChrome,
+          child: Scaffold(
+            backgroundColor: Colors.black,
+            body: Stack(
+              fit: StackFit.expand,
+              children: [
+                if (item == null)
+                  Center(
+                    child: Text(
+                      context.l10n.emptyPlaylist,
+                      style: const TextStyle(color: Colors.white54),
+                    ),
+                  )
+                else if (item.isVideo)
+                  _buildVideo(item, ui)
+                else
+                  _buildImage(item),
+                if (_chrome)
+                  _topBar(ui, pl?.positionDisplay ?? 0, pl?.length ?? 0),
+                if (_chrome && builtInVideo)
+                  _videoBottomBar(ui, landscape)
+                else if (_chrome)
+                  _bottomBar(ui, landscape),
+              ],
+            ),
           ),
         ),
       ),
@@ -596,7 +607,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       );
     }
     return GestureDetector(
-      onTap: () => setState(() => _chrome = !_chrome),
+      onTap: _toggleChrome,
       child: InteractiveViewer(
         child: Center(
           child: Image.file(file, fit: BoxFit.contain),
@@ -629,7 +640,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     }
     if (_videoErrorItemId == item.id && _videoError != null) {
       return GestureDetector(
-        onTap: () => setState(() => _chrome = !_chrome),
+        onTap: _toggleChrome,
         child: Center(
           child: Padding(
             padding: const EdgeInsets.all(24),
@@ -666,7 +677,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     final c = _video;
     if (c == null || _videoItemId != item.id || !c.value.isInitialized) {
       return GestureDetector(
-        onTap: () => setState(() => _chrome = !_chrome),
+        onTap: _toggleChrome,
         child: const Center(
           child: CircularProgressIndicator(color: Colors.white54),
         ),
@@ -675,7 +686,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     return VideoGestureSurface(
       controller: c,
       seekSeconds: ref.watch(settingsControllerProvider).playerSeekSeconds,
-      onTap: () => setState(() => _chrome = !_chrome),
+      onTap: _toggleChrome,
       onPreviewFrameRequested: (position) => VideoFrameService().frameAtTime(
         path: item.privatePath,
         position: position,
@@ -688,6 +699,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   }
 
   Widget _topBar(PlayerUiState ui, int pos, int total) {
+    final title = ui.current?.originalName ?? widget.title;
     return Align(
       alignment: Alignment.topCenter,
       child: SafeArea(
@@ -703,7 +715,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                 ),
                 Expanded(
                   child: Text(
-                    '${widget.title} · $pos/$total',
+                    '$title · $pos/$total',
                     style: const TextStyle(color: Colors.white),
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -814,9 +826,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
             value: value,
             landscape: landscape,
             fitMode: _fitMode,
-            title: ui.current?.originalName,
-            playlistPosition: playlist?.positionDisplay,
-            playlistLength: playlist?.length,
             hasPrevious: playlist?.hasPrev == true,
             hasNext: playlist?.hasNext == true,
             onPrevious: () => unawaited(

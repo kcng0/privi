@@ -9,6 +9,7 @@ import '../../application/gallery/gallery_controller.dart';
 import '../../application/import/import_controller.dart';
 import '../../application/media/media_view_preferences.dart';
 import '../../application/media/selectable_grid_controller.dart';
+import '../../application/media/visible_folder_view_preferences.dart';
 import '../../application/player/external_player_coordinator.dart';
 import '../../application/providers.dart';
 import '../../application/settings/settings_controller.dart';
@@ -645,6 +646,86 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
     );
   }
 
+  Widget _buildMediaCollection({
+    required List<GalleryAsset> items,
+    required AlbumViewMode viewMode,
+    required int columns,
+    required double bottomPadding,
+  }) {
+    final itemCount = items.length + (_hasMore || _loadingMore ? 1 : 0);
+
+    Widget tileAt(int index) {
+      if (index >= items.length) {
+        return const Center(
+          child: Padding(
+            padding: EdgeInsets.all(AppSpacing.lg),
+            child: SizedBox.square(
+              dimension: 24,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          ),
+        );
+      }
+      final asset = items[index];
+      return _LazyThumbTile(
+        key: ValueKey('visible-media-${asset.id}'),
+        asset: asset,
+        listMode: viewMode == AlbumViewMode.list,
+        selected: _selected.contains(asset.id),
+        selectMode: _selecting,
+        onTap: () {
+          if (_selecting) {
+            _toggle(asset.id);
+          } else {
+            unawaited(_openPreview(asset));
+          }
+        },
+        onLongPress: () {
+          if (_selecting) {
+            _toggle(asset.id);
+          } else {
+            _enterSelect(asset.id);
+          }
+        },
+      );
+    }
+
+    if (viewMode == AlbumViewMode.list) {
+      return ListView.separated(
+        key: const ValueKey('visible-media-list'),
+        controller: _scroll,
+        scrollCacheExtent: const ScrollCacheExtent.pixels(1200),
+        padding: EdgeInsets.fromLTRB(
+          AppSpacing.sm,
+          0,
+          AppSpacing.sm,
+          bottomPadding,
+        ),
+        itemCount: itemCount,
+        itemBuilder: (context, index) => tileAt(index),
+        separatorBuilder: (context, index) => const Divider(
+          height: 1,
+          indent: 88,
+          color: Colors.white12,
+        ),
+      );
+    }
+
+    return GridView.builder(
+      key: const ValueKey('visible-media-grid'),
+      controller: _scroll,
+      scrollCacheExtent: const ScrollCacheExtent.pixels(1200),
+      padding: EdgeInsets.fromLTRB(0, 0, 0, bottomPadding),
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: columns,
+        mainAxisSpacing: GridDefaults.gutter,
+        crossAxisSpacing: GridDefaults.gutter,
+      ),
+      itemCount: itemCount,
+      itemBuilder: (context, index) => tileAt(index),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final filter = ref.watch(mediaKindFilterProvider);
@@ -660,6 +741,7 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
 
     final cols =
         ref.watch(mediaViewPreferencesProvider(_viewScope)).gridColumns;
+    final viewMode = ref.watch(visibleFolderViewPreferencesProvider);
     final visible = _visibleItems;
     final bottomPad = GridDefaults.bottomClearance +
         MediaQuery.paddingOf(context).bottom +
@@ -737,58 +819,11 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
                         )
                       : Stack(
                           children: [
-                            GridView.builder(
-                              controller: _scroll,
-                              // Build ahead of the viewport so posters prefetch
-                              // and decode before they scroll into view.
-                              scrollCacheExtent:
-                                  const ScrollCacheExtent.pixels(1200),
-                              padding: EdgeInsets.fromLTRB(0, 0, 0, bottomPad),
-                              gridDelegate:
-                                  SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: cols,
-                                mainAxisSpacing: GridDefaults.gutter,
-                                crossAxisSpacing: GridDefaults.gutter,
-                              ),
-                              itemCount: visible.length +
-                                  (_hasMore || _loadingMore ? 1 : 0),
-                              itemBuilder: (context, i) {
-                                if (i >= visible.length) {
-                                  return const Center(
-                                    child: Padding(
-                                      padding: EdgeInsets.all(16),
-                                      child: SizedBox(
-                                        width: 24,
-                                        height: 24,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                        ),
-                                      ),
-                                    ),
-                                  );
-                                }
-                                final a = visible[i];
-                                final sel = _selected.contains(a.id);
-                                return _LazyThumbTile(
-                                  asset: a,
-                                  selected: sel,
-                                  selectMode: _selecting,
-                                  onTap: () {
-                                    if (_selecting) {
-                                      _toggle(a.id);
-                                    } else {
-                                      _openPreview(a);
-                                    }
-                                  },
-                                  onLongPress: () {
-                                    if (_selecting) {
-                                      _toggle(a.id);
-                                    } else {
-                                      _enterSelect(a.id);
-                                    }
-                                  },
-                                );
-                              },
+                            _buildMediaCollection(
+                              items: visible,
+                              viewMode: viewMode,
+                              columns: cols,
+                              bottomPadding: bottomPad,
                             ),
                             if (_selecting)
                               FloatingActionCapsule(
@@ -820,11 +855,13 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
 
 class _LazyThumbTile extends ConsumerStatefulWidget {
   const _LazyThumbTile({
+    super.key,
     required this.asset,
     required this.selected,
     required this.selectMode,
     required this.onTap,
     required this.onLongPress,
+    this.listMode = false,
   });
 
   final GalleryAsset asset;
@@ -832,6 +869,7 @@ class _LazyThumbTile extends ConsumerStatefulWidget {
   final bool selectMode;
   final VoidCallback onTap;
   final VoidCallback onLongPress;
+  final bool listMode;
 
   @override
   ConsumerState<_LazyThumbTile> createState() => _LazyThumbTileState();
@@ -886,52 +924,123 @@ class _LazyThumbTileState extends ConsumerState<_LazyThumbTile> {
   @override
   Widget build(BuildContext context) {
     final a = widget.asset;
+    if (widget.listMode) return _buildListTile(context, a);
+
     return GestureDetector(
       onTap: widget.onTap,
       onLongPress: widget.onLongPress,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          if (_provider != null)
-            Image(image: _provider!, fit: BoxFit.cover, gaplessPlayback: true)
-          else
-            ColoredBox(
-              color: context.vaultColors.surfaceAlt,
-              child: _loading
-                  ? const Center(
-                      child: SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                    )
-                  : Icon(
-                      a.isVideo ? Icons.videocam : Icons.image_outlined,
-                      color: Colors.white38,
-                    ),
-            ),
-          if (a.isVideo)
-            Positioned(
-              top: 4,
-              left: 4,
-              child: VideoDurationBadge(durationMs: a.durationMs),
-            ),
-          if (widget.selectMode)
-            Positioned(
-              top: 4,
-              right: 4,
-              child: Icon(
-                widget.selected ? Icons.check_circle : Icons.circle_outlined,
-                size: 22,
-                color: widget.selected
-                    ? Theme.of(context).colorScheme.primary
-                    : Colors.white70,
-              ),
-            ),
-          if (widget.selected)
-            Container(color: Colors.black.withValues(alpha: 0.35)),
-        ],
+      child: _poster(
+        context,
+        a,
+        showSelectionIndicator: true,
+        showSelectedScrim: true,
       ),
+    );
+  }
+
+  Widget _buildListTile(BuildContext context, GalleryAsset asset) {
+    final selectedColor =
+        Theme.of(context).colorScheme.primary.withValues(alpha: 0.14);
+    return Material(
+      color: widget.selected ? selectedColor : Colors.transparent,
+      child: InkWell(
+        onTap: widget.onTap,
+        onLongPress: widget.onLongPress,
+        child: SizedBox(
+          height: 76,
+          child: Row(
+            children: [
+              SizedBox.square(
+                dimension: 76,
+                child: _poster(
+                  context,
+                  asset,
+                  showSelectionIndicator: false,
+                  showSelectedScrim: false,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Text(
+                  asset.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              if (widget.selectMode)
+                Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+                  child: Icon(
+                    widget.selected
+                        ? Icons.check_circle
+                        : Icons.circle_outlined,
+                    color: widget.selected
+                        ? Theme.of(context).colorScheme.primary
+                        : Colors.white70,
+                    size: 24,
+                  ),
+                )
+              else
+                const SizedBox(width: AppSpacing.md),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _poster(
+    BuildContext context,
+    GalleryAsset asset, {
+    required bool showSelectionIndicator,
+    required bool showSelectedScrim,
+  }) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        if (_provider != null)
+          Image(image: _provider!, fit: BoxFit.cover, gaplessPlayback: true)
+        else
+          ColoredBox(
+            color: context.vaultColors.surfaceAlt,
+            child: _loading
+                ? const Center(
+                    child: SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  )
+                : Icon(
+                    asset.isVideo ? Icons.videocam : Icons.image_outlined,
+                    color: Colors.white38,
+                  ),
+          ),
+        if (asset.isVideo)
+          Positioned(
+            top: 4,
+            left: 4,
+            child: VideoDurationBadge(durationMs: asset.durationMs),
+          ),
+        if (showSelectionIndicator && widget.selectMode)
+          Positioned(
+            top: 4,
+            right: 4,
+            child: Icon(
+              widget.selected ? Icons.check_circle : Icons.circle_outlined,
+              size: 22,
+              color: widget.selected
+                  ? Theme.of(context).colorScheme.primary
+                  : Colors.white70,
+            ),
+          ),
+        if (showSelectedScrim && widget.selected)
+          Container(color: Colors.black.withValues(alpha: 0.35)),
+      ],
     );
   }
 }

@@ -41,37 +41,47 @@ class FloatingActionCapsule extends StatelessWidget {
             elevation: 12,
             shadowColor: Colors.black54,
             borderRadius: BorderRadius.circular(28),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  for (var i = 0; i < actions.length; i++) ...[
-                    if (i > 0)
-                      Container(
-                        width: 1,
-                        height: 28,
-                        margin: const EdgeInsets.symmetric(horizontal: 2),
-                        color: Colors.white12,
-                      ),
-                    _CapsuleButton(item: actions[i]),
-                  ],
-                  if (onDismiss != null) ...[
-                    Container(
-                      width: 1,
-                      height: 28,
-                      margin: const EdgeInsets.symmetric(horizontal: 2),
-                      color: Colors.white12,
-                    ),
-                    _CapsuleButton(
-                      item: FloatingActionItem(
-                        icon: Icons.close,
-                        label: context.l10n.close,
-                        onTap: onDismiss!,
-                      ),
-                    ),
-                  ],
-                ],
+            clipBehavior: Clip.antiAlias,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: MediaQuery.sizeOf(context).width - 16,
+              ),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (var i = 0; i < actions.length; i++) ...[
+                        if (i > 0)
+                          Container(
+                            width: 1,
+                            height: 28,
+                            margin: const EdgeInsets.symmetric(horizontal: 2),
+                            color: Colors.white12,
+                          ),
+                        _CapsuleButton(item: actions[i]),
+                      ],
+                      if (onDismiss != null) ...[
+                        Container(
+                          width: 1,
+                          height: 28,
+                          margin: const EdgeInsets.symmetric(horizontal: 2),
+                          color: Colors.white12,
+                        ),
+                        _CapsuleButton(
+                          item: FloatingActionItem(
+                            icon: Icons.close,
+                            label: context.l10n.close,
+                            onTap: onDismiss!,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
               ),
             ),
           ),

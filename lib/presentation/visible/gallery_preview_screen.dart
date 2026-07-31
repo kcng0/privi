@@ -236,6 +236,12 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen> {
     );
   }
 
+  void _toggleChrome() => setState(() => _chrome = !_chrome);
+
+  void _hideChrome() {
+    if (_chrome) setState(() => _chrome = false);
+  }
+
   void _exit() {
     final video = _video;
     if (video != null) unawaited(video.pause());
@@ -260,19 +266,24 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen> {
           }
           await _stopVideo();
         },
-        child: Scaffold(
-          backgroundColor: Colors.black,
-          body: Stack(
-            fit: StackFit.expand,
-            children: [
-              _content(),
-              if (_chrome && !immersive) _topBar(),
-              if (_chrome &&
-                  _current.isVideo &&
-                  _video != null &&
-                  _video!.value.isInitialized)
-                _videoBottomBar(landscape),
-            ],
+        child: AutoHideVideoControls(
+          enabled: _current.isVideo,
+          visible: _chrome,
+          onHide: _hideChrome,
+          child: Scaffold(
+            backgroundColor: Colors.black,
+            body: Stack(
+              fit: StackFit.expand,
+              children: [
+                _content(),
+                if (_chrome) _topBar(),
+                if (_chrome &&
+                    _current.isVideo &&
+                    _video != null &&
+                    _video!.value.isInitialized)
+                  _videoBottomBar(landscape),
+              ],
+            ),
           ),
         ),
       ),
@@ -295,7 +306,7 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen> {
       return VideoGestureSurface(
         controller: video,
         seekSeconds: ref.watch(settingsControllerProvider).playerSeekSeconds,
-        onTap: () => setState(() => _chrome = !_chrome),
+        onTap: _toggleChrome,
         onPreviewFrameRequested: (position) => VideoFrameService().frameAtTime(
           path: _file!.path,
           position: position,
@@ -333,6 +344,11 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen> {
                     style: const TextStyle(color: Colors.white),
                   ),
                 ),
+                Text(
+                  '${_index + 1}/${widget.items.length}',
+                  style: const TextStyle(color: Colors.white70, fontSize: 13),
+                ),
+                const SizedBox(width: 12),
               ],
             ),
           ),
@@ -351,9 +367,6 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen> {
           value: value,
           landscape: landscape,
           fitMode: _fitMode,
-          title: _current.title,
-          playlistPosition: _index + 1,
-          playlistLength: widget.items.length,
           hasPrevious: _hasPrevious,
           hasNext: _hasNext,
           onPrevious: () => unawaited(_showItem(_index - 1)),

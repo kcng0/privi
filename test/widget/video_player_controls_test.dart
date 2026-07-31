@@ -293,6 +293,40 @@ void main() {
     expect(find.byKey(const Key('video-frame-preview')), findsNothing);
   });
 
+  testWidgets('video controls hide three seconds after interaction ends',
+      (tester) async {
+    var visible = true;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: StatefulBuilder(
+          builder: (context, setState) => AutoHideVideoControls(
+            enabled: true,
+            visible: visible,
+            onHide: () => setState(() => visible = false),
+            child: const ColoredBox(
+              color: Colors.black,
+              child: Center(child: Text('Controls')),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.pump(const Duration(seconds: 2));
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.text('Controls')),
+    );
+    await tester.pump(const Duration(seconds: 2));
+    expect(visible, isTrue);
+
+    await gesture.up();
+    await tester.pump(const Duration(milliseconds: 2999));
+    expect(visible, isTrue);
+
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(visible, isFalse);
+  });
+
   testWidgets('landscape controls hide time labels without overflowing',
       (tester) async {
     tester.view.physicalSize = const Size(320, 240);
@@ -317,9 +351,6 @@ void main() {
               value: value,
               landscape: true,
               fitMode: VideoFitMode.fit,
-              title: 'clip-03.mp4',
-              playlistPosition: 3,
-              playlistLength: 25,
               hasPrevious: true,
               hasNext: true,
               onPrevious: () {},
@@ -337,8 +368,6 @@ void main() {
 
     expect(find.text('0:15'), findsNothing);
     expect(find.text('2:00'), findsNothing);
-    expect(find.text('clip-03.mp4'), findsOneWidget);
-    expect(find.text('3/25'), findsOneWidget);
     expect(find.byIcon(Icons.skip_previous), findsOneWidget);
     expect(find.byIcon(Icons.pause), findsOneWidget);
     expect(find.byIcon(Icons.skip_next), findsOneWidget);
