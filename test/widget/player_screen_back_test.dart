@@ -127,6 +127,37 @@ void main() {
     expect(container.read(playerControllerProvider).playlist, isNull);
   });
 
+  testWidgets(
+      'landscape video shows its title and count on top, then auto-hides',
+      (tester) async {
+    tester.view.physicalSize = const Size(640, 360);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    SharedPreferences.setMockInitialValues({'player_external': false});
+    final preferences = await SharedPreferences.getInstance();
+    final container = ProviderContainer(
+      overrides: [
+        sharedPreferencesProvider.overrideWithValue(preferences),
+        lockControllerProvider.overrideWith(_UnlockedLock.new),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(_app(container, items: [_video('one')]));
+    await tester.tap(find.text('Open'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('one.mp4 · 1/1'), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 2999));
+    expect(find.text('one.mp4 · 1/1'), findsOneWidget);
+
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(find.text('one.mp4 · 1/1'), findsNothing);
+  });
+
   testWidgets('system Back exits video playback immediately', (tester) async {
     SharedPreferences.setMockInitialValues({'player_external': false});
     final preferences = await SharedPreferences.getInstance();

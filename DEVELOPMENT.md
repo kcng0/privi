@@ -129,6 +129,12 @@ source and stable folder id. That scope persists grid columns, rating/Hearts
 filters, single/multi sort mode, and its ordered sort criteria. Search text is
 session-only and must not be persisted.
 
+Visible and Invisible keep separate tab-level List/Mosaic choices. The selected
+choice applies both to the tab's folder/album shelf and to media inside an opened
+folder/album; list rows retain thumbnails, video durations, selection, and
+Invisible heart ratings. Per-folder grid-column overrides remain stored even
+while List mode is active and take effect again when the tab returns to Mosaic.
+
 The first multi-sort criterion is primary. Later selections append as
 tie-breakers, while changing ascending/descending within one family replaces the
 criterion in place. The picker displays numeric priority badges. Switching back
@@ -154,6 +160,19 @@ off/on must show the root credential overlay immediately on resume. Biometric
 `test/widget/app_smoke_test.dart` verifies the root overlay and navigation-state
 retention. `test/application/lock_controller_lifecycle_test.dart` verifies the
 resume and biometric state machine.
+
+## Built-in video controls contract
+
+`PlayerScreen`, the Invisible `ViewerScreen`, and the Visible
+`GalleryPreviewScreen` share the same interaction timing. Visible video controls
+hide after three seconds without input; an active pointer keeps them visible,
+and the countdown restarts when the final pointer is released.
+
+When controls are visible, the current video title and playlist position stay in
+the top bar in both portrait and landscape. Landscape may still use immersive
+system UI, but it does not move this app header into the bottom controls. The
+Invisible viewer renders exactly three rating hearts above the timeline; tapping
+the already-selected rating clears it to zero.
 
 ## Code generation
 

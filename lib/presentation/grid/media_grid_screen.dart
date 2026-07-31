@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../application/gallery/gallery_controller.dart';
 import '../../application/import/import_controller.dart';
+import '../../application/media/album_list_preferences.dart';
 import '../../application/media/media_view_preferences.dart';
 import '../../application/media/rating_controller.dart';
 import '../../application/media/selection_controller.dart';
@@ -37,7 +38,7 @@ import 'thumbnail_tile.dart';
 ///
 /// Long-press → select + bottom-center round menu:
 /// - Recycle: Restore | More (delete forever)
-/// - Normal: Unhide | Rate | More (set cover, move, delete to bin)
+/// - Normal: Unhide | Rate | Delete | More (set cover, move, details)
 ///
 /// App bar ⋮ holds Select / Style / Search / Sort.
 class MediaGridScreen extends ConsumerStatefulWidget {
@@ -346,12 +347,6 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
           icon: Icons.info_outline,
           label: context.l10n.details,
           onTap: _showDetails,
-        ),
-        FloatingActionItem(
-          icon: Icons.delete_outline,
-          label: context.l10n.moveToRecycleBin,
-          destructive: true,
-          onTap: _softDeleteSelected,
         ),
       ],
     );
@@ -665,6 +660,80 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
     }
   }
 
+  Widget _buildMediaCollection({
+    required List<MediaItem> items,
+    required Set<String> selected,
+    required bool selecting,
+    required AlbumViewMode viewMode,
+    required int columns,
+    required double bottomPadding,
+  }) {
+    Widget tileAt(int index) {
+      final item = items[index];
+      return ThumbnailTile(
+        key: ValueKey('invisible-media-${item.id}'),
+        item: item,
+        listMode: viewMode == AlbumViewMode.list,
+        selecting: selecting,
+        selected: selected.contains(item.id),
+        onRate: selecting
+            ? null
+            : (rating) => ref
+                .read(ratingControllerProvider.notifier)
+                .setRating(item.id, rating),
+        onLongPress: () {
+          unawaited(HapticFeedback.mediumImpact());
+          final selection = ref.read(selectionControllerProvider.notifier);
+          if (selecting) {
+            selection.toggle(item.id);
+          } else {
+            selection.enter(item.id);
+          }
+        },
+        onTap: () {
+          if (selecting) {
+            ref.read(selectionControllerProvider.notifier).toggle(item.id);
+          } else {
+            unawaited(_openViewer(items, index));
+          }
+        },
+      );
+    }
+
+    if (viewMode == AlbumViewMode.list) {
+      return ListView.separated(
+        key: const ValueKey('invisible-media-list'),
+        scrollCacheExtent: const ScrollCacheExtent.pixels(1200),
+        padding: EdgeInsets.fromLTRB(
+          AppSpacing.sm,
+          0,
+          AppSpacing.sm,
+          bottomPadding,
+        ),
+        itemCount: items.length,
+        itemBuilder: (context, index) => tileAt(index),
+        separatorBuilder: (context, index) => const Divider(
+          height: 1,
+          indent: 88,
+          color: Colors.white12,
+        ),
+      );
+    }
+
+    return GridView.builder(
+      key: const ValueKey('invisible-media-grid'),
+      scrollCacheExtent: const ScrollCacheExtent.pixels(1200),
+      padding: EdgeInsets.fromLTRB(0, 0, 0, bottomPadding),
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: columns,
+        mainAxisSpacing: GridDefaults.gutter,
+        crossAxisSpacing: GridDefaults.gutter,
+      ),
+      itemCount: items.length,
+      itemBuilder: (context, index) => tileAt(index),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final asyncMedia = ref.watch(albumMediaProvider(widget.albumId));
@@ -672,6 +741,10 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
     final selecting = selected.isNotEmpty;
     final viewPreferences = ref.watch(mediaViewPreferencesProvider(_viewScope));
     final cols = viewPreferences.gridColumns;
+    final viewMode = ref.watch(
+      albumListPreferencesProvider
+          .select((preferences) => preferences.viewMode),
+    );
     final kind = ref.watch(mediaKindFilterProvider);
     final bottomPad = GridDefaults.bottomClearance +
         MediaQuery.paddingOf(context).bottom +
@@ -818,48 +891,13 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
                       )
                     : Stack(
                         children: [
-                          GridView.builder(
-                            // Prefetch posters just beyond the viewport.
-                            scrollCacheExtent:
-                                const ScrollCacheExtent.pixels(1200),
-                            padding: EdgeInsets.fromLTRB(0, 0, 0, bottomPad),
-                            gridDelegate:
-                                SliverGridDelegateWithFixedCrossAxisCount(
-                              crossAxisCount: cols,
-                              mainAxisSpacing: GridDefaults.gutter,
-                              crossAxisSpacing: GridDefaults.gutter,
-                            ),
-                            itemCount: items.length,
-                            itemBuilder: (context, index) {
-                              final item = items[index];
-                              final isSelected = selected.contains(item.id);
-                              return ThumbnailTile(
-                                item: item,
-                                selecting: selecting,
-                                selected: isSelected,
-                                onRate: selecting
-                                    ? null
-                                    : (n) => ref
-                                        .read(ratingControllerProvider.notifier)
-                                        .setRating(item.id, n),
-                                onLongPress: () {
-                                  // ignore: unawaited_futures
-                                  HapticFeedback.mediumImpact();
-                                  if (selecting) {
-                                    sel.toggle(item.id);
-                                  } else {
-                                    sel.enter(item.id);
-                                  }
-                                },
-                                onTap: () {
-                                  if (selecting) {
-                                    sel.toggle(item.id);
-                                  } else {
-                                    _openViewer(items, index);
-                                  }
-                                },
-                              );
-                            },
+                          _buildMediaCollection(
+                            items: items,
+                            selected: selected,
+                            selecting: selecting,
+                            viewMode: viewMode,
+                            columns: cols,
+                            bottomPadding: bottomPad,
                           ),
                           if (selecting)
                             FloatingActionCapsule(
@@ -881,6 +919,12 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
                                     icon: Icons.favorite,
                                     label: context.l10n.rate,
                                     onTap: _rateSelected,
+                                  ),
+                                  FloatingActionItem(
+                                    icon: Icons.delete_outline,
+                                    label: context.l10n.delete,
+                                    destructive: true,
+                                    onTap: _softDeleteSelected,
                                   ),
                                 ],
                                 FloatingActionItem(

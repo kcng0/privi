@@ -12,7 +12,6 @@ import '../../application/providers.dart';
 import '../../application/settings/settings_controller.dart';
 import '../../core/constants.dart';
 import '../../core/l10n.dart';
-import '../../core/theme/vault_colors.dart';
 import '../../data/services/video_frame_service.dart';
 import '../../domain/models/media_item.dart';
 import '../common/heart_rating_bar.dart';
@@ -273,8 +272,10 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     });
   }
 
-  void _toggleFavorite(MediaItem item) {
-    _setRating(item, item.rating >= 1 ? 0 : 1);
+  void _toggleChrome() => setState(() => _chrome = !_chrome);
+
+  void _hideChrome() {
+    if (_chrome) setState(() => _chrome = false);
   }
 
   Future<void> _unhide() async {
@@ -328,27 +329,32 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
           }
           await _disposeVideo();
         },
-        child: Scaffold(
-          backgroundColor: Colors.black,
-          body: Stack(
-            fit: StackFit.expand,
-            children: [
-              PageView.builder(
-                controller: _page,
-                itemCount: widget.items.length,
-                physics: item.isVideo
-                    ? const NeverScrollableScrollPhysics()
-                    : const PageScrollPhysics(),
-                onPageChanged: (index) => unawaited(_onPageChanged(index)),
-                itemBuilder: (context, index) =>
-                    _mediaPage(widget.items[index], index == _index),
-              ),
-              if (_chrome && !immersive) _topBar(item),
-              if (_chrome && item.isVideo)
-                _videoBottomBar(item, landscape)
-              else if (_chrome)
-                _imageBottomBar(item, landscape),
-            ],
+        child: AutoHideVideoControls(
+          enabled: item.isVideo,
+          visible: _chrome,
+          onHide: _hideChrome,
+          child: Scaffold(
+            backgroundColor: Colors.black,
+            body: Stack(
+              fit: StackFit.expand,
+              children: [
+                PageView.builder(
+                  controller: _page,
+                  itemCount: widget.items.length,
+                  physics: item.isVideo
+                      ? const NeverScrollableScrollPhysics()
+                      : const PageScrollPhysics(),
+                  onPageChanged: (index) => unawaited(_onPageChanged(index)),
+                  itemBuilder: (context, index) =>
+                      _mediaPage(widget.items[index], index == _index),
+                ),
+                if (_chrome) _topBar(item),
+                if (_chrome && item.isVideo)
+                  _videoBottomBar(item, landscape)
+                else if (_chrome)
+                  _imageBottomBar(item, landscape),
+              ],
+            ),
           ),
         ),
       ),
@@ -360,7 +366,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     if (!file.existsSync()) {
       return GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: () => setState(() => _chrome = !_chrome),
+        onTap: _toggleChrome,
         child: const Center(
           child: Icon(
             Icons.broken_image_outlined,
@@ -373,7 +379,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     if (item.isVideo) return _videoPage(item, active);
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: () => setState(() => _chrome = !_chrome),
+      onTap: _toggleChrome,
       child: Center(
         child: InteractiveViewer(
           child: Hero(
@@ -395,7 +401,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       if (thumb != null && File(thumb).existsSync()) {
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTap: () => setState(() => _chrome = !_chrome),
+          onTap: _toggleChrome,
           child: Stack(
             alignment: Alignment.center,
             children: [
@@ -411,7 +417,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       }
       return GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: () => setState(() => _chrome = !_chrome),
+        onTap: _toggleChrome,
         child: Center(
           child: Icon(
             active ? Icons.hourglass_top : Icons.videocam,
@@ -424,7 +430,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     return VideoGestureSurface(
       controller: video,
       seekSeconds: ref.watch(settingsControllerProvider).playerSeekSeconds,
-      onTap: () => setState(() => _chrome = !_chrome),
+      onTap: _toggleChrome,
       onPreviewFrameRequested: (position) => VideoFrameService().frameAtTime(
         path: _current.privatePath,
         position: position,
@@ -490,7 +496,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (!landscape) _ratingStrip(item),
+          _ratingStrip(item),
           ValueListenableBuilder<VideoPlayerValue>(
             valueListenable: video,
             builder: (context, value, _) {
@@ -498,9 +504,6 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                 value: value,
                 landscape: landscape,
                 fitMode: _fitMode,
-                title: item.originalName,
-                playlistPosition: _index + 1,
-                playlistLength: widget.items.length,
                 hasPrevious: _hasPrevious,
                 hasNext: _hasNext,
                 onPrevious: () => unawaited(_showItem(_index - 1)),
@@ -539,12 +542,6 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
               scrim: false,
               onRate: (rating) => _setRating(item, rating),
             ),
-            const SizedBox(width: AppSpacing.sm),
-            IconButton(
-              tooltip: context.l10n.favoriteToggle,
-              icon: Icon(Icons.favorite, color: context.vaultColors.heart),
-              onPressed: () => _toggleFavorite(item),
-            ),
           ],
         ),
       ),
@@ -581,14 +578,6 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                           ? () => unawaited(_showItem(_index - 1))
                           : null,
                       icon: const Icon(Icons.skip_previous),
-                    ),
-                    IconButton(
-                      tooltip: context.l10n.favoriteToggle,
-                      onPressed: () => _toggleFavorite(item),
-                      icon: Icon(
-                        Icons.favorite,
-                        color: context.vaultColors.heart,
-                      ),
                     ),
                     IconButton(
                       tooltip: landscape

@@ -14,15 +14,102 @@ String formatPlaybackSpeed(double speed) {
   return '${text}x';
 }
 
+const videoControlsAutoHideDelay = Duration(seconds: 3);
+
+/// Keeps visible video controls on screen while a pointer is down, then hides
+/// them after [delay] without interaction.
+class AutoHideVideoControls extends StatefulWidget {
+  const AutoHideVideoControls({
+    super.key,
+    required this.enabled,
+    required this.visible,
+    required this.onHide,
+    required this.child,
+    this.delay = videoControlsAutoHideDelay,
+  });
+
+  final bool enabled;
+  final bool visible;
+  final VoidCallback onHide;
+  final Widget child;
+  final Duration delay;
+
+  @override
+  State<AutoHideVideoControls> createState() => _AutoHideVideoControlsState();
+}
+
+class _AutoHideVideoControlsState extends State<AutoHideVideoControls> {
+  final Set<int> _activePointers = <int>{};
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _scheduleHide();
+  }
+
+  @override
+  void didUpdateWidget(covariant AutoHideVideoControls oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!widget.enabled || !widget.visible) {
+      _activePointers.clear();
+      _timer?.cancel();
+      return;
+    }
+    if (!oldWidget.enabled ||
+        !oldWidget.visible ||
+        oldWidget.delay != widget.delay) {
+      _scheduleHide();
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  void _scheduleHide() {
+    _timer?.cancel();
+    if (!widget.enabled || !widget.visible || _activePointers.isNotEmpty) {
+      return;
+    }
+    _timer = Timer(widget.delay, () {
+      if (mounted && widget.enabled && widget.visible) {
+        widget.onHide();
+      }
+    });
+  }
+
+  void _onPointerDown(PointerDownEvent event) {
+    if (!widget.enabled || !widget.visible) return;
+    _activePointers.add(event.pointer);
+    _timer?.cancel();
+  }
+
+  void _onPointerReleased(PointerEvent event) {
+    if (!_activePointers.remove(event.pointer)) return;
+    if (_activePointers.isEmpty) _scheduleHide();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Listener(
+      behavior: HitTestBehavior.translucent,
+      onPointerDown: _onPointerDown,
+      onPointerUp: _onPointerReleased,
+      onPointerCancel: _onPointerReleased,
+      child: widget.child,
+    );
+  }
+}
+
 class VideoBottomControls extends StatefulWidget {
   const VideoBottomControls({
     super.key,
     required this.value,
     required this.landscape,
     required this.fitMode,
-    this.title,
-    this.playlistPosition,
-    this.playlistLength,
     required this.hasPrevious,
     required this.hasNext,
     required this.onPrevious,
@@ -38,9 +125,6 @@ class VideoBottomControls extends StatefulWidget {
   final VideoPlayerValue value;
   final bool landscape;
   final VideoFitMode fitMode;
-  final String? title;
-  final int? playlistPosition;
-  final int? playlistLength;
   final bool hasPrevious;
   final bool hasNext;
   final VoidCallback onPrevious;
@@ -147,11 +231,6 @@ class _VideoBottomControlsState extends State<VideoBottomControls> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (widget.landscape &&
-                      (widget.title != null ||
-                          (widget.playlistPosition != null &&
-                              widget.playlistLength != null)))
-                    _landscapeHeader(),
                   SliderTheme(
                     data: SliderTheme.of(context).copyWith(
                       trackHeight: 3,
@@ -262,42 +341,6 @@ class _VideoBottomControlsState extends State<VideoBottomControls> {
                 duration: value.duration,
               ),
             ),
-        ],
-      ),
-    );
-  }
-
-  Widget _landscapeHeader() {
-    final hasProgress =
-        widget.playlistPosition != null && widget.playlistLength != null;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
-      child: Row(
-        children: [
-          if (widget.title != null)
-            Expanded(
-              child: Text(
-                widget.title!,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          if (hasProgress) ...[
-            if (widget.title != null) const SizedBox(width: AppSpacing.sm),
-            Text(
-              '${widget.playlistPosition}/${widget.playlistLength}',
-              style: const TextStyle(
-                color: Colors.white70,
-                fontSize: 13,
-                fontFeatures: [FontFeature.tabularFigures()],
-              ),
-            ),
-          ],
         ],
       ),
     );
