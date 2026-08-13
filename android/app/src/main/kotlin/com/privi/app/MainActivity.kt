@@ -2,6 +2,7 @@ package com.privi.app
 
 import android.content.Intent
 import android.net.Uri
+import android.media.AudioManager
 import android.os.Build
 import android.os.Environment
 import android.os.Handler
@@ -202,6 +203,31 @@ class MainActivity : FlutterFragmentActivity() {
                         }
                         result.success(null)
                     }
+                    "getBrightness" -> {
+                        val current = window.attributes.screenBrightness
+                        result.success(
+                            if (current < 0f) systemBrightness() else current.coerceIn(0f, 1f),
+                        )
+                    }
+                    "setBrightness" -> {
+                        val value = (call.argument<Number>("value")?.toFloat() ?: 0.5f)
+                            .coerceIn(0f, 1f)
+                        runOnUiThread { setWindowBrightness(value) }
+                        result.success(null)
+                    }
+                    "resetBrightness" -> {
+                        runOnUiThread {
+                            setWindowBrightness(WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE)
+                        }
+                        result.success(null)
+                    }
+                    "getVolume" -> result.success(mediaVolume())
+                    "setVolume" -> {
+                        val value = (call.argument<Number>("value")?.toFloat() ?: 0.5f)
+                            .coerceIn(0f, 1f)
+                        setMediaVolume(value)
+                        result.success(null)
+                    }
                     else -> result.notImplemented()
                 }
             }
@@ -212,6 +238,37 @@ class MainActivity : FlutterFragmentActivity() {
         externalPlayer = null
         ioExecutor.shutdown()
         super.onDestroy()
+    }
+
+    private fun setWindowBrightness(value: Float) {
+        val params = window.attributes
+        params.screenBrightness = value
+        window.attributes = params
+    }
+
+    private fun systemBrightness(): Float {
+        return try {
+            Settings.System.getInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS) / 255f
+        } catch (_: Exception) {
+            0.5f
+        }
+    }
+
+    private fun audioManager(): AudioManager? {
+        return getSystemService(AUDIO_SERVICE) as? AudioManager
+    }
+
+    private fun mediaVolume(): Float {
+        val audio = audioManager() ?: return 0.5f
+        val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+        return audio.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / max
+    }
+
+    private fun setMediaVolume(value: Float) {
+        val audio = audioManager() ?: return
+        val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+        val index = (value * max).toInt().coerceIn(0, max)
+        audio.setStreamVolume(AudioManager.STREAM_MUSIC, index, 0)
     }
 
     private fun isAllFilesAccess(): Boolean {

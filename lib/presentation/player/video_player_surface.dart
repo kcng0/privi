@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../data/services/playback_display_service.dart';
+
 enum VideoFitMode { fit, fill, original, ratio4x3, ratio16x9 }
 
 Duration clampVideoPosition(Duration position, Duration duration) {
@@ -60,6 +62,25 @@ String formatVideoProgress(Duration position, Duration duration) {
   return '${formatVideoTime(position)}/${formatVideoTime(duration)}';
 }
 
+/// Full-height swipe covers the full 0–1 range. Up increases the value.
+double videoVerticalAdjustDelta({
+  required double verticalDelta,
+  required double viewportHeight,
+}) {
+  if (verticalDelta == 0 || viewportHeight <= 0) return 0;
+  return (-verticalDelta / viewportHeight).clamp(-1.0, 1.0);
+}
+
+List<DeviceOrientation> preferredOrientationsForVideo(Size size) {
+  if (size.width > size.height) {
+    return const [
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ];
+  }
+  return const [DeviceOrientation.portraitUp];
+}
+
 abstract final class VideoSystemUi {
   static Future<void> apply(bool immersive) {
     return SystemChrome.setEnabledSystemUIMode(
@@ -78,9 +99,21 @@ abstract final class VideoSystemUi {
     );
   }
 
+  static Future<void> lockToVideoSize(Size size) {
+    if (size.isEmpty) return Future<void>.value();
+    return SystemChrome.setPreferredOrientations(
+      preferredOrientationsForVideo(size),
+    );
+  }
+
+  static Future<void> unlockOrientations() {
+    return SystemChrome.setPreferredOrientations(const []);
+  }
+
   static Future<void> restore() async {
-    await SystemChrome.setPreferredOrientations(const []);
+    await unlockOrientations();
     await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    await PlaybackDisplayService.instance.resetBrightness();
   }
 }
 
@@ -163,6 +196,7 @@ class VideoGestureSurface extends StatefulWidget {
     required this.onTap,
     required this.child,
     this.onPreviewFrameRequested,
+    this.displayControls,
   });
 
   final VideoPlayerController controller;
@@ -170,6 +204,7 @@ class VideoGestureSurface extends StatefulWidget {
   final VoidCallback onTap;
   final Widget child;
   final Future<Uint8List?> Function(Duration position)? onPreviewFrameRequested;
+  final VideoDisplayControls? displayControls;
 
   @override
   State<VideoGestureSurface> createState() => _VideoGestureSurfaceState();
@@ -184,9 +219,17 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
   double _dragPixels = 0;
   bool _resumeAfterDrag = false;
   double? _speedBeforeFastForward;
+  _VerticalAdjustKind? _verticalKind;
+  double? _verticalStartValue;
+  double _verticalPixels = 0;
   late final ValueNotifier<_SeekFeedback?> _feedbackNotifier =
       ValueNotifier<_SeekFeedback?>(null);
+  late final ValueNotifier<_LevelFeedback?> _levelNotifier =
+      ValueNotifier<_LevelFeedback?>(null);
   Timer? _feedbackTimer;
+
+  VideoDisplayControls get _displayControls =>
+      widget.displayControls ?? PlaybackDisplayService.instance;
   Timer? _previewTimer;
   Uint8List? _previewFrame;
   Duration? _previewPosition;
@@ -205,6 +248,7 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
       _dragTarget = null;
       _dragPixels = 0;
       _resumeAfterDrag = false;
+      _resetVerticalAdjust();
       _clearPreview();
     }
   }
@@ -215,6 +259,7 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
     _feedbackTimer?.cancel();
     _previewTimer?.cancel();
     _feedbackNotifier.dispose();
+    _levelNotifier.dispose();
     super.dispose();
   }
 
@@ -321,6 +366,64 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
     _scheduleFeedbackHide();
   }
 
+  Future<void> _handleVerticalDragStart(DragStartDetails details) async {
+    _feedbackTimer?.cancel();
+    _feedbackNotifier.value = null;
+    _verticalKind = details.localPosition.dx <
+            (context.size?.width ?? MediaQuery.sizeOf(context).width) / 2
+        ? _VerticalAdjustKind.brightness
+        : _VerticalAdjustKind.volume;
+    _verticalPixels = 0;
+    final start = _verticalKind == _VerticalAdjustKind.brightness
+        ? await _displayControls.getBrightness()
+        : await _displayControls.getVolume();
+    if (!mounted || _verticalKind == null) return;
+    _verticalStartValue = start;
+    _showLevelFeedback(start);
+  }
+
+  void _handleVerticalDragUpdate(DragUpdateDetails details) {
+    final kind = _verticalKind;
+    final start = _verticalStartValue;
+    final height = context.size?.height ?? 0;
+    if (kind == null || start == null || height <= 0) return;
+    _verticalPixels += details.primaryDelta ?? 0;
+    final next = (start +
+            videoVerticalAdjustDelta(
+              verticalDelta: _verticalPixels,
+              viewportHeight: height,
+            ))
+        .clamp(0.0, 1.0);
+    unawaited(
+      kind == _VerticalAdjustKind.brightness
+          ? _displayControls.setBrightness(next)
+          : _displayControls.setVolume(next),
+    );
+    _showLevelFeedback(next);
+  }
+
+  void _handleVerticalDragEnd(DragEndDetails details) {
+    _resetVerticalAdjust();
+    _scheduleFeedbackHide();
+  }
+
+  void _handleVerticalDragCancel() {
+    _resetVerticalAdjust();
+    _scheduleFeedbackHide();
+  }
+
+  void _resetVerticalAdjust() {
+    _verticalKind = null;
+    _verticalStartValue = null;
+    _verticalPixels = 0;
+  }
+
+  void _showLevelFeedback(double value) {
+    final kind = _verticalKind;
+    if (!mounted || kind == null) return;
+    _levelNotifier.value = _LevelFeedback(kind: kind, value: value);
+  }
+
   void _showFeedback(_SeekFeedback feedback, {required bool autoHide}) {
     if (!mounted) return;
     _feedbackNotifier.value = feedback;
@@ -330,7 +433,9 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
   void _scheduleFeedbackHide() {
     _feedbackTimer?.cancel();
     _feedbackTimer = Timer(const Duration(milliseconds: 750), () {
-      if (mounted) _feedbackNotifier.value = null;
+      if (!mounted) return;
+      _feedbackNotifier.value = null;
+      _levelNotifier.value = null;
     });
   }
 
@@ -359,8 +464,10 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
       } finally {
         _previewInFlight = false;
         if (_pendingPreviewPosition != null && mounted) {
-          _previewTimer =
-              Timer(const Duration(milliseconds: 40), _requestPreview);
+          _previewTimer = Timer(
+            const Duration(milliseconds: 40),
+            _requestPreview,
+          );
         }
       }
     }());
@@ -395,6 +502,11 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
       onHorizontalDragUpdate: _handleDragUpdate,
       onHorizontalDragEnd: (details) => unawaited(_handleDragEnd(details)),
       onHorizontalDragCancel: _handleDragCancel,
+      onVerticalDragStart: (details) =>
+          unawaited(_handleVerticalDragStart(details)),
+      onVerticalDragUpdate: _handleVerticalDragUpdate,
+      onVerticalDragEnd: _handleVerticalDragEnd,
+      onVerticalDragCancel: _handleVerticalDragCancel,
       child: Stack(
         fit: StackFit.expand,
         children: [
@@ -434,9 +546,7 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 12,
-                                fontFeatures: [
-                                  FontFeature.tabularFigures(),
-                                ],
+                                fontFeatures: [FontFeature.tabularFigures()],
                               ),
                             ),
                           ),
@@ -488,10 +598,7 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
                         const SizedBox(width: 8),
                         Text(
                           '${formatVideoDelta(feedback.delta)}  '
-                          '${formatVideoProgress(
-                            feedback.target,
-                            widget.controller.value.duration,
-                          )}',
+                          '${formatVideoProgress(feedback.target, widget.controller.value.duration)}',
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 14,
@@ -501,6 +608,18 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
                       ],
                     ),
                   ),
+                ),
+              );
+            },
+          ),
+          ValueListenableBuilder<_LevelFeedback?>(
+            valueListenable: _levelNotifier,
+            builder: (context, feedback, _) {
+              if (feedback == null) return const SizedBox.shrink();
+              return IgnorePointer(
+                child: Align(
+                  alignment: Alignment.center,
+                  child: _LevelFeedbackBadge(feedback: feedback),
                 ),
               );
             },
@@ -527,10 +646,7 @@ class _FastForwardFeedback extends StatelessWidget {
         children: [
           Icon(Icons.fast_forward, color: Colors.white, size: 22),
           SizedBox(width: 6),
-          Text(
-            '2x',
-            style: TextStyle(color: Colors.white, fontSize: 14),
-          ),
+          Text('2x', style: TextStyle(color: Colors.white, fontSize: 14)),
         ],
       ),
     );
@@ -547,4 +663,58 @@ class _SeekFeedback {
   final Duration delta;
   final Duration target;
   final Alignment alignment;
+}
+
+enum _VerticalAdjustKind { brightness, volume }
+
+class _LevelFeedback {
+  const _LevelFeedback({required this.kind, required this.value});
+
+  final _VerticalAdjustKind kind;
+  final double value;
+}
+
+class _LevelFeedbackBadge extends StatelessWidget {
+  const _LevelFeedbackBadge({required this.feedback});
+
+  final _LevelFeedback feedback;
+
+  @override
+  Widget build(BuildContext context) {
+    final brightness = feedback.kind == _VerticalAdjustKind.brightness;
+    return Container(
+      key: const Key('video-level-feedback'),
+      width: 168,
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      decoration: BoxDecoration(
+        color: const Color(0xE61C1C1E),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            brightness
+                ? (feedback.value <= 0.01
+                    ? Icons.brightness_low
+                    : Icons.brightness_high)
+                : (feedback.value <= 0.01 ? Icons.volume_off : Icons.volume_up),
+            color: Colors.white,
+            size: 22,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(2),
+              child: LinearProgressIndicator(
+                value: feedback.value,
+                minHeight: 4,
+                backgroundColor: Colors.white24,
+                color: Colors.white,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

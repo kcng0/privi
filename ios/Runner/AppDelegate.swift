@@ -5,6 +5,8 @@ import UIKit
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   private var privacyChannel: FlutterMethodChannel?
   private var urlLauncherChannel: FlutterMethodChannel?
+  private var windowChannel: FlutterMethodChannel?
+  private var savedBrightness: CGFloat?
 
   override func application(
     _ application: UIApplication,
@@ -18,6 +20,7 @@ import UIKit
     let messenger = engineBridge.applicationRegistrar.messenger()
     registerPrivacyChannel(messenger)
     registerUrlLauncherChannel(messenger)
+    registerWindowChannel(messenger)
   }
 
   private func registerPrivacyChannel(_ messenger: FlutterBinaryMessenger) {
@@ -84,5 +87,50 @@ import UIKit
       }
     }
     urlLauncherChannel = channel
+  }
+
+  private func registerWindowChannel(_ messenger: FlutterBinaryMessenger) {
+    let channel = FlutterMethodChannel(
+      name: "com.privi.app/window",
+      binaryMessenger: messenger
+    )
+    channel.setMethodCallHandler { [weak self] call, result in
+      DispatchQueue.main.async {
+        switch call.method {
+        case "getBrightness":
+          result(Double(UIScreen.main.brightness))
+        case "setBrightness":
+          guard
+            let arguments = call.arguments as? [String: Any],
+            let value = arguments["value"] as? Double
+          else {
+            result(
+              FlutterError(
+                code: "invalid_arguments",
+                message: "Brightness requires a 0–1 value.",
+                details: nil
+              )
+            )
+            return
+          }
+          if self?.savedBrightness == nil {
+            self?.savedBrightness = UIScreen.main.brightness
+          }
+          UIScreen.main.brightness = CGFloat(min(max(value, 0), 1))
+          result(nil)
+        case "resetBrightness":
+          if let saved = self?.savedBrightness {
+            UIScreen.main.brightness = saved
+            self?.savedBrightness = nil
+          }
+          result(nil)
+        case "getVolume", "setVolume":
+          result(nil)
+        default:
+          result(FlutterMethodNotImplemented)
+        }
+      }
+    }
+    windowChannel = channel
   }
 }

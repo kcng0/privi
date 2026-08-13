@@ -47,6 +47,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   bool _muted = false;
   bool _looping = false;
   bool? _lastImmersive;
+  String? _orientationLockedItemId;
+  bool _orientationOverridden = false;
 
   @override
   void initState() {
@@ -55,8 +57,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     _index = widget.initialIndex.clamp(0, widget.items.length - 1);
     _page = PageController(initialPage: _index);
     unawaited(VideoSystemUi.apply(false));
-    WidgetsBinding.instance
-        .addPostFrameCallback((_) => unawaited(_syncVideo()));
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => unawaited(_syncVideo()),
+    );
   }
 
   @override
@@ -91,7 +94,25 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   }
 
   Future<void> _toggleOrientation(BuildContext context) async {
+    _orientationOverridden = true;
     await VideoSystemUi.toggle(_isLandscape(context));
+  }
+
+  void _maybeLockOrientationToVideo() {
+    final video = _video;
+    final itemId = _videoId;
+    if (video == null || itemId == null || !video.value.isInitialized) return;
+    if (_orientationLockedItemId == itemId) return;
+    _orientationLockedItemId = itemId;
+    _orientationOverridden = false;
+    unawaited(VideoSystemUi.lockToVideoSize(video.value.size));
+  }
+
+  void _clearOrientationLock() {
+    if (_orientationLockedItemId == null && !_orientationOverridden) return;
+    _orientationLockedItemId = null;
+    _orientationOverridden = false;
+    unawaited(VideoSystemUi.unlockOrientations());
   }
 
   Future<void> _syncVideo() async {
@@ -99,6 +120,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     final request = ++_videoRequest;
     if (!item.isVideo) {
       await _detachVideo();
+      _clearOrientationLock();
       return;
     }
     if (_videoId == item.id && _video != null) return;
@@ -221,10 +243,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   }
 
   Future<void> _chooseFit() async {
-    final selected = await showVideoFitModeSheet(
-      context,
-      current: _fitMode,
-    );
+    final selected = await showVideoFitModeSheet(context, current: _fitMode);
     if (selected != null && mounted) setState(() => _fitMode = selected);
   }
 
@@ -236,9 +255,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       context,
       seekSeconds: settings.playerSeekSeconds,
       onSeekSecondsChanged: (seconds) => unawaited(
-        ref.read(settingsControllerProvider.notifier).setPlayerSeekSeconds(
-              seconds,
-            ),
+        ref
+            .read(settingsControllerProvider.notifier)
+            .setPlayerSeekSeconds(seconds),
       ),
       playbackSpeed: _playbackSpeed,
       onPlaybackSpeedChanged: _setPlaybackSpeed,
@@ -248,6 +267,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       onLoopingChanged: _setLooping,
       onOpenExternal:
           externalSupported ? () => unawaited(_openExternal()) : null,
+      rating: _current.rating,
+      onRatingChanged: (rating) => _setRating(_current, rating),
     );
   }
 
@@ -257,10 +278,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     if (!item.isVideo || !external.supported) return;
     final video = _video;
     if (video != null) await video.pause();
-    await external.open(
-      filePath: item.privatePath,
-      mimeType: item.mimeType,
-    );
+    await external.open(filePath: item.privatePath, mimeType: item.mimeType);
   }
 
   void _setRating(MediaItem item, int rating) {
@@ -283,9 +301,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     final ok = await ref.read(importServiceProvider).reveal(item);
     if (!mounted) return;
     if (!ok) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(context.l10n.couldNotUnhideFile)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(context.l10n.couldNotUnhideFile)));
       return;
     }
     // Same Visible refresh path as batch unhide (no manual pull needed).
@@ -306,9 +324,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && _page.hasClients) _page.jumpToPage(_index);
     });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(context.l10n.restoredToGallery)),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(context.l10n.restoredToGallery)));
     await _syncVideo();
   }
 
@@ -318,6 +336,12 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     final landscape = _isLandscape(context);
     final immersive = landscape && item.isVideo;
     _syncSystemUi(immersive);
+    if (item.isVideo &&
+        _video != null &&
+        _videoId == item.id &&
+        _video!.value.isInitialized) {
+      _maybeLockOrientationToVideo();
+    }
 
     return KeepVaultUnlocked(
       child: PopScope(
@@ -493,57 +517,26 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     }
     return Align(
       alignment: Alignment.bottomCenter,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _ratingStrip(item),
-          ValueListenableBuilder<VideoPlayerValue>(
-            valueListenable: video,
-            builder: (context, value, _) {
-              return VideoBottomControls(
-                value: value,
-                landscape: landscape,
-                fitMode: _fitMode,
-                hasPrevious: _hasPrevious,
-                hasNext: _hasNext,
-                onPrevious: () => unawaited(_showItem(_index - 1)),
-                onSeek: _seekTo,
-                onPlayPause: _togglePlayPause,
-                onNext: () => unawaited(_showItem(_index + 1)),
-                onToggleOrientation: () =>
-                    unawaited(_toggleOrientation(context)),
-                onChooseFit: () => unawaited(_chooseFit()),
-                onOpenSettings: () => unawaited(_openSettings()),
-                onPreviewFrameRequested: (position) =>
-                    VideoFrameService().frameAtTime(
-                  path: item.privatePath,
-                  position: position,
-                ),
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _ratingStrip(MediaItem item) {
-    return Material(
-      color: Colors.black.withValues(alpha: 0.78),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            HeartRatingBar(
-              rating: item.rating,
-              size: 26,
-              interactive: true,
-              scrim: false,
-              onRate: (rating) => _setRating(item, rating),
-            ),
-          ],
-        ),
+      child: ValueListenableBuilder<VideoPlayerValue>(
+        valueListenable: video,
+        builder: (context, value, _) {
+          return VideoBottomControls(
+            value: value,
+            landscape: landscape,
+            fitMode: _fitMode,
+            hasPrevious: _hasPrevious,
+            hasNext: _hasNext,
+            onPrevious: () => unawaited(_showItem(_index - 1)),
+            onSeek: _seekTo,
+            onPlayPause: _togglePlayPause,
+            onNext: () => unawaited(_showItem(_index + 1)),
+            onToggleOrientation: () => unawaited(_toggleOrientation(context)),
+            onChooseFit: () => unawaited(_chooseFit()),
+            onOpenSettings: () => unawaited(_openSettings()),
+            onPreviewFrameRequested: (position) => VideoFrameService()
+                .frameAtTime(path: item.privatePath, position: position),
+          );
+        },
       ),
     );
   }

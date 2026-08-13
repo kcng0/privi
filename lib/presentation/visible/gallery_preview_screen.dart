@@ -43,6 +43,8 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen> {
   double _playbackSpeed = 1;
   VideoFitMode _fitMode = VideoFitMode.fit;
   bool? _lastImmersive;
+  String? _orientationLockedItemId;
+  bool _orientationOverridden = false;
 
   @override
   void initState() {
@@ -103,6 +105,7 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen> {
         });
       } else {
         if (!mounted || request != _loadRequest) return;
+        _clearOrientationLock();
         setState(() {
           _file = file;
           _loading = false;
@@ -161,7 +164,25 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen> {
   }
 
   Future<void> _toggleOrientation(BuildContext context) async {
+    _orientationOverridden = true;
     await VideoSystemUi.toggle(_isLandscape(context));
+  }
+
+  void _maybeLockOrientationToVideo() {
+    final video = _video;
+    final itemId = _current.id;
+    if (video == null || !video.value.isInitialized) return;
+    if (_orientationLockedItemId == itemId) return;
+    _orientationLockedItemId = itemId;
+    _orientationOverridden = false;
+    unawaited(VideoSystemUi.lockToVideoSize(video.value.size));
+  }
+
+  void _clearOrientationLock() {
+    if (_orientationLockedItemId == null && !_orientationOverridden) return;
+    _orientationLockedItemId = null;
+    _orientationOverridden = false;
+    unawaited(VideoSystemUi.unlockOrientations());
   }
 
   Future<void> _chooseFit() async {
@@ -223,9 +244,9 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen> {
       context,
       seekSeconds: settings.playerSeekSeconds,
       onSeekSecondsChanged: (seconds) => unawaited(
-        ref.read(settingsControllerProvider.notifier).setPlayerSeekSeconds(
-              seconds,
-            ),
+        ref
+            .read(settingsControllerProvider.notifier)
+            .setPlayerSeekSeconds(seconds),
       ),
       playbackSpeed: _playbackSpeed,
       onPlaybackSpeedChanged: _setPlaybackSpeed,
@@ -256,6 +277,9 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen> {
     final landscape = _isLandscape(context);
     final immersive = landscape && _current.isVideo;
     _syncSystemUi(immersive);
+    if (_current.isVideo && _video != null && _video!.value.isInitialized) {
+      _maybeLockOrientationToVideo();
+    }
     return KeepVaultUnlocked(
       child: PopScope(
         canPop: _current.isVideo || !_chrome || _programmaticPopAllowed,
@@ -315,9 +339,7 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen> {
       );
     }
     if (_file != null) {
-      return InteractiveViewer(
-        child: Image.file(_file!, fit: BoxFit.contain),
-      );
+      return InteractiveViewer(child: Image.file(_file!, fit: BoxFit.contain));
     }
     return const SizedBox.shrink();
   }
@@ -376,11 +398,8 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen> {
           onToggleOrientation: () => unawaited(_toggleOrientation(context)),
           onChooseFit: () => unawaited(_chooseFit()),
           onOpenSettings: () => unawaited(_openSettings()),
-          onPreviewFrameRequested: (position) =>
-              VideoFrameService().frameAtTime(
-            path: _file!.path,
-            position: position,
-          ),
+          onPreviewFrameRequested: (position) => VideoFrameService()
+              .frameAtTime(path: _file!.path, position: position),
         ),
       ),
     );

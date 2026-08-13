@@ -47,15 +47,16 @@
 ## In-app video interaction invariant
 
 - Trigger signal: system Back changes the media item, a seek gesture flips the
-  Viewer page, landscape retains a top bar, or leaving playback keeps the app
-  orientation locked.
+  Viewer page, landscape retains a top bar, opening a landscape video stays in
+  portrait, or leaving playback keeps the app orientation locked.
 - Root cause: route navigation, PageView gestures, video gestures, and system
   UI lifecycle are handled by overlapping widgets without one owner.
-- Correct approach: video owns horizontal drag/double-tap seeking; dedicated
-  bottom buttons own Previous/Next; system Back hides visible controls before
-  exiting; landscape video hides top chrome while its visible bottom controls
-  show the current media title and playlist position; route disposal restores
-  system UI and supported orientations.
+- Correct approach: video owns horizontal drag/double-tap seeking and
+  left/right vertical brightness/volume swipes; dedicated bottom buttons own
+  Previous/Next; system Back hides visible controls before exiting; opening a
+  video locks orientation to its dimensions until the user overrides it or the
+  route is disposed; heart rating lives in the player settings sheet; route
+  disposal restores system UI, brightness, and supported orientations.
 - Verification: cover two-step system Back and immediate top-bar Back, seek
   direction/magnitude limits, narrow landscape title/progress controls,
   persisted seek time and playback speed, Viewer manual navigation, and absence

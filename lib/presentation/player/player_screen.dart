@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../application/media/rating_controller.dart';
 import '../../application/player/external_player_coordinator.dart';
 import '../../application/player/player_controller.dart';
 import '../../application/settings/settings_controller.dart';
@@ -60,6 +61,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   double _playbackSpeed = 1;
   bool _muted = false;
   bool? _lastImmersive;
+  String? _orientationLockedItemId;
+  bool _orientationOverridden = false;
+  final Map<String, int> _ratingOverrides = {};
 
   @override
   void initState() {
@@ -106,14 +110,38 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   }
 
   Future<void> _toggleOrientation(BuildContext context) async {
+    _orientationOverridden = true;
     await VideoSystemUi.toggle(_isLandscape(context));
   }
 
-  Future<void> _chooseFit() async {
-    final selected = await showVideoFitModeSheet(
-      context,
-      current: _fitMode,
+  void _maybeLockOrientationToVideo() {
+    final video = _video;
+    final itemId = _videoItemId;
+    if (video == null || itemId == null || !video.value.isInitialized) return;
+    if (_orientationLockedItemId == itemId) return;
+    _orientationLockedItemId = itemId;
+    _orientationOverridden = false;
+    unawaited(VideoSystemUi.lockToVideoSize(video.value.size));
+  }
+
+  void _clearOrientationLock() {
+    if (_orientationLockedItemId == null && !_orientationOverridden) return;
+    _orientationLockedItemId = null;
+    _orientationOverridden = false;
+    unawaited(VideoSystemUi.unlockOrientations());
+  }
+
+  int _ratingFor(MediaItem item) => _ratingOverrides[item.id] ?? item.rating;
+
+  void _setRating(MediaItem item, int rating) {
+    unawaited(
+      ref.read(ratingControllerProvider.notifier).setRating(item.id, rating),
     );
+    setState(() => _ratingOverrides[item.id] = rating);
+  }
+
+  Future<void> _chooseFit() async {
+    final selected = await showVideoFitModeSheet(context, current: _fitMode);
     if (selected != null && mounted) setState(() => _fitMode = selected);
   }
 
@@ -141,13 +169,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
   Future<void> _openSettings(PlayerUiState ui) async {
     final settings = ref.read(settingsControllerProvider);
+    final item = ui.current;
     await showVideoSettingsSheet(
       context,
       seekSeconds: settings.playerSeekSeconds,
       onSeekSecondsChanged: (seconds) => unawaited(
-        ref.read(settingsControllerProvider.notifier).setPlayerSeekSeconds(
-              seconds,
-            ),
+        ref
+            .read(settingsControllerProvider.notifier)
+            .setPlayerSeekSeconds(seconds),
       ),
       playbackSpeed: _playbackSpeed,
       onPlaybackSpeedChanged: _setPlaybackSpeed,
@@ -159,6 +188,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           ref.read(playerControllerProvider.notifier).toggleShuffle();
         }
       },
+      rating: item == null ? null : _ratingFor(item),
+      onRatingChanged:
+          item == null ? null : (rating) => _setRating(item, rating),
     );
   }
 
@@ -176,9 +208,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     }
   }
 
-  Future<void> _enqueueVideoOperation(
-    Future<void> Function() operation,
-  ) {
+  Future<void> _enqueueVideoOperation(Future<void> Function() operation) {
     final scheduled = _videoOperations.then((_) => operation());
     _videoOperations = scheduled.then<void>(
       (_) {},
@@ -200,11 +230,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _requestedVideoPlaying = playing;
     final request = ++_videoRequest;
     _preloadRequest++;
-    unawaited(
-      _enqueueVideoOperation(
-        () => _syncVideo(request, item, playing),
-      ),
-    );
+    unawaited(_enqueueVideoOperation(() => _syncVideo(request, item, playing)));
   }
 
   void _ensureVideoSync(MediaItem item, bool playing) {
@@ -252,11 +278,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     });
   }
 
-  Future<void> _syncVideo(
-    int request,
-    MediaItem? item,
-    bool playing,
-  ) async {
+  Future<void> _syncVideo(int request, MediaItem? item, bool playing) async {
     final itemId = item?.id;
     if (!_isCurrentVideoRequest(request, itemId)) return;
     _clearVideoError();
@@ -265,6 +287,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       await _disposeVideo();
       if (!_isCurrentVideoRequest(request, itemId)) return;
       await _disposeNextVideo();
+      _clearOrientationLock();
       return;
     }
     final external = ref.read(settingsControllerProvider).playerExternal &&
@@ -406,11 +429,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
   void _schedulePreload() {
     final request = ++_preloadRequest;
-    unawaited(
-      _enqueueVideoOperation(
-        () => _preloadNext(request),
-      ),
-    );
+    unawaited(_enqueueVideoOperation(() => _preloadNext(request)));
   }
 
   /// Warm the next playlist video so shuffle advances with less black-screen gap.
@@ -543,6 +562,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         _video!.value.isInitialized;
     final immersive = landscape && builtInVideo;
     _syncSystemUi(immersive);
+    if (builtInVideo) {
+      _maybeLockOrientationToVideo();
+    }
 
     // Keep video engine in sync with playlist cursor.
     ref.listen(playerControllerProvider, (prev, next) {
@@ -609,9 +631,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     return GestureDetector(
       onTap: _toggleChrome,
       child: InteractiveViewer(
-        child: Center(
-          child: Image.file(file, fit: BoxFit.contain),
-        ),
+        child: Center(child: Image.file(file, fit: BoxFit.contain)),
       ),
     );
   }
@@ -691,10 +711,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         path: item.privatePath,
         position: position,
       ),
-      child: VideoViewport(
-        controller: c,
-        fitMode: _fitMode,
-      ),
+      child: VideoViewport(controller: c, fitMode: _fitMode),
     );
   }
 
@@ -828,15 +845,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
             fitMode: _fitMode,
             hasPrevious: playlist?.hasPrev == true,
             hasNext: playlist?.hasNext == true,
-            onPrevious: () => unawaited(
-              ref.read(playerControllerProvider.notifier).prev(),
-            ),
+            onPrevious: () =>
+                unawaited(ref.read(playerControllerProvider.notifier).prev()),
             onSeek: _seekTo,
             onPlayPause: () =>
                 ref.read(playerControllerProvider.notifier).togglePlayPause(),
-            onNext: () => unawaited(
-              ref.read(playerControllerProvider.notifier).next(),
-            ),
+            onNext: () =>
+                unawaited(ref.read(playerControllerProvider.notifier).next()),
             onToggleOrientation: () => unawaited(_toggleOrientation(context)),
             onChooseFit: () => unawaited(_chooseFit()),
             onOpenSettings: () => unawaited(_openSettings(ui)),

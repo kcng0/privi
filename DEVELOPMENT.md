@@ -170,9 +170,12 @@ and the countdown restarts when the final pointer is released.
 
 When controls are visible, the current video title and playlist position stay in
 the top bar in both portrait and landscape. Landscape may still use immersive
-system UI, but it does not move this app header into the bottom controls. The
-Invisible viewer renders exactly three rating hearts above the timeline; tapping
-the already-selected rating clears it to zero.
+system UI, but it does not move this app header into the bottom controls.
+Opening a video locks orientation to its width/height; the bottom orientation
+button can still override that lock. Vertical swipes on the left half adjust
+window brightness, and vertical swipes on the right half adjust media volume.
+Heart rating for videos lives in the player settings sheet, not above the
+timeline; tapping the already-selected rating still clears it to zero.
 
 ## Code generation
 

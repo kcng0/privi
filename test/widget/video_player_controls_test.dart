@@ -1,15 +1,51 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:privi/core/theme/app_theme.dart';
+import 'package:privi/data/services/playback_display_service.dart';
 import 'package:privi/l10n/app_localizations.dart';
+import 'package:privi/presentation/common/heart_rating_bar.dart';
 import 'package:privi/presentation/player/video_player_controls.dart';
 import 'package:privi/presentation/player/video_player_surface.dart';
 import 'package:video_player/video_player.dart';
 
 const _longPressDuration = Duration(milliseconds: 500);
+
+class _FakeDisplayControls implements VideoDisplayControls {
+  _FakeDisplayControls({this.brightness = 0.4, this.volume = 0.6});
+
+  double brightness;
+  double volume;
+  final brightnessWrites = <double>[];
+  final volumeWrites = <double>[];
+  var resetCount = 0;
+
+  @override
+  Future<double> getBrightness() async => brightness;
+
+  @override
+  Future<void> setBrightness(double value) async {
+    brightness = value;
+    brightnessWrites.add(value);
+  }
+
+  @override
+  Future<void> resetBrightness() async {
+    resetCount++;
+  }
+
+  @override
+  Future<double> getVolume() async => volume;
+
+  @override
+  Future<void> setVolume(double value) async {
+    volume = value;
+    volumeWrites.add(value);
+  }
+}
 
 void main() {
   test('swipe seek follows direction, magnitude, and duration limits', () {
@@ -82,6 +118,35 @@ void main() {
     expect(formatPlaybackSpeed(1.25), '1.25x');
   });
 
+  test('vertical swipe maps full height to the 0–1 range', () {
+    expect(
+      videoVerticalAdjustDelta(verticalDelta: -200, viewportHeight: 400),
+      0.5,
+    );
+    expect(
+      videoVerticalAdjustDelta(verticalDelta: 200, viewportHeight: 400),
+      -0.5,
+    );
+    expect(
+      videoVerticalAdjustDelta(verticalDelta: -800, viewportHeight: 400),
+      1,
+    );
+    expect(videoVerticalAdjustDelta(verticalDelta: 0, viewportHeight: 400), 0);
+  });
+
+  test('video size picks landscape or portrait lock', () {
+    expect(preferredOrientationsForVideo(const Size(1920, 1080)), [
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+    expect(preferredOrientationsForVideo(const Size(1080, 1920)), [
+      DeviceOrientation.portraitUp,
+    ]);
+    expect(preferredOrientationsForVideo(const Size(1080, 1080)), [
+      DeviceOrientation.portraitUp,
+    ]);
+  });
+
   testWidgets('long press fast-forwards at 2x until release', (tester) async {
     final controller = VideoPlayerController.networkUrl(
       Uri.parse('https://example.com/video.mp4'),
@@ -100,8 +165,9 @@ void main() {
       ),
     );
 
-    final gesture = await tester
-        .startGesture(tester.getCenter(find.byType(VideoGestureSurface)));
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.byType(VideoGestureSurface)),
+    );
     await tester.pump(_longPressDuration);
 
     expect(controller.value.playbackSpeed, 2);
@@ -131,8 +197,9 @@ void main() {
       ),
     );
 
-    final gesture = await tester
-        .startGesture(tester.getCenter(find.byType(VideoGestureSurface)));
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.byType(VideoGestureSurface)),
+    );
     await tester.pump(_longPressDuration);
     expect(controller.value.playbackSpeed, 2);
 
@@ -228,8 +295,9 @@ void main() {
     expect(seeks, [const Duration(seconds: 30)]);
   });
 
-  testWidgets('progress scrub throttles and shows the latest frame preview',
-      (tester) async {
+  testWidgets('progress scrub throttles and shows the latest frame preview', (
+    tester,
+  ) async {
     final requests = <Duration>[];
     final responses = <Completer<Uint8List>>[];
     final png = base64Decode(
@@ -293,8 +361,9 @@ void main() {
     expect(find.byKey(const Key('video-frame-preview')), findsNothing);
   });
 
-  testWidgets('video controls hide three seconds after interaction ends',
-      (tester) async {
+  testWidgets('video controls hide three seconds after interaction ends', (
+    tester,
+  ) async {
     var visible = true;
     await tester.pumpWidget(
       MaterialApp(
@@ -327,8 +396,9 @@ void main() {
     expect(visible, isFalse);
   });
 
-  testWidgets('landscape controls hide time labels without overflowing',
-      (tester) async {
+  testWidgets('landscape controls hide time labels without overflowing', (
+    tester,
+  ) async {
     tester.view.physicalSize = const Size(320, 240);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -377,8 +447,9 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('player settings remain usable on a short landscape screen',
-      (tester) async {
+  testWidgets('player settings remain usable on a short landscape screen', (
+    tester,
+  ) async {
     double? selectedSpeed;
     tester.view.physicalSize = const Size(480, 240);
     tester.view.devicePixelRatio = 1;
@@ -427,5 +498,124 @@ void main() {
     expect(selectedSpeed, 1.5);
     expect(find.text('1.5x'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('player settings expose heart rating instead of the playbar', (
+    tester,
+  ) async {
+    var rating = 2;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.dark,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: FilledButton(
+                onPressed: () => showVideoSettingsSheet(
+                  context,
+                  seekSeconds: 3,
+                  onSeekSecondsChanged: (_) {},
+                  playbackSpeed: 1,
+                  onPlaybackSpeedChanged: (_) {},
+                  muted: false,
+                  onMutedChanged: (_) {},
+                  rating: rating,
+                  onRatingChanged: (next) => rating = next,
+                ),
+                child: const Text('Open'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Rate'), findsOneWidget);
+    expect(find.byType(HeartRatingBar), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.favorite).last);
+    await tester.pump();
+
+    expect(rating, 0);
+  });
+
+  testWidgets('left vertical swipe changes brightness', (tester) async {
+    final controller = VideoPlayerController.networkUrl(
+      Uri.parse('https://example.com/video.mp4'),
+    );
+    addTearDown(controller.dispose);
+    final display = _FakeDisplayControls(brightness: 0.4, volume: 0.6);
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SizedBox(
+          width: 400,
+          height: 800,
+          child: VideoGestureSurface(
+            controller: controller,
+            seekSeconds: 3,
+            onTap: () {},
+            displayControls: display,
+            child: const ColoredBox(color: Colors.black),
+          ),
+        ),
+      ),
+    );
+
+    await tester.dragFrom(const Offset(80, 500), const Offset(0, -200));
+    await tester.pump();
+
+    expect(display.brightnessWrites, isNotEmpty);
+    expect(display.brightnessWrites.last, closeTo(0.65, 0.05));
+    expect(display.volumeWrites, isEmpty);
+    expect(find.byKey(const Key('video-level-feedback')), findsOneWidget);
+
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('right vertical swipe changes volume', (tester) async {
+    final controller = VideoPlayerController.networkUrl(
+      Uri.parse('https://example.com/video.mp4'),
+    );
+    addTearDown(controller.dispose);
+    final display = _FakeDisplayControls(brightness: 0.4, volume: 0.6);
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SizedBox(
+          width: 400,
+          height: 800,
+          child: VideoGestureSurface(
+            controller: controller,
+            seekSeconds: 3,
+            onTap: () {},
+            displayControls: display,
+            child: const ColoredBox(color: Colors.black),
+          ),
+        ),
+      ),
+    );
+
+    await tester.dragFrom(const Offset(320, 400), const Offset(0, 200));
+    await tester.pump();
+
+    expect(display.volumeWrites, isNotEmpty);
+    expect(display.volumeWrites.last, closeTo(0.35, 0.05));
+    expect(display.brightnessWrites, isEmpty);
+    expect(find.byKey(const Key('video-level-feedback')), findsOneWidget);
+
+    await tester.pumpAndSettle();
   });
 }

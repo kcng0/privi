@@ -7,6 +7,7 @@ import 'package:video_player/video_player.dart';
 import '../../core/constants.dart';
 import '../../core/l10n.dart';
 import '../../domain/models/video_playback_settings.dart';
+import '../common/heart_rating_bar.dart';
 import 'video_player_surface.dart';
 
 String formatPlaybackSpeed(double speed) {
@@ -193,8 +194,10 @@ class _VideoBottomControlsState extends State<VideoBottomControls> {
       } finally {
         _previewInFlight = false;
         if (_pendingPreviewPosition != null && mounted) {
-          _previewTimer =
-              Timer(const Duration(milliseconds: 40), _requestPreview);
+          _previewTimer = Timer(
+            const Duration(milliseconds: 40),
+            _requestPreview,
+          );
         }
       }
     }());
@@ -503,6 +506,8 @@ Future<void> showVideoSettingsSheet(
   bool? shuffle,
   ValueChanged<bool>? onShuffleChanged,
   VoidCallback? onOpenExternal,
+  int? rating,
+  ValueChanged<int>? onRatingChanged,
 }) {
   return showModalBottomSheet<void>(
     context: context,
@@ -521,6 +526,8 @@ Future<void> showVideoSettingsSheet(
       shuffle: shuffle,
       onShuffleChanged: onShuffleChanged,
       onOpenExternal: onOpenExternal,
+      rating: rating,
+      onRatingChanged: onRatingChanged,
     ),
   );
 }
@@ -538,6 +545,8 @@ class _VideoSettingsSheet extends StatefulWidget {
     this.shuffle,
     this.onShuffleChanged,
     this.onOpenExternal,
+    this.rating,
+    this.onRatingChanged,
   });
 
   final int seekSeconds;
@@ -551,6 +560,8 @@ class _VideoSettingsSheet extends StatefulWidget {
   final bool? shuffle;
   final ValueChanged<bool>? onShuffleChanged;
   final VoidCallback? onOpenExternal;
+  final int? rating;
+  final ValueChanged<int>? onRatingChanged;
 
   @override
   State<_VideoSettingsSheet> createState() => _VideoSettingsSheetState();
@@ -562,6 +573,7 @@ class _VideoSettingsSheetState extends State<_VideoSettingsSheet> {
   late bool _muted = widget.muted;
   late bool? _looping = widget.looping;
   late bool? _shuffle = widget.shuffle;
+  late int? _rating = widget.rating;
 
   @override
   Widget build(BuildContext context) {
@@ -585,14 +597,30 @@ class _VideoSettingsSheetState extends State<_VideoSettingsSheet> {
                     ),
                   ),
                   IconButton(
-                    tooltip:
-                        MaterialLocalizations.of(context).closeButtonTooltip,
+                    tooltip: MaterialLocalizations.of(
+                      context,
+                    ).closeButtonTooltip,
                     icon: const Icon(Icons.close),
                     onPressed: () => Navigator.of(context).pop(),
                   ),
                 ],
               ),
               const SizedBox(height: AppSpacing.sm),
+              if (_rating != null && widget.onRatingChanged != null) ...[
+                Text(context.l10n.rate),
+                const SizedBox(height: AppSpacing.xs),
+                HeartRatingBar(
+                  rating: _rating!,
+                  size: 28,
+                  interactive: true,
+                  scrim: false,
+                  onRate: (value) {
+                    setState(() => _rating = value);
+                    widget.onRatingChanged!(value);
+                  },
+                ),
+                const SizedBox(height: AppSpacing.md),
+              ],
               Text(context.l10n.doubleTapSeek),
               const SizedBox(height: AppSpacing.xs),
               SegmentedButton<int>(
