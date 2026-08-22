@@ -16,6 +16,7 @@ import '../../data/services/video_frame_service.dart';
 import '../../domain/models/media_item.dart';
 import '../common/heart_rating_bar.dart';
 import '../common/keep_vault_unlocked.dart';
+import '../common/zoomable_media_image.dart';
 import '../player/video_player_controls.dart';
 import '../player/video_player_surface.dart';
 
@@ -41,6 +42,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   bool _programmaticPopAllowed = false;
   VideoPlayerController? _video;
   String? _videoId;
+  String? _completedForId;
   int _videoRequest = 0;
   VideoFitMode _fitMode = VideoFitMode.fit;
   double _playbackSpeed = 1;
@@ -68,6 +70,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     final c = _video;
     _video = null;
     _videoId = null;
+    _completedForId = null;
     if (c != null) {
       try {
         c.pause();
@@ -137,10 +140,32 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       await c.dispose();
       return;
     }
+    c.addListener(() {
+      if (!mounted) return;
+      _maybeAdvanceOnVideoEnd(c, item.id);
+    });
     setState(() {
       _video = c;
       _videoId = item.id;
+      _completedForId = null;
     });
+  }
+
+  void _maybeAdvanceOnVideoEnd(VideoPlayerController video, String itemId) {
+    if (!mounted) return;
+    if (_looping) return;
+    if (_completedForId == itemId) return;
+    if (_current.id != itemId) return;
+    if (!videoPlaybackEnded(video.value)) return;
+    _completedForId = itemId;
+    final nextIndex = nextIndexAfterVideoEnd(
+      index: _index,
+      length: widget.items.length,
+      looping: _looping,
+      ended: true,
+    );
+    if (nextIndex == null) return;
+    unawaited(_showItem(nextIndex));
   }
 
   Future<void> _disposeVideo() async {
@@ -152,6 +177,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     final c = _video;
     _video = null;
     _videoId = null;
+    _completedForId = null;
     if (c != null) {
       try {
         await c.pause();
@@ -363,6 +389,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
               fit: StackFit.expand,
               children: [
                 PageView.builder(
+                  key: const Key('folder-media-page-view'),
                   controller: _page,
                   itemCount: widget.items.length,
                   physics: item.isVideo
@@ -401,17 +428,10 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       );
     }
     if (item.isVideo) return _videoPage(item, active);
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
+    return ZoomableMediaImage(
+      file: file,
+      heroTag: 'media-hero-${item.id}',
       onTap: _toggleChrome,
-      child: Center(
-        child: InteractiveViewer(
-          child: Hero(
-            tag: 'media-hero-${item.id}',
-            child: Image.file(file, fit: BoxFit.contain),
-          ),
-        ),
-      ),
     );
   }
 

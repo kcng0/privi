@@ -31,10 +31,17 @@ import '../import/import_result_message.dart';
 import 'folder_cover_cache.dart';
 import 'gallery_preview_screen.dart';
 
+List<GalleryAsset> visibleFolderPreviewItems(
+  Iterable<GalleryAsset> items, {
+  required bool isVideo,
+}) {
+  return List.unmodifiable(items.where((item) => item.isVideo == isVideo));
+}
+
 List<GalleryAsset> visibleVideoPlaylist(
   Iterable<GalleryAsset> items,
 ) {
-  return List.unmodifiable(items.where((item) => item.isVideo));
+  return visibleFolderPreviewItems(items, isVideo: true);
 }
 
 /// Visible folder browser (hide flow).
@@ -205,8 +212,10 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
     }
 
     if (!mounted) return;
-    final previewItems =
-        a.isVideo ? visibleVideoPlaylist(_visibleItems) : <GalleryAsset>[a];
+    final previewItems = visibleFolderPreviewItems(
+      _visibleItems,
+      isVideo: a.isVideo,
+    );
     final previewIndex = previewItems.indexWhere((item) => item.id == a.id);
     await Navigator.of(context).push(
       MaterialPageRoute<void>(

@@ -523,14 +523,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     if (!mounted) return;
     if (!ref.read(playerControllerProvider).playing) return;
     if (_completedForId == itemId) return;
-    if (!c.value.isInitialized) return;
-    final dur = c.value.duration;
-    final pos = c.value.position;
-    if (dur <= Duration.zero) return;
-    // isCompleted is flaky on some devices; also treat near-end as finished.
-    final ended =
-        c.value.isCompleted || pos >= dur - const Duration(milliseconds: 350);
-    if (!ended) return;
+    if (!videoPlaybackEnded(c.value)) return;
     _completedForId = itemId;
     // ignore: discarded_futures
     ref.read(playerControllerProvider.notifier).onItemCompleted();

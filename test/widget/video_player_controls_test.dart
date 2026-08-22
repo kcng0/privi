@@ -618,4 +618,84 @@ void main() {
 
     await tester.pumpAndSettle();
   });
+
+  test('videoPlaybackEnded treats completed and near-end positions as finished',
+      () {
+    expect(
+      videoPlaybackEnded(
+        const VideoPlayerValue(duration: Duration.zero),
+      ),
+      isFalse,
+    );
+    expect(
+      videoPlaybackEnded(
+        const VideoPlayerValue(
+          duration: Duration(seconds: 10),
+          isInitialized: true,
+          isCompleted: true,
+        ),
+      ),
+      isTrue,
+    );
+    expect(
+      videoPlaybackEnded(
+        const VideoPlayerValue(
+          duration: Duration(seconds: 10),
+          position: Duration(milliseconds: 9700),
+          isInitialized: true,
+        ),
+      ),
+      isTrue,
+    );
+    expect(
+      videoPlaybackEnded(
+        const VideoPlayerValue(
+          duration: Duration(seconds: 10),
+          position: Duration(seconds: 5),
+          isInitialized: true,
+          isPlaying: true,
+        ),
+      ),
+      isFalse,
+    );
+  });
+
+  test('nextIndexAfterVideoEnd follows sort order and stops at the end', () {
+    expect(
+      nextIndexAfterVideoEnd(
+        index: 0,
+        length: 3,
+        looping: false,
+        ended: true,
+      ),
+      1,
+    );
+    expect(
+      nextIndexAfterVideoEnd(
+        index: 2,
+        length: 3,
+        looping: false,
+        ended: true,
+      ),
+      isNull,
+    );
+    expect(
+      nextIndexAfterVideoEnd(
+        index: 0,
+        length: 3,
+        looping: true,
+        ended: true,
+      ),
+      isNull,
+    );
+    expect(
+      nextIndexAfterVideoEnd(
+        index: 0,
+        length: 3,
+        looping: false,
+        ended: false,
+      ),
+      isNull,
+    );
+  });
 }

@@ -15,6 +15,31 @@ Duration clampVideoPosition(Duration position, Duration duration) {
   return position;
 }
 
+/// Natural end of built-in playback. `isCompleted` is flaky on some devices,
+/// so a near-end position also counts.
+bool videoPlaybackEnded(
+  VideoPlayerValue value, {
+  Duration slop = const Duration(milliseconds: 350),
+}) {
+  if (!value.isInitialized) return false;
+  final duration = value.duration;
+  if (duration <= Duration.zero) return false;
+  return value.isCompleted || value.position >= duration - slop;
+}
+
+/// Next folder item after a built-in video ends, using the current sort order.
+int? nextIndexAfterVideoEnd({
+  required int index,
+  required int length,
+  required bool looping,
+  required bool ended,
+}) {
+  if (!ended || looping || index < 0) return null;
+  final next = index + 1;
+  if (next >= length) return null;
+  return next;
+}
+
 /// VLC-style non-linear seek: small drags stay precise while a full-width
 /// swipe can move up to ten minutes.
 Duration videoSwipeSeekDelta({
