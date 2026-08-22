@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../application/import/import_controller.dart';
+import '../../application/lock/lock_controller.dart';
 import '../../application/media/rating_controller.dart';
 import '../../application/player/external_player_coordinator.dart';
 import '../../application/providers.dart';
@@ -13,6 +14,7 @@ import '../../application/settings/settings_controller.dart';
 import '../../core/constants.dart';
 import '../../core/l10n.dart';
 import '../../data/services/video_frame_service.dart';
+import '../../domain/enums.dart';
 import '../../domain/models/media_item.dart';
 import '../common/heart_rating_bar.dart';
 import '../common/keep_vault_unlocked.dart';
@@ -39,11 +41,14 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   late final PageController _page;
   late int _index;
   bool _chrome = true;
+  bool _imageZoomed = false;
   bool _programmaticPopAllowed = false;
   VideoPlayerController? _video;
   String? _videoId;
   String? _completedForId;
   int _videoRequest = 0;
+  final _videoOps = VideoControllerQueue();
+  DateTime? _ignoreAutoAdvanceUntil;
   VideoFitMode _fitMode = VideoFitMode.fit;
   double _playbackSpeed = 1;
   bool _muted = false;
@@ -118,9 +123,14 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     unawaited(VideoSystemUi.unlockOrientations());
   }
 
-  Future<void> _syncVideo() async {
+  Future<void> _syncVideo() {
     final item = _current;
     final request = ++_videoRequest;
+    return _videoOps.enqueue(() => _syncVideoBody(request, item));
+  }
+
+  Future<void> _syncVideoBody(int request, MediaItem item) async {
+    if (!mounted || request != _videoRequest) return;
     if (!item.isVideo) {
       await _detachVideo();
       _clearOrientationLock();
@@ -128,10 +138,16 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     }
     if (_videoId == item.id && _video != null) return;
     await _detachVideo();
+    if (!mounted || request != _videoRequest) return;
     final file = File(item.privatePath);
-    if (!await file.exists()) return;
+    if (!file.existsSync()) return;
+    if (!mounted || request != _videoRequest) return;
     final c = VideoPlayerController.file(file);
     await c.initialize();
+    if (!mounted || request != _videoRequest || _current.id != item.id) {
+      await c.dispose();
+      return;
+    }
     await c.setLooping(_looping);
     await c.setVolume(_muted ? 0 : 1);
     await c.setPlaybackSpeed(_playbackSpeed);
@@ -151,12 +167,26 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     });
   }
 
+  void _markUserSeek() {
+    _ignoreAutoAdvanceUntil = DateTime.now().add(
+      const Duration(milliseconds: 800),
+    );
+  }
+
   void _maybeAdvanceOnVideoEnd(VideoPlayerController video, String itemId) {
     if (!mounted) return;
-    if (_looping) return;
-    if (_completedForId == itemId) return;
-    if (_current.id != itemId) return;
-    if (!videoPlaybackEnded(video.value)) return;
+    final unlocked =
+        ref.read(lockControllerProvider).status == LockStatus.unlocked;
+    if (!shouldAdvanceFolderVideoOnEnd(
+      value: video.value,
+      looping: _looping,
+      vaultUnlocked: unlocked,
+      isCurrentItem: _current.id == itemId,
+      alreadyAdvanced: _completedForId == itemId,
+      ignoreUntil: _ignoreAutoAdvanceUntil,
+    )) {
+      return;
+    }
     _completedForId = itemId;
     final nextIndex = nextIndexAfterVideoEnd(
       index: _index,
@@ -168,9 +198,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     unawaited(_showItem(nextIndex));
   }
 
-  Future<void> _disposeVideo() async {
+  Future<void> _disposeVideo() {
     _videoRequest++;
-    await _detachVideo();
+    return _videoOps.enqueue(_detachVideo);
   }
 
   Future<void> _detachVideo() async {
@@ -203,20 +233,29 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
 
   Future<void> _showItem(int index) async {
     if (index < 0 || index >= widget.items.length || index == _index) return;
+    if (!mounted) return;
     if (!_page.hasClients) {
       setState(() => _index = index);
       await _syncVideo();
       return;
     }
-    await _page.animateToPage(
-      index,
-      duration: const Duration(milliseconds: 220),
-      curve: Curves.easeOutCubic,
-    );
+    try {
+      await _page.animateToPage(
+        index,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+      );
+    } catch (_) {
+      if (!mounted || !_page.hasClients) return;
+      _page.jumpToPage(index);
+    }
   }
 
   Future<void> _onPageChanged(int index) async {
-    setState(() => _index = index);
+    setState(() {
+      _index = index;
+      _imageZoomed = false;
+    });
     await _syncVideo();
   }
 
@@ -242,7 +281,9 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
 
   Future<void> _seekTo(Duration position) async {
     final video = _video;
-    if (video != null) await video.seekTo(position);
+    if (video == null) return;
+    _markUserSeek();
+    await video.seekTo(position);
   }
 
   void _setPlaybackSpeed(double speed) {
@@ -392,7 +433,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
                   key: const Key('folder-media-page-view'),
                   controller: _page,
                   itemCount: widget.items.length,
-                  physics: item.isVideo
+                  physics: item.isVideo || _imageZoomed
                       ? const NeverScrollableScrollPhysics()
                       : const PageScrollPhysics(),
                   onPageChanged: (index) => unawaited(_onPageChanged(index)),
@@ -432,6 +473,10 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       file: file,
       heroTag: 'media-hero-${item.id}',
       onTap: _toggleChrome,
+      onZoomChanged: (zoomed) {
+        if (_imageZoomed == zoomed) return;
+        setState(() => _imageZoomed = zoomed);
+      },
     );
   }
 
@@ -475,6 +520,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
       controller: video,
       seekSeconds: ref.watch(settingsControllerProvider).playerSeekSeconds,
       onTap: _toggleChrome,
+      onUserSeek: _markUserSeek,
       onPreviewFrameRequested: (position) => VideoFrameService().frameAtTime(
         path: _current.privatePath,
         position: position,

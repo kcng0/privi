@@ -630,6 +630,25 @@ void main() {
     expect(
       videoPlaybackEnded(
         const VideoPlayerValue(
+          duration: Duration(milliseconds: 200),
+          isInitialized: true,
+        ),
+      ),
+      isFalse,
+    );
+    expect(
+      videoPlaybackEnded(
+        const VideoPlayerValue(
+          duration: Duration(milliseconds: 200),
+          isInitialized: true,
+          isCompleted: true,
+        ),
+      ),
+      isTrue,
+    );
+    expect(
+      videoPlaybackEnded(
+        const VideoPlayerValue(
           duration: Duration(seconds: 10),
           isInitialized: true,
           isCompleted: true,
@@ -642,6 +661,27 @@ void main() {
         const VideoPlayerValue(
           duration: Duration(seconds: 10),
           position: Duration(milliseconds: 9700),
+          isInitialized: true,
+          isPlaying: true,
+        ),
+      ),
+      isTrue,
+    );
+    expect(
+      videoPlaybackEnded(
+        const VideoPlayerValue(
+          duration: Duration(seconds: 10),
+          position: Duration(milliseconds: 9700),
+          isInitialized: true,
+        ),
+      ),
+      isFalse,
+    );
+    expect(
+      videoPlaybackEnded(
+        const VideoPlayerValue(
+          duration: Duration(seconds: 10),
+          position: Duration(seconds: 10),
           isInitialized: true,
         ),
       ),
@@ -657,6 +697,69 @@ void main() {
         ),
       ),
       isFalse,
+    );
+  });
+
+  test('shouldAdvanceFolderVideoOnEnd respects lock, loop, and recent seeks',
+      () {
+    const ended = VideoPlayerValue(
+      duration: Duration(seconds: 10),
+      isInitialized: true,
+      isCompleted: true,
+    );
+    expect(
+      shouldAdvanceFolderVideoOnEnd(
+        value: ended,
+        looping: false,
+        vaultUnlocked: true,
+        isCurrentItem: true,
+        alreadyAdvanced: false,
+      ),
+      isTrue,
+    );
+    expect(
+      shouldAdvanceFolderVideoOnEnd(
+        value: ended,
+        looping: false,
+        vaultUnlocked: false,
+        isCurrentItem: true,
+        alreadyAdvanced: false,
+      ),
+      isFalse,
+    );
+    expect(
+      shouldAdvanceFolderVideoOnEnd(
+        value: ended,
+        looping: true,
+        vaultUnlocked: true,
+        isCurrentItem: true,
+        alreadyAdvanced: false,
+      ),
+      isFalse,
+    );
+    expect(
+      shouldAdvanceFolderVideoOnEnd(
+        value: ended,
+        looping: false,
+        vaultUnlocked: true,
+        isCurrentItem: true,
+        alreadyAdvanced: false,
+        ignoreUntil: DateTime(2026, 1, 1, 0, 0, 1),
+        now: DateTime(2026, 1, 1),
+      ),
+      isFalse,
+    );
+    expect(
+      shouldAdvanceFolderVideoOnEnd(
+        value: ended,
+        looping: false,
+        vaultUnlocked: true,
+        isCurrentItem: true,
+        alreadyAdvanced: false,
+        ignoreUntil: DateTime(2026, 1, 1),
+        now: DateTime(2026, 1, 1, 0, 0, 1),
+      ),
+      isTrue,
     );
   });
 

@@ -10,6 +10,7 @@ import 'package:privi/data/services/gallery_service.dart';
 import 'package:privi/domain/enums.dart';
 import 'package:privi/domain/models/media_item.dart';
 import 'package:privi/l10n/app_localizations.dart';
+import 'package:privi/presentation/common/zoomable_media_image.dart';
 import 'package:privi/presentation/viewer/viewer_screen.dart';
 import 'package:privi/presentation/visible/gallery_preview_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -125,5 +126,65 @@ void main() {
 
     expect(find.text('beta.jpg'), findsOneWidget);
     expect(find.text('2/2'), findsOneWidget);
+  });
+
+  testWidgets('double-tap zoom actually scales and blocks folder swipe',
+      (tester) async {
+    final container = await _container();
+    addTearDown(container.dispose);
+    final fixture =
+        File('test/fixtures/vault_backup_v1/media/legacy-media-id.jpg');
+
+    await tester.pumpWidget(
+      _scopedApp(
+        container: container,
+        home: ViewerScreen(
+          items: [
+            MediaItem(
+              id: 'alpha',
+              privatePath: fixture.absolute.path,
+              originalName: 'alpha.jpg',
+              mimeType: 'image/jpeg',
+              isVideo: false,
+              rating: 0,
+              dateAdded: DateTime(2026),
+              sizeBytes: 1,
+            ),
+            MediaItem(
+              id: 'beta',
+              privatePath: fixture.absolute.path,
+              originalName: 'beta.jpg',
+              mimeType: 'image/jpeg',
+              isVideo: false,
+              rating: 0,
+              dateAdded: DateTime(2026),
+              sizeBytes: 1,
+            ),
+          ],
+          initialIndex: 0,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byType(InteractiveViewer), findsNothing);
+    await tester.tap(find.byType(ZoomableMediaImage));
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.tap(find.byType(ZoomableMediaImage));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.byType(InteractiveViewer), findsOneWidget);
+    final viewer = tester.widget<InteractiveViewer>(
+      find.byType(InteractiveViewer),
+    );
+    expect(
+      viewer.transformationController!.value.getMaxScaleOnAxis(),
+      closeTo(2.5, 0.01),
+    );
+
+    await _swipeToNext(tester);
+    expect(find.text('alpha.jpg'), findsOneWidget);
+    expect(find.text('1/2'), findsOneWidget);
   });
 }

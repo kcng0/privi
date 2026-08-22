@@ -6,10 +6,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:photo_manager/photo_manager.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../application/lock/lock_controller.dart';
 import '../../application/settings/settings_controller.dart';
 import '../../core/l10n.dart';
 import '../../data/services/gallery_service.dart';
 import '../../data/services/video_frame_service.dart';
+import '../../domain/enums.dart';
 import '../common/keep_vault_unlocked.dart';
 import '../common/zoomable_media_image.dart';
 import '../player/video_player_controls.dart';
@@ -48,8 +50,11 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen> {
   String? _completedForId;
   bool _loading = true;
   bool _chrome = true;
+  bool _imageZoomed = false;
   late int _index;
   int _loadRequest = 0;
+  final _videoOps = VideoControllerQueue();
+  DateTime? _ignoreAutoAdvanceUntil;
   bool _programmaticPopAllowed = false;
   bool _muted = false;
   bool _looping = false;
@@ -73,10 +78,15 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen> {
   bool get _hasPrevious => _index > 0;
   bool get _hasNext => _index < widget.items.length - 1;
 
-  Future<void> _loadCurrent() async {
+  Future<void> _loadCurrent() {
     final request = ++_loadRequest;
+    return _videoOps.enqueue(() => _loadCurrentBody(request));
+  }
+
+  Future<void> _loadCurrentBody(int request) async {
+    if (!mounted || request != _loadRequest) return;
     await _stopVideo();
-    if (!mounted) return;
+    if (!mounted || request != _loadRequest) return;
     setState(() {
       _loading = true;
       _error = null;
@@ -96,6 +106,10 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen> {
       if (item.isVideo) {
         final c = VideoPlayerController.file(file);
         await c.initialize();
+        if (!mounted || request != _loadRequest) {
+          await c.dispose();
+          return;
+        }
         await c.setLooping(_looping);
         await c.setVolume(_muted ? 0 : 1);
         await c.setPlaybackSpeed(_playbackSpeed);
@@ -133,30 +147,53 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen> {
 
   Future<void> _showItem(int index) async {
     if (index < 0 || index >= widget.items.length || index == _index) return;
+    if (!mounted) return;
     if (!_page.hasClients) {
       setState(() => _index = index);
       await _loadCurrent();
       return;
     }
-    await _page.animateToPage(
-      index,
-      duration: const Duration(milliseconds: 220),
-      curve: Curves.easeOutCubic,
-    );
+    try {
+      await _page.animateToPage(
+        index,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+      );
+    } catch (_) {
+      if (!mounted || !_page.hasClients) return;
+      _page.jumpToPage(index);
+    }
   }
 
   Future<void> _onPageChanged(int index) async {
     if (index == _index) return;
-    setState(() => _index = index);
+    setState(() {
+      _index = index;
+      _imageZoomed = false;
+    });
     await _loadCurrent();
+  }
+
+  void _markUserSeek() {
+    _ignoreAutoAdvanceUntil = DateTime.now().add(
+      const Duration(milliseconds: 800),
+    );
   }
 
   void _maybeAdvanceOnVideoEnd(VideoPlayerController video, String itemId) {
     if (!mounted) return;
-    if (_looping) return;
-    if (_completedForId == itemId) return;
-    if (_current.id != itemId) return;
-    if (!videoPlaybackEnded(video.value)) return;
+    final unlocked =
+        ref.read(lockControllerProvider).status == LockStatus.unlocked;
+    if (!shouldAdvanceFolderVideoOnEnd(
+      value: video.value,
+      looping: _looping,
+      vaultUnlocked: unlocked,
+      isCurrentItem: _current.id == itemId,
+      alreadyAdvanced: _completedForId == itemId,
+      ignoreUntil: _ignoreAutoAdvanceUntil,
+    )) {
+      return;
+    }
     _completedForId = itemId;
     final nextIndex = nextIndexAfterVideoEnd(
       index: _index,
@@ -184,6 +221,7 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen> {
 
   @override
   void dispose() {
+    _loadRequest++;
     final c = _video;
     _video = null;
     _completedForId = null;
@@ -280,7 +318,9 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen> {
 
   Future<void> _seekTo(Duration position) async {
     final video = _video;
-    if (video != null) await video.seekTo(position);
+    if (video == null) return;
+    _markUserSeek();
+    await video.seekTo(position);
   }
 
   Future<void> _openSettings() async {
@@ -348,7 +388,7 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen> {
                   key: const Key('folder-media-page-view'),
                   controller: _page,
                   itemCount: widget.items.length,
-                  physics: _current.isVideo
+                  physics: _current.isVideo || _imageZoomed
                       ? const NeverScrollableScrollPhysics()
                       : const PageScrollPhysics(),
                   onPageChanged: (index) => unawaited(_onPageChanged(index)),
@@ -397,6 +437,7 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen> {
         controller: video,
         seekSeconds: ref.watch(settingsControllerProvider).playerSeekSeconds,
         onTap: _toggleChrome,
+        onUserSeek: _markUserSeek,
         onPreviewFrameRequested: (position) => VideoFrameService().frameAtTime(
           path: _file!.path,
           position: position,
@@ -408,6 +449,10 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen> {
       return ZoomableMediaImage(
         file: _file!,
         onTap: _toggleChrome,
+        onZoomChanged: (zoomed) {
+          if (_imageZoomed == zoomed) return;
+          setState(() => _imageZoomed = zoomed);
+        },
       );
     }
     return GestureDetector(

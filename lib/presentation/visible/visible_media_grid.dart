@@ -31,6 +31,8 @@ import '../import/import_result_message.dart';
 import 'folder_cover_cache.dart';
 import 'gallery_preview_screen.dart';
 
+/// Kind-filtered snapshot of the already-loaded Visible folder page(s).
+/// Preview swipe and in-app auto-advance use this list, not the whole album.
 List<GalleryAsset> visibleFolderPreviewItems(
   Iterable<GalleryAsset> items, {
   required bool isVideo,
