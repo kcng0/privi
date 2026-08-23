@@ -138,6 +138,10 @@ void main() {
       visibleVideoPlaylist(items).map((item) => item.id),
       ['first', 'second'],
     );
+    expect(
+      visibleFolderPreviewItems(items, isVideo: false).map((item) => item.id),
+      ['photo'],
+    );
   });
 
   testWidgets('Invisible video uses the shared duration badge', (tester) async {

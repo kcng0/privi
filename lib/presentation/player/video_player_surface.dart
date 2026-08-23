@@ -15,6 +15,78 @@ Duration clampVideoPosition(Duration position, Duration duration) {
   return position;
 }
 
+/// Natural end of built-in playback. `isCompleted` is flaky on some devices,
+/// so a near-end position also counts — but never for clips shorter than
+/// [slop], and never for a paused/seeked position inside the slop window.
+bool videoPlaybackEnded(
+  VideoPlayerValue value, {
+  Duration slop = const Duration(milliseconds: 350),
+}) {
+  if (!value.isInitialized) return false;
+  final duration = value.duration;
+  if (duration <= Duration.zero) return false;
+  if (value.isCompleted) return true;
+  if (duration <= slop) return false;
+  if (value.position >= duration) return true;
+  if (!value.isPlaying) return false;
+  return value.position >= duration - slop;
+}
+
+/// Whether a folder viewer should start the next sorted video.
+bool shouldAdvanceFolderVideoOnEnd({
+  required VideoPlayerValue value,
+  required bool looping,
+  required bool vaultUnlocked,
+  required bool isCurrentItem,
+  required bool alreadyAdvanced,
+  DateTime? ignoreUntil,
+  DateTime? now,
+}) {
+  if (!vaultUnlocked || looping || !isCurrentItem || alreadyAdvanced) {
+    return false;
+  }
+  final clock = now ?? DateTime.now();
+  if (ignoreUntil != null && !clock.isAfter(ignoreUntil)) {
+    return false;
+  }
+  return videoPlaybackEnded(value);
+}
+
+/// Serializes video controller create/dispose work for one screen.
+class VideoControllerQueue {
+  Future<void> _ops = Future<void>.value();
+
+  Future<void> enqueue(Future<void> Function() operation) {
+    final scheduled = _ops.then((_) => operation());
+    _ops = scheduled.then<void>(
+      (_) {},
+      onError: (Object error, StackTrace stackTrace) {
+        FlutterError.reportError(
+          FlutterErrorDetails(
+            exception: error,
+            stack: stackTrace,
+            library: 'Privi video playback',
+          ),
+        );
+      },
+    );
+    return scheduled;
+  }
+}
+
+/// Next folder item after a built-in video ends, using the current sort order.
+int? nextIndexAfterVideoEnd({
+  required int index,
+  required int length,
+  required bool looping,
+  required bool ended,
+}) {
+  if (!ended || looping || index < 0) return null;
+  final next = index + 1;
+  if (next >= length) return null;
+  return next;
+}
+
 /// VLC-style non-linear seek: small drags stay precise while a full-width
 /// swipe can move up to ten minutes.
 Duration videoSwipeSeekDelta({
@@ -196,6 +268,7 @@ class VideoGestureSurface extends StatefulWidget {
     required this.onTap,
     required this.child,
     this.onPreviewFrameRequested,
+    this.onUserSeek,
     this.displayControls,
   });
 
@@ -204,6 +277,7 @@ class VideoGestureSurface extends StatefulWidget {
   final VoidCallback onTap;
   final Widget child;
   final Future<Uint8List?> Function(Duration position)? onPreviewFrameRequested;
+  final VoidCallback? onUserSeek;
   final VideoDisplayControls? displayControls;
 
   @override
@@ -293,6 +367,7 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
       widget.controller.value.duration,
     );
     await widget.controller.seekTo(target);
+    widget.onUserSeek?.call();
     _showFeedback(
       _SeekFeedback(
         delta: delta,
@@ -350,7 +425,10 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
     final resume = _resumeAfterDrag;
     _resumeAfterDrag = false;
     _clearPreviewAndRebuild();
-    if (target != null) await widget.controller.seekTo(target);
+    if (target != null) {
+      await widget.controller.seekTo(target);
+      widget.onUserSeek?.call();
+    }
     if (resume) await widget.controller.play();
     _scheduleFeedbackHide();
   }
