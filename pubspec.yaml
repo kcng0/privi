@@ -5,7 +5,7 @@ description: >-
   playlist playback (built-in or VLC), and pattern/PIN + biometric lock.
   Dark theme only. MIT license.
 publish_to: "none" # personal app — never published to pub.dev
-version: 1.0.25+30
+version: 1.0.26+31
 
 # NOTE: version constraints below are sensible starting points. Run
 #   flutter pub get   (then optionally `flutter pub upgrade --major-versions`)
@@ -47,8 +47,13 @@ dependencies:
   photo_manager: ^3.6.0
   permission_handler: ^11.3.1
 
-  # Playback: built-in player + native MethodChannel/ActivityResult VLC hand-off
+  # Playback: built-in mpv/FFmpeg player (VLC-class codec coverage) +
+  # optional external VLC hand-off. video_player stays as the Dart API.
   video_player: ^2.9.2
+  video_player_platform_interface: ^6.9.0
+  media_kit: ^1.2.6
+  media_kit_video: ^2.0.1
+  media_kit_libs_video: ^1.0.7
   chewie: ^1.8.5
   android_intent_plus: ^5.2.0
 
@@ -70,7 +75,6 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
 
-  video_player_platform_interface: ^6.9.0
   xml: ^6.6.1
 
   flutter_lints: ^5.0.0
