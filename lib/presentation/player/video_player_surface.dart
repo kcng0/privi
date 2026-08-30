@@ -143,8 +143,42 @@ double videoVerticalAdjustDelta({
   return (-verticalDelta / viewportHeight).clamp(-1.0, 1.0);
 }
 
-List<DeviceOrientation> preferredOrientationsForVideo(Size size) {
-  if (size.width > size.height) {
+/// Display size after applying `rotationCorrection` (90/270 swap axes).
+/// Phone portrait clips are often stored as 1920x1080 with a 90° tag.
+Size displaySizeForVideo(
+  Size size, {
+  int rotationCorrection = 0,
+}) {
+  if (size.isEmpty) return size;
+  final turns = ((rotationCorrection % 360) + 360) % 360;
+  if (turns == 90 || turns == 270) {
+    return Size(size.height, size.width);
+  }
+  return size;
+}
+
+double displayAspectRatioForVideo(
+  Size size, {
+  int rotationCorrection = 0,
+  double fallback = 16 / 9,
+}) {
+  final display = displaySizeForVideo(
+    size,
+    rotationCorrection: rotationCorrection,
+  );
+  if (display.width <= 0 || display.height <= 0) return fallback;
+  return display.width / display.height;
+}
+
+List<DeviceOrientation> preferredOrientationsForVideo(
+  Size size, {
+  int rotationCorrection = 0,
+}) {
+  final display = displaySizeForVideo(
+    size,
+    rotationCorrection: rotationCorrection,
+  );
+  if (display.width > display.height) {
     return const [
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
@@ -171,10 +205,20 @@ abstract final class VideoSystemUi {
     );
   }
 
-  static Future<void> lockToVideoSize(Size size) {
-    if (size.isEmpty) return Future<void>.value();
+  static Future<void> lockToVideoSize(
+    Size size, {
+    int rotationCorrection = 0,
+  }) {
+    final display = displaySizeForVideo(
+      size,
+      rotationCorrection: rotationCorrection,
+    );
+    if (display.isEmpty) return Future<void>.value();
     return SystemChrome.setPreferredOrientations(
-      preferredOrientationsForVideo(size),
+      preferredOrientationsForVideo(
+        size,
+        rotationCorrection: rotationCorrection,
+      ),
     );
   }
 
@@ -202,12 +246,19 @@ class VideoViewport extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final value = controller.value;
-    final sourceAspect = value.aspectRatio > 0 ? value.aspectRatio : 16 / 9;
+    final sourceAspect = displayAspectRatioForVideo(
+      value.size,
+      rotationCorrection: value.rotationCorrection,
+    );
+    final displaySize = displaySizeForVideo(
+      value.size,
+      rotationCorrection: value.rotationCorrection,
+    );
     return ClipRect(
       child: switch (fitMode) {
         VideoFitMode.fit => _ratioViewport(sourceAspect),
         VideoFitMode.fill => _fillViewport(sourceAspect),
-        VideoFitMode.original => _originalViewport(value.size, sourceAspect),
+        VideoFitMode.original => _originalViewport(displaySize, sourceAspect),
         VideoFitMode.ratio4x3 => _ratioViewport(4 / 3),
         VideoFitMode.ratio16x9 => _ratioViewport(16 / 9),
       },

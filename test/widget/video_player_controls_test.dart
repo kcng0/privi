@@ -145,6 +145,111 @@ void main() {
     expect(preferredOrientationsForVideo(const Size(1080, 1080)), [
       DeviceOrientation.portraitUp,
     ]);
+    expect(
+      preferredOrientationsForVideo(
+        const Size(1920, 1080),
+        rotationCorrection: 90,
+      ),
+      [DeviceOrientation.portraitUp],
+    );
+    expect(
+      preferredOrientationsForVideo(
+        const Size(1920, 1080),
+        rotationCorrection: 270,
+      ),
+      [DeviceOrientation.portraitUp],
+    );
+    expect(
+      preferredOrientationsForVideo(
+        const Size(1920, 1080),
+        rotationCorrection: 180,
+      ),
+      [DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight],
+    );
+    expect(
+      preferredOrientationsForVideo(
+        const Size(1080, 1920),
+        rotationCorrection: 90,
+      ),
+      [DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight],
+    );
+    expect(
+      displayAspectRatioForVideo(
+        const Size(1920, 1080),
+        rotationCorrection: 90,
+      ),
+      1080 / 1920,
+    );
+    expect(
+      displaySizeForVideo(const Size(1920, 1080), rotationCorrection: 90),
+      const Size(1080, 1920),
+    );
+    expect(
+      displaySizeForVideo(const Size(1920, 1080), rotationCorrection: -90),
+      const Size(1080, 1920),
+    );
+    expect(
+      displaySizeForVideo(const Size(1920, 1080), rotationCorrection: 450),
+      const Size(1080, 1920),
+    );
+    expect(
+      displaySizeForVideo(const Size(1920, 1080), rotationCorrection: 0),
+      const Size(1920, 1080),
+    );
+  });
+
+  testWidgets('viewport uses display aspect for rotated portrait videos', (
+    tester,
+  ) async {
+    final controller = VideoPlayerController.networkUrl(
+      Uri.parse('https://example.com/video.mp4'),
+    );
+    addTearDown(controller.dispose);
+    controller.value = const VideoPlayerValue(
+      duration: Duration(seconds: 10),
+      size: Size(1920, 1080),
+      rotationCorrection: 90,
+      isInitialized: true,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SizedBox(
+          width: 360,
+          height: 640,
+          child: VideoViewport(
+            controller: controller,
+            fitMode: VideoFitMode.fit,
+          ),
+        ),
+      ),
+    );
+
+    final aspect = tester.widget<AspectRatio>(find.byType(AspectRatio));
+    expect(aspect.aspectRatio, closeTo(1080 / 1920, 0.0001));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SizedBox(
+          width: 360,
+          height: 640,
+          child: VideoViewport(
+            controller: controller,
+            fitMode: VideoFitMode.fill,
+          ),
+        ),
+      ),
+    );
+
+    final fitted = tester.widget<FittedBox>(find.byType(FittedBox));
+    expect(fitted.fit, BoxFit.cover);
+    final inner = tester.widget<SizedBox>(
+      find.descendant(
+        of: find.byType(FittedBox),
+        matching: find.byType(SizedBox),
+      ),
+    );
+    expect(inner.width! / inner.height!, closeTo(1080 / 1920, 0.0001));
   });
 
   testWidgets('long press fast-forwards at 2x until release', (tester) async {

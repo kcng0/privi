@@ -121,7 +121,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     if (_orientationLockedItemId == itemId) return;
     _orientationLockedItemId = itemId;
     _orientationOverridden = false;
-    unawaited(VideoSystemUi.lockToVideoSize(video.value.size));
+    unawaited(
+      VideoSystemUi.lockToVideoSize(
+        video.value.size,
+        rotationCorrection: video.value.rotationCorrection,
+      ),
+    );
   }
 
   void _clearOrientationLock() {
