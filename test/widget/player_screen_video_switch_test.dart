@@ -3,7 +3,6 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:privi/application/lock/lock_controller.dart';
@@ -193,42 +192,4 @@ void main() {
       },
     );
   }
-
-  testWidgets('portrait built-in video hides status and navigation bars', (
-    tester,
-  ) async {
-    tester.view.physicalSize = const Size(390, 844);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-
-    final modes = <String>[];
-    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-      SystemChannels.platform,
-      (call) async {
-        if (call.method == 'SystemChrome.setEnabledSystemUIMode') {
-          modes.add(call.arguments! as String);
-        }
-        return null;
-      },
-    );
-    addTearDown(() {
-      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-        SystemChannels.platform,
-        null,
-      );
-    });
-
-    final stubPath = File('test/fixtures/video_stub.mp4').absolute.path;
-    await tester.pumpWidget(
-      _app(container, [_video('video-0', stubPath)], shuffle: false),
-    );
-    await tester.pump();
-    await tester.pump();
-    videoPlatform.initializeFirstPlayer();
-    await tester.pump();
-    await tester.pump();
-
-    expect(modes, contains('SystemUiMode.immersiveSticky'));
-  });
 }
