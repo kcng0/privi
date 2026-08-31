@@ -406,7 +406,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   Widget build(BuildContext context) {
     final item = _current;
     final landscape = _isLandscape(context);
-    final immersive = landscape && item.isVideo;
+    final immersive = shouldHideSystemUiForBuiltInVideo(item.isVideo);
     _syncSystemUi(immersive);
     if (item.isVideo &&
         _video != null &&

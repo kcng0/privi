@@ -198,6 +198,37 @@ void main() {
     );
   });
 
+  test('built-in video hides system UI in portrait and landscape', () {
+    expect(shouldHideSystemUiForBuiltInVideo(true), isTrue);
+    expect(shouldHideSystemUiForBuiltInVideo(false), isFalse);
+  });
+
+  testWidgets('immersive video UI uses sticky fullscreen mode', (tester) async {
+    final modes = <String>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'SystemChrome.setEnabledSystemUIMode') {
+          modes.add(call.arguments! as String);
+        }
+        return null;
+      },
+    );
+    addTearDown(() {
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      );
+    });
+
+    await VideoSystemUi.apply(true);
+    await VideoSystemUi.apply(false);
+    expect(modes, [
+      'SystemUiMode.immersiveSticky',
+      'SystemUiMode.edgeToEdge',
+    ]);
+  });
+
   testWidgets('viewport uses display aspect for rotated portrait videos', (
     tester,
   ) async {

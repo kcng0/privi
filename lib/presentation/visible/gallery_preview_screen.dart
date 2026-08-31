@@ -365,7 +365,7 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen> {
   @override
   Widget build(BuildContext context) {
     final landscape = _isLandscape(context);
-    final immersive = landscape && _current.isVideo;
+    final immersive = shouldHideSystemUiForBuiltInVideo(_current.isVideo);
     _syncSystemUi(immersive);
     if (_current.isVideo && _video != null && _video!.value.isInitialized) {
       _maybeLockOrientationToVideo();

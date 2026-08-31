@@ -187,6 +187,10 @@ List<DeviceOrientation> preferredOrientationsForVideo(
   return const [DeviceOrientation.portraitUp];
 }
 
+/// Built-in video hides status and navigation bars in every orientation.
+/// Landscape already used immersive sticky; portrait used to keep the bars.
+bool shouldHideSystemUiForBuiltInVideo(bool builtInVideo) => builtInVideo;
+
 abstract final class VideoSystemUi {
   static Future<void> apply(bool immersive) {
     return SystemChrome.setEnabledSystemUIMode(

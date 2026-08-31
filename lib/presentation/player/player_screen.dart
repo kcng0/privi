@@ -558,7 +558,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         _video != null &&
         _videoItemId == item?.id &&
         _video!.value.isInitialized;
-    final immersive = landscape && builtInVideo;
+    final immersive = shouldHideSystemUiForBuiltInVideo(builtInVideo);
     _syncSystemUi(immersive);
     if (builtInVideo) {
       _maybeLockOrientationToVideo();
