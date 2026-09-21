@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:privi/application/lock/lock_controller.dart';
@@ -179,5 +180,50 @@ void main() {
       await tester.pump(const Duration(milliseconds: 1));
     }
     expect(videoPlatform.maxActivePlayers, lessThanOrEqualTo(2));
+  });
+
+  testWidgets('portrait folder video hides status and navigation bars', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final modes = <String>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'SystemChrome.setEnabledSystemUIMode') {
+          modes.add(call.arguments! as String);
+        }
+        return null;
+      },
+    );
+    addTearDown(() {
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      );
+    });
+
+    final stubPath = File('test/fixtures/video_stub.mp4').absolute.path;
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: AppTheme.dark,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: ViewerScreen(
+            items: [_video('video-0', stubPath)],
+            initialIndex: 0,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(modes, contains('SystemUiMode.immersiveSticky'));
   });
 }

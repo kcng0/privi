@@ -1029,6 +1029,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get doubleTapSeek => '双击跳转';
 
   @override
+  String get dragSeek => '拖动跳转';
+
+  @override
   String get playbackSpeed => '播放速度';
 
   @override
@@ -2259,6 +2262,9 @@ class AppLocalizationsZhCn extends AppLocalizationsZh {
   String get doubleTapSeek => '双击跳转';
 
   @override
+  String get dragSeek => '拖动跳转';
+
+  @override
   String get playbackSpeed => '播放速度';
 
   @override
@@ -3487,6 +3493,9 @@ class AppLocalizationsZhHk extends AppLocalizationsZh {
 
   @override
   String get doubleTapSeek => '雙擊跳轉';
+
+  @override
+  String get dragSeek => '拖動跳轉';
 
   @override
   String get playbackSpeed => '播放速度';

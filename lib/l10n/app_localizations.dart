@@ -1942,6 +1942,12 @@ abstract class AppLocalizations {
   /// **'Double-tap seek'**
   String get doubleTapSeek;
 
+  /// No description provided for @dragSeek.
+  ///
+  /// In en, this message translates to:
+  /// **'Drag seek'**
+  String get dragSeek;
+
   /// No description provided for @playbackSpeed.
   ///
   /// In en, this message translates to:

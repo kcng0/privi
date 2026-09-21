@@ -497,6 +497,8 @@ Future<void> showVideoSettingsSheet(
   BuildContext context, {
   required int seekSeconds,
   required ValueChanged<int> onSeekSecondsChanged,
+  required int dragSeekSeconds,
+  required ValueChanged<int> onDragSeekSecondsChanged,
   required double playbackSpeed,
   required ValueChanged<double> onPlaybackSpeedChanged,
   required bool muted,
@@ -517,6 +519,8 @@ Future<void> showVideoSettingsSheet(
     builder: (context) => _VideoSettingsSheet(
       seekSeconds: seekSeconds,
       onSeekSecondsChanged: onSeekSecondsChanged,
+      dragSeekSeconds: dragSeekSeconds,
+      onDragSeekSecondsChanged: onDragSeekSecondsChanged,
       playbackSpeed: playbackSpeed,
       onPlaybackSpeedChanged: onPlaybackSpeedChanged,
       muted: muted,
@@ -536,6 +540,8 @@ class _VideoSettingsSheet extends StatefulWidget {
   const _VideoSettingsSheet({
     required this.seekSeconds,
     required this.onSeekSecondsChanged,
+    required this.dragSeekSeconds,
+    required this.onDragSeekSecondsChanged,
     required this.playbackSpeed,
     required this.onPlaybackSpeedChanged,
     required this.muted,
@@ -551,6 +557,8 @@ class _VideoSettingsSheet extends StatefulWidget {
 
   final int seekSeconds;
   final ValueChanged<int> onSeekSecondsChanged;
+  final int dragSeekSeconds;
+  final ValueChanged<int> onDragSeekSecondsChanged;
   final double playbackSpeed;
   final ValueChanged<double> onPlaybackSpeedChanged;
   final bool muted;
@@ -569,6 +577,7 @@ class _VideoSettingsSheet extends StatefulWidget {
 
 class _VideoSettingsSheetState extends State<_VideoSettingsSheet> {
   late int _seekSeconds = widget.seekSeconds;
+  late int _dragSeekSeconds = widget.dragSeekSeconds;
   late double _playbackSpeed = widget.playbackSpeed;
   late bool _muted = widget.muted;
   late bool? _looping = widget.looping;
@@ -637,6 +646,25 @@ class _VideoSettingsSheetState extends State<_VideoSettingsSheet> {
                   final value = selected.first;
                   setState(() => _seekSeconds = value);
                   widget.onSeekSecondsChanged(value);
+                },
+              ),
+              const SizedBox(height: AppSpacing.md),
+              Text(context.l10n.dragSeek),
+              const SizedBox(height: AppSpacing.xs),
+              SegmentedButton<int>(
+                segments: [
+                  for (final seconds in videoDragSeekSecondOptions)
+                    ButtonSegment<int>(
+                      value: seconds,
+                      label: Text(formatDragSeekOption(seconds)),
+                    ),
+                ],
+                selected: {_dragSeekSeconds},
+                showSelectedIcon: false,
+                onSelectionChanged: (selected) {
+                  final value = selected.first;
+                  setState(() => _dragSeekSeconds = value);
+                  widget.onDragSeekSecondsChanged(value);
                 },
               ),
               const SizedBox(height: AppSpacing.md),

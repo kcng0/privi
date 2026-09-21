@@ -258,7 +258,12 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen> {
     if (_orientationLockedItemId == itemId) return;
     _orientationLockedItemId = itemId;
     _orientationOverridden = false;
-    unawaited(VideoSystemUi.lockToVideoSize(video.value.size));
+    unawaited(
+      VideoSystemUi.lockToVideoSize(
+        video.value.size,
+        rotationCorrection: video.value.rotationCorrection,
+      ),
+    );
   }
 
   void _clearOrientationLock() {
@@ -333,6 +338,12 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen> {
             .read(settingsControllerProvider.notifier)
             .setPlayerSeekSeconds(seconds),
       ),
+      dragSeekSeconds: settings.playerDragSeekSeconds,
+      onDragSeekSecondsChanged: (seconds) => unawaited(
+        ref
+            .read(settingsControllerProvider.notifier)
+            .setPlayerDragSeekSeconds(seconds),
+      ),
       playbackSpeed: _playbackSpeed,
       onPlaybackSpeedChanged: _setPlaybackSpeed,
       muted: _muted,
@@ -360,7 +371,7 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen> {
   @override
   Widget build(BuildContext context) {
     final landscape = _isLandscape(context);
-    final immersive = landscape && _current.isVideo;
+    final immersive = shouldHideSystemUiForBuiltInVideo(_current.isVideo);
     _syncSystemUi(immersive);
     if (_current.isVideo && _video != null && _video!.value.isInitialized) {
       _maybeLockOrientationToVideo();
@@ -436,6 +447,8 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen> {
       return VideoGestureSurface(
         controller: video,
         seekSeconds: ref.watch(settingsControllerProvider).playerSeekSeconds,
+        dragSeekSeconds:
+            ref.watch(settingsControllerProvider).playerDragSeekSeconds,
         onTap: _toggleChrome,
         onUserSeek: _markUserSeek,
         onPreviewFrameRequested: (position) => VideoFrameService().frameAtTime(

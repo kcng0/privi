@@ -48,44 +48,53 @@ class _FakeDisplayControls implements VideoDisplayControls {
 }
 
 void main() {
-  test('swipe seek follows direction, magnitude, and duration limits', () {
+  test('swipe seek follows VLC 8cm curve and the configured full swipe', () {
     const duration = Duration(minutes: 20);
+    final eightCm = logicalPixelsForCentimeters(8);
+    final fourCm = logicalPixelsForCentimeters(4);
 
     final precise = videoSwipeSeekDelta(
       horizontalDelta: 50,
-      viewportWidth: 1000,
       duration: duration,
+      fullSwipeSeconds: 600,
       minimumSeconds: 3,
     );
     final medium = videoSwipeSeekDelta(
-      horizontalDelta: 500,
-      viewportWidth: 1000,
+      horizontalDelta: fourCm,
       duration: duration,
+      fullSwipeSeconds: 600,
       minimumSeconds: 3,
     );
     final reverse = videoSwipeSeekDelta(
-      horizontalDelta: -500,
-      viewportWidth: 1000,
+      horizontalDelta: -fourCm,
       duration: duration,
+      fullSwipeSeconds: 600,
       minimumSeconds: 3,
     );
     final maximum = videoSwipeSeekDelta(
-      horizontalDelta: 1000,
-      viewportWidth: 1000,
+      horizontalDelta: eightCm,
       duration: duration,
+      fullSwipeSeconds: 600,
+      minimumSeconds: 3,
+    );
+    final faster = videoSwipeSeekDelta(
+      horizontalDelta: eightCm,
+      duration: const Duration(minutes: 30),
+      fullSwipeSeconds: 1200,
       minimumSeconds: 3,
     );
     final shortVideoMaximum = videoSwipeSeekDelta(
-      horizontalDelta: 1000,
-      viewportWidth: 1000,
+      horizontalDelta: eightCm,
       duration: const Duration(minutes: 2),
+      fullSwipeSeconds: 600,
       minimumSeconds: 3,
     );
 
-    expect(precise.inMilliseconds, closeTo(3004, 1));
-    expect(medium.inMilliseconds, 40313);
-    expect(reverse.inMilliseconds, -40313);
-    expect(maximum, const Duration(minutes: 10));
+    expect(precise.inMilliseconds, closeTo(3058, 2));
+    expect(medium.inMilliseconds, 40500);
+    expect(reverse.inMilliseconds, -40500);
+    expect(maximum.inMilliseconds, 603000);
+    expect(faster.inMilliseconds, 1203000);
     expect(shortVideoMaximum, const Duration(minutes: 2));
   });
 
@@ -145,6 +154,142 @@ void main() {
     expect(preferredOrientationsForVideo(const Size(1080, 1080)), [
       DeviceOrientation.portraitUp,
     ]);
+    expect(
+      preferredOrientationsForVideo(
+        const Size(1920, 1080),
+        rotationCorrection: 90,
+      ),
+      [DeviceOrientation.portraitUp],
+    );
+    expect(
+      preferredOrientationsForVideo(
+        const Size(1920, 1080),
+        rotationCorrection: 270,
+      ),
+      [DeviceOrientation.portraitUp],
+    );
+    expect(
+      preferredOrientationsForVideo(
+        const Size(1920, 1080),
+        rotationCorrection: 180,
+      ),
+      [DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight],
+    );
+    expect(
+      preferredOrientationsForVideo(
+        const Size(1080, 1920),
+        rotationCorrection: 90,
+      ),
+      [DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight],
+    );
+    expect(
+      displayAspectRatioForVideo(
+        const Size(1920, 1080),
+        rotationCorrection: 90,
+      ),
+      1080 / 1920,
+    );
+    expect(
+      displaySizeForVideo(const Size(1920, 1080), rotationCorrection: 90),
+      const Size(1080, 1920),
+    );
+    expect(
+      displaySizeForVideo(const Size(1920, 1080), rotationCorrection: -90),
+      const Size(1080, 1920),
+    );
+    expect(
+      displaySizeForVideo(const Size(1920, 1080), rotationCorrection: 450),
+      const Size(1080, 1920),
+    );
+    expect(
+      displaySizeForVideo(const Size(1920, 1080), rotationCorrection: 0),
+      const Size(1920, 1080),
+    );
+  });
+
+  test('built-in video hides system UI in portrait and landscape', () {
+    expect(shouldHideSystemUiForBuiltInVideo(true), isTrue);
+    expect(shouldHideSystemUiForBuiltInVideo(false), isFalse);
+  });
+
+  testWidgets('immersive video UI uses sticky fullscreen mode', (tester) async {
+    final modes = <String>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'SystemChrome.setEnabledSystemUIMode') {
+          modes.add(call.arguments! as String);
+        }
+        return null;
+      },
+    );
+    addTearDown(() {
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      );
+    });
+
+    await VideoSystemUi.apply(true);
+    await VideoSystemUi.apply(false);
+    expect(modes, [
+      'SystemUiMode.immersiveSticky',
+      'SystemUiMode.edgeToEdge',
+    ]);
+  });
+
+  testWidgets('viewport uses display aspect for rotated portrait videos', (
+    tester,
+  ) async {
+    final controller = VideoPlayerController.networkUrl(
+      Uri.parse('https://example.com/video.mp4'),
+    );
+    addTearDown(controller.dispose);
+    controller.value = const VideoPlayerValue(
+      duration: Duration(seconds: 10),
+      size: Size(1920, 1080),
+      rotationCorrection: 90,
+      isInitialized: true,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SizedBox(
+          width: 360,
+          height: 640,
+          child: VideoViewport(
+            controller: controller,
+            fitMode: VideoFitMode.fit,
+          ),
+        ),
+      ),
+    );
+
+    final aspect = tester.widget<AspectRatio>(find.byType(AspectRatio));
+    expect(aspect.aspectRatio, closeTo(1080 / 1920, 0.0001));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SizedBox(
+          width: 360,
+          height: 640,
+          child: VideoViewport(
+            controller: controller,
+            fitMode: VideoFitMode.fill,
+          ),
+        ),
+      ),
+    );
+
+    final fitted = tester.widget<FittedBox>(find.byType(FittedBox));
+    expect(fitted.fit, BoxFit.cover);
+    final inner = tester.widget<SizedBox>(
+      find.descendant(
+        of: find.byType(FittedBox),
+        matching: find.byType(SizedBox),
+      ),
+    );
+    expect(inner.width! / inner.height!, closeTo(1080 / 1920, 0.0001));
   });
 
   testWidgets('long press fast-forwards at 2x until release', (tester) async {
@@ -468,6 +613,8 @@ void main() {
                   context,
                   seekSeconds: 3,
                   onSeekSecondsChanged: (_) {},
+                  dragSeekSeconds: 600,
+                  onDragSeekSecondsChanged: (_) {},
                   playbackSpeed: 1,
                   onPlaybackSpeedChanged: (speed) => selectedSpeed = speed,
                   muted: false,
@@ -487,6 +634,8 @@ void main() {
 
     expect(find.text('Player settings'), findsOneWidget);
     expect(find.text('Double-tap seek'), findsOneWidget);
+    expect(find.text('Drag seek'), findsOneWidget);
+    expect(find.text('10m'), findsOneWidget);
     expect(find.text('Playback speed'), findsOneWidget);
     expect(find.text('1x'), findsOneWidget);
     expect(find.byType(SingleChildScrollView), findsOneWidget);
@@ -517,6 +666,8 @@ void main() {
                   context,
                   seekSeconds: 3,
                   onSeekSecondsChanged: (_) {},
+                  dragSeekSeconds: 600,
+                  onDragSeekSecondsChanged: (_) {},
                   playbackSpeed: 1,
                   onPlaybackSpeedChanged: (_) {},
                   muted: false,

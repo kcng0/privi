@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../data/services/playback_display_service.dart';
+import '../../domain/models/video_playback_settings.dart';
 
 enum VideoFitMode { fit, fill, original, ratio4x3, ratio16x9 }
 
@@ -87,30 +88,35 @@ int? nextIndexAfterVideoEnd({
   return next;
 }
 
-/// VLC-style non-linear seek: small drags stay precise while a full-width
-/// swipe can move up to ten minutes.
+/// VLC maps centimeters (not screen fraction) through a 4th-power curve:
+/// an 8cm swipe seeks [fullSwipeSeconds] plus [minimumSeconds].
+const videoDragSeekFullSwipeCentimeters = 8.0;
+
+double logicalPixelsForCentimeters(double centimeters) =>
+    centimeters / 2.54 * 160;
+
 Duration videoSwipeSeekDelta({
   required double horizontalDelta,
-  required double viewportWidth,
   required Duration duration,
-  required int minimumSeconds,
+  required int fullSwipeSeconds,
+  int minimumSeconds = 3,
 }) {
-  if (horizontalDelta == 0 || viewportWidth <= 0 || duration <= Duration.zero) {
+  if (horizontalDelta == 0 ||
+      duration <= Duration.zero ||
+      fullSwipeSeconds <= 0) {
     return Duration.zero;
   }
   final direction = horizontalDelta.sign.toInt();
-  final fraction = (horizontalDelta.abs() / viewportWidth).clamp(0.0, 1.0);
-  final maximumMs = math.min(
-    duration.inMilliseconds,
-    const Duration(minutes: 10).inMilliseconds,
-  );
-  final minimumMs = math.min(
-    Duration(seconds: minimumSeconds).inMilliseconds,
-    maximumMs,
-  );
-  final curvedMs =
-      minimumMs + ((maximumMs - minimumMs) * math.pow(fraction, 4)).round();
-  return Duration(milliseconds: direction * curvedMs);
+  final gestureCm = (horizontalDelta.abs() / 160) * 2.54;
+  final jumpMs = (Duration(seconds: fullSwipeSeconds).inMilliseconds *
+              math.pow(
+                gestureCm / videoDragSeekFullSwipeCentimeters,
+                4,
+              ) +
+          Duration(seconds: minimumSeconds).inMilliseconds)
+      .round();
+  final clampedMs = jumpMs.clamp(0, duration.inMilliseconds);
+  return Duration(milliseconds: direction * clampedMs);
 }
 
 String formatVideoTime(Duration duration) {
@@ -143,8 +149,42 @@ double videoVerticalAdjustDelta({
   return (-verticalDelta / viewportHeight).clamp(-1.0, 1.0);
 }
 
-List<DeviceOrientation> preferredOrientationsForVideo(Size size) {
-  if (size.width > size.height) {
+/// Display size after applying `rotationCorrection` (90/270 swap axes).
+/// Phone portrait clips are often stored as 1920x1080 with a 90° tag.
+Size displaySizeForVideo(
+  Size size, {
+  int rotationCorrection = 0,
+}) {
+  if (size.isEmpty) return size;
+  final turns = ((rotationCorrection % 360) + 360) % 360;
+  if (turns == 90 || turns == 270) {
+    return Size(size.height, size.width);
+  }
+  return size;
+}
+
+double displayAspectRatioForVideo(
+  Size size, {
+  int rotationCorrection = 0,
+  double fallback = 16 / 9,
+}) {
+  final display = displaySizeForVideo(
+    size,
+    rotationCorrection: rotationCorrection,
+  );
+  if (display.width <= 0 || display.height <= 0) return fallback;
+  return display.width / display.height;
+}
+
+List<DeviceOrientation> preferredOrientationsForVideo(
+  Size size, {
+  int rotationCorrection = 0,
+}) {
+  final display = displaySizeForVideo(
+    size,
+    rotationCorrection: rotationCorrection,
+  );
+  if (display.width > display.height) {
     return const [
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
@@ -152,6 +192,10 @@ List<DeviceOrientation> preferredOrientationsForVideo(Size size) {
   }
   return const [DeviceOrientation.portraitUp];
 }
+
+/// Built-in video hides status and navigation bars in every orientation.
+/// Landscape already used immersive sticky; portrait used to keep the bars.
+bool shouldHideSystemUiForBuiltInVideo(bool builtInVideo) => builtInVideo;
 
 abstract final class VideoSystemUi {
   static Future<void> apply(bool immersive) {
@@ -171,10 +215,20 @@ abstract final class VideoSystemUi {
     );
   }
 
-  static Future<void> lockToVideoSize(Size size) {
-    if (size.isEmpty) return Future<void>.value();
+  static Future<void> lockToVideoSize(
+    Size size, {
+    int rotationCorrection = 0,
+  }) {
+    final display = displaySizeForVideo(
+      size,
+      rotationCorrection: rotationCorrection,
+    );
+    if (display.isEmpty) return Future<void>.value();
     return SystemChrome.setPreferredOrientations(
-      preferredOrientationsForVideo(size),
+      preferredOrientationsForVideo(
+        size,
+        rotationCorrection: rotationCorrection,
+      ),
     );
   }
 
@@ -202,12 +256,19 @@ class VideoViewport extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final value = controller.value;
-    final sourceAspect = value.aspectRatio > 0 ? value.aspectRatio : 16 / 9;
+    final sourceAspect = displayAspectRatioForVideo(
+      value.size,
+      rotationCorrection: value.rotationCorrection,
+    );
+    final displaySize = displaySizeForVideo(
+      value.size,
+      rotationCorrection: value.rotationCorrection,
+    );
     return ClipRect(
       child: switch (fitMode) {
         VideoFitMode.fit => _ratioViewport(sourceAspect),
         VideoFitMode.fill => _fillViewport(sourceAspect),
-        VideoFitMode.original => _originalViewport(value.size, sourceAspect),
+        VideoFitMode.original => _originalViewport(displaySize, sourceAspect),
         VideoFitMode.ratio4x3 => _ratioViewport(4 / 3),
         VideoFitMode.ratio16x9 => _ratioViewport(16 / 9),
       },
@@ -267,6 +328,7 @@ class VideoGestureSurface extends StatefulWidget {
     required this.seekSeconds,
     required this.onTap,
     required this.child,
+    this.dragSeekSeconds = defaultPlayerDragSeekSeconds,
     this.onPreviewFrameRequested,
     this.onUserSeek,
     this.displayControls,
@@ -274,6 +336,7 @@ class VideoGestureSurface extends StatefulWidget {
 
   final VideoPlayerController controller;
   final int seekSeconds;
+  final int dragSeekSeconds;
   final VoidCallback onTap;
   final Widget child;
   final Future<Uint8List?> Function(Duration position)? onPreviewFrameRequested;
@@ -397,8 +460,8 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
     _dragPixels += details.primaryDelta ?? 0;
     final delta = videoSwipeSeekDelta(
       horizontalDelta: _dragPixels,
-      viewportWidth: width,
       duration: widget.controller.value.duration,
+      fullSwipeSeconds: widget.dragSeekSeconds,
       minimumSeconds: widget.seekSeconds,
     );
     final target = clampVideoPosition(

@@ -23,10 +23,12 @@ import 'data/services/ios_app_release_source.dart';
 import 'data/services/ios_app_restart_service.dart';
 import 'data/services/ios_external_url_launcher.dart';
 import 'data/services/platform_app_restart_service.dart';
+import 'data/services/playback/media_kit_video_player_platform.dart';
 import 'data/services/shorebird_app_update_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  installVaultVideoPlayer();
 
   final packageInfo = await PackageInfo.fromPlatform();
   final hotUpdateService = ShorebirdAppUpdateService(

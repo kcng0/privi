@@ -113,7 +113,12 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     if (_orientationLockedItemId == itemId) return;
     _orientationLockedItemId = itemId;
     _orientationOverridden = false;
-    unawaited(VideoSystemUi.lockToVideoSize(video.value.size));
+    unawaited(
+      VideoSystemUi.lockToVideoSize(
+        video.value.size,
+        rotationCorrection: video.value.rotationCorrection,
+      ),
+    );
   }
 
   void _clearOrientationLock() {
@@ -326,6 +331,12 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
             .read(settingsControllerProvider.notifier)
             .setPlayerSeekSeconds(seconds),
       ),
+      dragSeekSeconds: settings.playerDragSeekSeconds,
+      onDragSeekSecondsChanged: (seconds) => unawaited(
+        ref
+            .read(settingsControllerProvider.notifier)
+            .setPlayerDragSeekSeconds(seconds),
+      ),
       playbackSpeed: _playbackSpeed,
       onPlaybackSpeedChanged: _setPlaybackSpeed,
       muted: _muted,
@@ -401,7 +412,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
   Widget build(BuildContext context) {
     final item = _current;
     final landscape = _isLandscape(context);
-    final immersive = landscape && item.isVideo;
+    final immersive = shouldHideSystemUiForBuiltInVideo(item.isVideo);
     _syncSystemUi(immersive);
     if (item.isVideo &&
         _video != null &&
@@ -519,6 +530,8 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen> {
     return VideoGestureSurface(
       controller: video,
       seekSeconds: ref.watch(settingsControllerProvider).playerSeekSeconds,
+      dragSeekSeconds:
+          ref.watch(settingsControllerProvider).playerDragSeekSeconds,
       onTap: _toggleChrome,
       onUserSeek: _markUserSeek,
       onPreviewFrameRequested: (position) => VideoFrameService().frameAtTime(
