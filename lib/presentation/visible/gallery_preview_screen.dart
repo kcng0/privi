@@ -338,6 +338,12 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen> {
             .read(settingsControllerProvider.notifier)
             .setPlayerSeekSeconds(seconds),
       ),
+      dragSeekSeconds: settings.playerDragSeekSeconds,
+      onDragSeekSecondsChanged: (seconds) => unawaited(
+        ref
+            .read(settingsControllerProvider.notifier)
+            .setPlayerDragSeekSeconds(seconds),
+      ),
       playbackSpeed: _playbackSpeed,
       onPlaybackSpeedChanged: _setPlaybackSpeed,
       muted: _muted,
@@ -441,6 +447,8 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen> {
       return VideoGestureSurface(
         controller: video,
         seekSeconds: ref.watch(settingsControllerProvider).playerSeekSeconds,
+        dragSeekSeconds:
+            ref.watch(settingsControllerProvider).playerDragSeekSeconds,
         onTap: _toggleChrome,
         onUserSeek: _markUserSeek,
         onPreviewFrameRequested: (position) => VideoFrameService().frameAtTime(

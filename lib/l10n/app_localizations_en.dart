@@ -1053,6 +1053,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get doubleTapSeek => 'Double-tap seek';
 
   @override
+  String get dragSeek => 'Drag seek';
+
+  @override
   String get playbackSpeed => 'Playback speed';
 
   @override

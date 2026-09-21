@@ -183,6 +183,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
             .read(settingsControllerProvider.notifier)
             .setPlayerSeekSeconds(seconds),
       ),
+      dragSeekSeconds: settings.playerDragSeekSeconds,
+      onDragSeekSecondsChanged: (seconds) => unawaited(
+        ref
+            .read(settingsControllerProvider.notifier)
+            .setPlayerDragSeekSeconds(seconds),
+      ),
       playbackSpeed: _playbackSpeed,
       onPlaybackSpeedChanged: _setPlaybackSpeed,
       muted: _muted,
@@ -704,6 +710,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     return VideoGestureSurface(
       controller: c,
       seekSeconds: ref.watch(settingsControllerProvider).playerSeekSeconds,
+      dragSeekSeconds:
+          ref.watch(settingsControllerProvider).playerDragSeekSeconds,
       onTap: _toggleChrome,
       onPreviewFrameRequested: (position) => VideoFrameService().frameAtTime(
         path: item.privatePath,

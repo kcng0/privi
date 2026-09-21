@@ -13,6 +13,7 @@ class AppSettings {
     this.autoLockSeconds = 30,
     this.playerExternal = true,
     this.playerSeekSeconds = 3,
+    this.playerDragSeekSeconds = defaultPlayerDragSeekSeconds,
     this.playerPlaybackSpeed = 1,
     this.slideshowSeconds = 3,
     this.shuffleDefault = false,
@@ -27,6 +28,7 @@ class AppSettings {
   final int autoLockSeconds; // 0 = immediately
   final bool playerExternal;
   final int playerSeekSeconds;
+  final int playerDragSeekSeconds;
   final double playerPlaybackSpeed;
   final int slideshowSeconds;
   final bool shuffleDefault;
@@ -45,6 +47,7 @@ class AppSettings {
     int? autoLockSeconds,
     bool? playerExternal,
     int? playerSeekSeconds,
+    int? playerDragSeekSeconds,
     double? playerPlaybackSpeed,
     int? slideshowSeconds,
     bool? shuffleDefault,
@@ -59,6 +62,8 @@ class AppSettings {
       autoLockSeconds: autoLockSeconds ?? this.autoLockSeconds,
       playerExternal: playerExternal ?? this.playerExternal,
       playerSeekSeconds: playerSeekSeconds ?? this.playerSeekSeconds,
+      playerDragSeekSeconds:
+          playerDragSeekSeconds ?? this.playerDragSeekSeconds,
       playerPlaybackSpeed: playerPlaybackSpeed ?? this.playerPlaybackSpeed,
       slideshowSeconds: slideshowSeconds ?? this.slideshowSeconds,
       shuffleDefault: shuffleDefault ?? this.shuffleDefault,
@@ -76,6 +81,7 @@ class SettingsController extends Notifier<AppSettings> {
   static const _kAutoLock = 'auto_lock_seconds';
   static const _kPlayer = 'player_external';
   static const _kPlayerSeek = 'player_seek_seconds';
+  static const _kPlayerDragSeek = 'player_drag_seek_seconds';
   static const _kPlayerSpeed = 'player_playback_speed';
   static const _kSlideshow = 'slideshow_seconds';
   static const _kShuffle = 'shuffle_default';
@@ -98,6 +104,8 @@ class SettingsController extends Notifier<AppSettings> {
       autoLockSeconds: p.getInt(_kAutoLock) ?? 30,
       playerExternal: p.getBool(_kPlayer) ?? true,
       playerSeekSeconds: p.getInt(_kPlayerSeek) ?? 3,
+      playerDragSeekSeconds:
+          p.getInt(_kPlayerDragSeek) ?? defaultPlayerDragSeekSeconds,
       playerPlaybackSpeed: p.getDouble(_kPlayerSpeed) ?? 1,
       slideshowSeconds: p.getInt(_kSlideshow) ?? 3,
       shuffleDefault: p.getBool(_kShuffle) ?? false,
@@ -134,6 +142,14 @@ class SettingsController extends Notifier<AppSettings> {
     }
     state = state.copyWith(playerSeekSeconds: seconds);
     await _prefs.setInt(_kPlayerSeek, seconds);
+  }
+
+  Future<void> setPlayerDragSeekSeconds(int seconds) async {
+    if (!videoDragSeekSecondOptions.contains(seconds)) {
+      throw ArgumentError.value(seconds, 'seconds');
+    }
+    state = state.copyWith(playerDragSeekSeconds: seconds);
+    await _prefs.setInt(_kPlayerDragSeek, seconds);
   }
 
   Future<void> setPlayerPlaybackSpeed(double speed) async {

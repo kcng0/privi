@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../data/services/playback_display_service.dart';
+import '../../domain/models/video_playback_settings.dart';
 
 enum VideoFitMode { fit, fill, original, ratio4x3, ratio16x9 }
 
@@ -87,30 +88,35 @@ int? nextIndexAfterVideoEnd({
   return next;
 }
 
-/// VLC-style non-linear seek: small drags stay precise while a full-width
-/// swipe can move up to ten minutes.
+/// VLC maps centimeters (not screen fraction) through a 4th-power curve:
+/// an 8cm swipe seeks [fullSwipeSeconds] plus [minimumSeconds].
+const videoDragSeekFullSwipeCentimeters = 8.0;
+
+double logicalPixelsForCentimeters(double centimeters) =>
+    centimeters / 2.54 * 160;
+
 Duration videoSwipeSeekDelta({
   required double horizontalDelta,
-  required double viewportWidth,
   required Duration duration,
-  required int minimumSeconds,
+  required int fullSwipeSeconds,
+  int minimumSeconds = 3,
 }) {
-  if (horizontalDelta == 0 || viewportWidth <= 0 || duration <= Duration.zero) {
+  if (horizontalDelta == 0 ||
+      duration <= Duration.zero ||
+      fullSwipeSeconds <= 0) {
     return Duration.zero;
   }
   final direction = horizontalDelta.sign.toInt();
-  final fraction = (horizontalDelta.abs() / viewportWidth).clamp(0.0, 1.0);
-  final maximumMs = math.min(
-    duration.inMilliseconds,
-    const Duration(minutes: 10).inMilliseconds,
-  );
-  final minimumMs = math.min(
-    Duration(seconds: minimumSeconds).inMilliseconds,
-    maximumMs,
-  );
-  final curvedMs =
-      minimumMs + ((maximumMs - minimumMs) * math.pow(fraction, 4)).round();
-  return Duration(milliseconds: direction * curvedMs);
+  final gestureCm = (horizontalDelta.abs() / 160) * 2.54;
+  final jumpMs = (Duration(seconds: fullSwipeSeconds).inMilliseconds *
+              math.pow(
+                gestureCm / videoDragSeekFullSwipeCentimeters,
+                4,
+              ) +
+          Duration(seconds: minimumSeconds).inMilliseconds)
+      .round();
+  final clampedMs = jumpMs.clamp(0, duration.inMilliseconds);
+  return Duration(milliseconds: direction * clampedMs);
 }
 
 String formatVideoTime(Duration duration) {
@@ -322,6 +328,7 @@ class VideoGestureSurface extends StatefulWidget {
     required this.seekSeconds,
     required this.onTap,
     required this.child,
+    this.dragSeekSeconds = defaultPlayerDragSeekSeconds,
     this.onPreviewFrameRequested,
     this.onUserSeek,
     this.displayControls,
@@ -329,6 +336,7 @@ class VideoGestureSurface extends StatefulWidget {
 
   final VideoPlayerController controller;
   final int seekSeconds;
+  final int dragSeekSeconds;
   final VoidCallback onTap;
   final Widget child;
   final Future<Uint8List?> Function(Duration position)? onPreviewFrameRequested;
@@ -452,8 +460,8 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
     _dragPixels += details.primaryDelta ?? 0;
     final delta = videoSwipeSeekDelta(
       horizontalDelta: _dragPixels,
-      viewportWidth: width,
       duration: widget.controller.value.duration,
+      fullSwipeSeconds: widget.dragSeekSeconds,
       minimumSeconds: widget.seekSeconds,
     );
     final target = clampVideoPosition(

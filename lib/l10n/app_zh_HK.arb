@@ -315,6 +315,7 @@
   "videoRatioSixteenNine": "16:9",
   "playerSettings": "播放設定",
   "doubleTapSeek": "雙擊跳轉",
+  "dragSeek": "拖動跳轉",
   "playbackSpeed": "播放速度",
   "mute": "靜音",
   "loopVideo": "循環播放",

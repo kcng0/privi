@@ -27,6 +27,53 @@ void main() {
     expect(restored.read(settingsControllerProvider).playerSeekSeconds, 10);
   });
 
+  test('drag seek defaults to ten minutes and persists', () async {
+    SharedPreferences.setMockInitialValues({});
+    final preferences = await SharedPreferences.getInstance();
+    final first = ProviderContainer(
+      overrides: [sharedPreferencesProvider.overrideWithValue(preferences)],
+    );
+
+    expect(
+      first.read(settingsControllerProvider).playerDragSeekSeconds,
+      600,
+    );
+    await first
+        .read(settingsControllerProvider.notifier)
+        .setPlayerDragSeekSeconds(120);
+    first.dispose();
+
+    final restored = ProviderContainer(
+      overrides: [sharedPreferencesProvider.overrideWithValue(preferences)],
+    );
+    addTearDown(restored.dispose);
+
+    expect(
+      restored.read(settingsControllerProvider).playerDragSeekSeconds,
+      120,
+    );
+  });
+
+  test('unsupported drag seek intervals fail explicitly', () async {
+    SharedPreferences.setMockInitialValues({});
+    final preferences = await SharedPreferences.getInstance();
+    final container = ProviderContainer(
+      overrides: [sharedPreferencesProvider.overrideWithValue(preferences)],
+    );
+    addTearDown(container.dispose);
+
+    await expectLater(
+      container
+          .read(settingsControllerProvider.notifier)
+          .setPlayerDragSeekSeconds(90),
+      throwsA(isA<ArgumentError>()),
+    );
+    expect(
+      container.read(settingsControllerProvider).playerDragSeekSeconds,
+      600,
+    );
+  });
+
   test('unsupported seek intervals fail explicitly', () async {
     SharedPreferences.setMockInitialValues({});
     final preferences = await SharedPreferences.getInstance();

@@ -582,6 +582,7 @@
   "videoRatioSixteenNine": "16:9",
   "playerSettings": "Player settings",
   "doubleTapSeek": "Double-tap seek",
+  "dragSeek": "Drag seek",
   "playbackSpeed": "Playback speed",
   "mute": "Mute",
   "loopVideo": "Loop video",
