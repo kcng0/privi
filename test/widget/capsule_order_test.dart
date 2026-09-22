@@ -4,7 +4,8 @@ import 'package:privi/core/theme/app_theme.dart';
 import 'package:privi/presentation/common/floating_action_capsule.dart';
 
 void main() {
-  testWidgets('Invisible selection capsule order is Unhide | Rate | Share | More',
+  testWidgets(
+      'Invisible selection capsule order is Unhide | Rate | Share | More',
       (tester) async {
     await tester.pumpWidget(
       MaterialApp(
