@@ -68,7 +68,7 @@ dependencies:
   # Formatting
   intl: ^0.20.2
 
-  # Share selected gallery items (Visible → More)
+  # Share selected Visible / Invisible media via the system share sheet
   share_plus: ^10.0.0
 
 dev_dependencies:

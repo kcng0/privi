@@ -644,19 +644,6 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
     );
   }
 
-  void _showMore() {
-    showMoreActionsSheet(
-      context,
-      actions: [
-        FloatingActionItem(
-          icon: Icons.share_outlined,
-          label: context.l10n.share,
-          onTap: _shareSelected,
-        ),
-      ],
-    );
-  }
-
   Widget _buildMediaCollection({
     required List<GalleryAsset> items,
     required AlbumViewMode viewMode,
@@ -846,15 +833,15 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
                                     onTap: _hideSelected,
                                   ),
                                   FloatingActionItem(
+                                    icon: Icons.share_outlined,
+                                    label: context.l10n.share,
+                                    onTap: _shareSelected,
+                                  ),
+                                  FloatingActionItem(
                                     icon: Icons.delete_outline,
                                     label: context.l10n.delete,
                                     destructive: true,
                                     onTap: _deleteSelected,
-                                  ),
-                                  FloatingActionItem(
-                                    icon: Icons.more_horiz,
-                                    label: context.l10n.more,
-                                    onTap: _showMore,
                                   ),
                                 ],
                               ),

@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:share_plus/share_plus.dart';
 import '../../application/gallery/gallery_controller.dart';
 import '../../application/import/import_controller.dart';
 import '../../application/media/album_list_preferences.dart';
@@ -38,7 +40,7 @@ import 'thumbnail_tile.dart';
 ///
 /// Long-press → select + bottom-center round menu:
 /// - Recycle: Restore | More (delete forever)
-/// - Normal: Unhide | Rate | Delete | More (set cover, move, details)
+/// - Normal: Unhide | Rate | Share | Delete | More (set cover, move, details)
 ///
 /// App bar ⋮ holds Select / Style / Search / Sort.
 class MediaGridScreen extends ConsumerStatefulWidget {
@@ -350,6 +352,28 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
         ),
       ],
     );
+  }
+
+  Future<void> _shareSelected() async {
+    final ids = ref.read(selectionControllerProvider).toList();
+    if (ids.isEmpty) return;
+    final all = ref.read(albumMediaProvider(widget.albumId)).asData?.value;
+    if (all == null) return;
+    final files = <XFile>[];
+    for (final id in ids) {
+      final item = all.where((entry) => entry.id == id).firstOrNull;
+      if (item == null) continue;
+      if (!await File(item.privatePath).exists()) continue;
+      files.add(
+        XFile(
+          item.privatePath,
+          mimeType: item.mimeType,
+          name: item.originalName,
+        ),
+      );
+    }
+    if (files.isEmpty || !mounted) return;
+    await Share.shareXFiles(files);
   }
 
   Future<void> _showDetails() async {
@@ -919,6 +943,11 @@ class _MediaGridScreenState extends ConsumerState<MediaGridScreen> {
                                     icon: Icons.favorite,
                                     label: context.l10n.rate,
                                     onTap: _rateSelected,
+                                  ),
+                                  FloatingActionItem(
+                                    icon: Icons.share_outlined,
+                                    label: context.l10n.share,
+                                    onTap: _shareSelected,
                                   ),
                                   FloatingActionItem(
                                     icon: Icons.delete_outline,
