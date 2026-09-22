@@ -4,7 +4,6 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:photo_manager/photo_manager.dart';
-import 'package:share_plus/share_plus.dart';
 import '../../application/gallery/gallery_controller.dart';
 import '../../application/import/import_controller.dart';
 import '../../application/media/media_view_preferences.dart';
@@ -20,6 +19,7 @@ import '../../core/theme/vault_colors.dart';
 import '../../core/utils/media_chronology.dart';
 import '../../core/utils/media_query_utils.dart';
 import '../../data/services/import/import_models.dart';
+import '../../data/services/outbound_share_service.dart';
 import '../../domain/enums.dart';
 import '../common/floating_action_capsule.dart';
 import '../common/grid_app_menu.dart';
@@ -78,6 +78,7 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
 
   bool _searchOpen = false;
   final _searchCtrl = TextEditingController();
+  bool _sharing = false;
 
   bool get _selecting => _selection.isSelecting;
   Set<String> get _selected => _selection.selected;
@@ -571,16 +572,27 @@ class _VisibleMediaGridState extends ConsumerState<VisibleMediaGrid> {
   }
 
   Future<void> _shareSelected() async {
+    if (_sharing) return;
     final ids = _selected.toList();
     if (ids.isEmpty) return;
-    final paths = <XFile>[];
-    for (final id in ids) {
-      final entity = await AssetEntity.fromId(id);
-      final file = await entity?.file;
-      if (file != null) paths.add(XFile(file.path));
+    final byId = {for (final asset in _items) asset.id: asset};
+    final files = <OutboundShareFile>[
+      for (final id in ids)
+        if (byId[id] != null)
+          OutboundShareFile(
+            mediaId: id,
+            mimeType: byId[id]!.isVideo ? 'video/*' : 'image/*',
+            name: byId[id]!.title,
+            isVideo: byId[id]!.isVideo,
+          ),
+    ];
+    if (files.isEmpty) return;
+    _sharing = true;
+    try {
+      await ref.read(outboundShareServiceProvider).share(files);
+    } finally {
+      _sharing = false;
     }
-    if (paths.isEmpty) return;
-    await Share.shareXFiles(paths);
   }
 
   Future<void> _deleteSelected() async {

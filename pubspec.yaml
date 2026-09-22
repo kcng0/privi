@@ -68,7 +68,7 @@ dependencies:
   # Formatting
   intl: ^0.20.2
 
-  # Share selected Visible / Invisible media via the system share sheet
+  # Outbound share-sheet fallback on iOS; Android uses ACTION_SEND.
   share_plus: ^10.0.0
 
 dev_dependencies:
