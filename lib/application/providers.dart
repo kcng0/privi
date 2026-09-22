@@ -21,6 +21,7 @@ import '../data/services/maintenance_service.dart';
 import '../data/services/media_rename_service.dart';
 import '../data/services/media_store_service.dart';
 import '../data/services/media_thumbnail_service.dart';
+import '../data/services/outbound_share_service.dart';
 import '../data/services/platform/android_privacy_shield_adapter.dart';
 import '../data/services/platform/android_share_source_stager.dart';
 import '../data/services/platform/android_vault_access_adapter.dart';
@@ -124,6 +125,10 @@ final biometricServiceProvider = Provider<BiometricService>((ref) {
 
 final mediaStoreServiceProvider = Provider<MediaStoreService>((ref) {
   return MediaStoreService();
+});
+
+final outboundShareServiceProvider = Provider<OutboundShareService>((ref) {
+  return OutboundShareService();
 });
 
 /// Shared-storage permission is an Android-only capability. Presentation code
