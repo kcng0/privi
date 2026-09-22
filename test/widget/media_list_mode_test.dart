@@ -129,9 +129,9 @@ void main() {
     );
     expect(
       capsule.actions.map((action) => action.label),
-      ['Unhide', 'Rate', 'Delete', 'More'],
+      ['Unhide', 'Rate', 'Share', 'Delete', 'More'],
     );
-    expect(capsule.actions[2].destructive, isTrue);
+    expect(capsule.actions[3].destructive, isTrue);
   });
 
   testWidgets('Visible list mode reaches folder media', (tester) async {
@@ -168,5 +168,19 @@ void main() {
     expect(find.byKey(const ValueKey('visible-media-list')), findsOneWidget);
     expect(find.byKey(const ValueKey('visible-media-grid')), findsNothing);
     expect(find.text('visible-video.mp4'), findsOneWidget);
+
+    await tester.longPress(
+      find.byKey(const ValueKey('visible-media-visible-video')),
+    );
+    await tester.pumpAndSettle();
+
+    final capsule = tester.widget<FloatingActionCapsule>(
+      find.byType(FloatingActionCapsule),
+    );
+    expect(
+      capsule.actions.map((action) => action.label),
+      ['Hide', 'Share', 'Delete'],
+    );
+    expect(capsule.actions[2].destructive, isTrue);
   });
 }
