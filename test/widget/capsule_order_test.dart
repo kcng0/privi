@@ -4,7 +4,8 @@ import 'package:privi/core/theme/app_theme.dart';
 import 'package:privi/presentation/common/floating_action_capsule.dart';
 
 void main() {
-  testWidgets('Invisible selection capsule order is Unhide | Rate | More',
+  testWidgets(
+      'Invisible selection capsule order is Unhide | Rate | Share | More',
       (tester) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -20,6 +21,11 @@ void main() {
               FloatingActionItem(
                 icon: Icons.favorite,
                 label: 'Rate',
+                onTap: () {},
+              ),
+              FloatingActionItem(
+                icon: Icons.share_outlined,
+                label: 'Share',
                 onTap: () {},
               ),
               FloatingActionItem(
@@ -40,6 +46,7 @@ void main() {
         .whereType<String>()
         .toList();
     expect(labels.indexOf('Unhide'), lessThan(labels.indexOf('Rate')));
-    expect(labels.indexOf('Rate'), lessThan(labels.indexOf('More')));
+    expect(labels.indexOf('Rate'), lessThan(labels.indexOf('Share')));
+    expect(labels.indexOf('Share'), lessThan(labels.indexOf('More')));
   });
 }
