@@ -14,6 +14,11 @@ Future<void> main() async {
     },
     responseDataCallback: (data) async {
       final metrics = {...?data}..remove('screenshots');
+      final frames = metrics.remove('decoded_frames') as Map<String, dynamic>?;
+      for (final entry in (frames ?? <String, dynamic>{}).entries) {
+        await File('${output.path}/decoded-${entry.key}.png')
+            .writeAsBytes(base64Decode(entry.value as String));
+      }
       await File('${output.path}/metrics.json')
           .writeAsString(jsonEncode(metrics));
     },

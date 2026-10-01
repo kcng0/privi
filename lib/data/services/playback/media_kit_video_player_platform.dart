@@ -180,7 +180,9 @@ class MediaKitVideoPlayerPlatform extends VideoPlayerPlatform {
         player,
         configuration: VideoControllerConfiguration(
           enableHardwareAcceleration: hardware,
-          hwdec: hardware ? 'auto-safe' : 'no',
+          // Let media_kit select auto-safe on devices and software decoding on
+          // emulators, whose advertised hardware decoders can return no image.
+          hwdec: hardware ? null : 'no',
         ),
       );
     } catch (_) {
@@ -251,6 +253,14 @@ class MediaKitVideoPlayerPlatform extends VideoPlayerPlatform {
         );
       }),
     ];
+    assert(() {
+      subscriptions.add(
+        player.stream.log
+            .where((entry) => entry.prefix.startsWith('vo'))
+            .listen((entry) => trace('${entry.prefix}: ${entry.text.trim()}')),
+      );
+      return true;
+    }());
     String? error;
     VideoEvent? ready;
     try {

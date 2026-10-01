@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -31,18 +32,25 @@ void main() {
   final metrics = <String, dynamic>{};
   final files = <String, File>{};
   late Directory fixtures;
-  var screenshotReady = false;
-
-  setUp(() => screenshotReady = false);
-
-  Future<void> screenshot(WidgetTester tester, String name) async {
-    if (!screenshotReady) {
-      // integration_test automatically restores this surface after each test.
-      await binding.convertFlutterSurfaceToImage();
-      screenshotReady = true;
-    }
-    await tester.pump();
-    await binding.takeScreenshot(name);
+  Future<void> screenshot(
+    WidgetTester tester,
+    VideoPlayerController controller,
+    String name,
+  ) async {
+    // Capture the real Android surface, including external video textures.
+    debugPrint('PRIVI_TEST_CAPTURE_$name');
+    await tester.pump(const Duration(seconds: 2));
+    final platform =
+        VideoPlayerPlatform.instance as MediaKitVideoPlayerPlatform;
+    final port = platform.advancedPortFor(controller.playerId)
+        as MediaKitAdvancedVideoPort;
+    final frame = await port.player
+        .screenshot(format: 'image/png', includeLibassSubtitles: true)
+        .timeout(const Duration(seconds: 5));
+    expect(frame, isNotNull, reason: 'A decoded frame must be available');
+    (metrics['decoded_frames'] as Map<String, dynamic>? ??
+            (metrics['decoded_frames'] = <String, dynamic>{}))[name] =
+        base64Encode(frame!);
   }
 
   setUpAll(() async {
@@ -208,7 +216,7 @@ void main() {
             expect(controller.value.hasError, isFalse);
             if (['portrait.mp4', 'rotated.mp4', 'rotated270.mp4', 'sar.mp4']
                 .contains(entry.key)) {
-              await screenshot(tester, 'best-fit-${entry.key}');
+              await screenshot(tester, controller, 'best-fit-${entry.key}');
             }
           } finally {
             await tester.pumpWidget(const SizedBox.shrink());
@@ -293,7 +301,7 @@ void main() {
         await controller.seekTo(const Duration(seconds: 1));
         await controller.play();
         await tester.pump(const Duration(milliseconds: 400));
-        await screenshot(tester, 'portrait-ass-best-fit');
+        await screenshot(tester, controller, 'portrait-ass-best-fit');
         await advanced.setAbLoop(null, null);
         expect(advanced.value.abLoopEnd, isNull);
         await advanced.selectSubtitleTrack('no');
