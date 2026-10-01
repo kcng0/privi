@@ -126,9 +126,7 @@ void main() {
     while (!completed && watch.elapsed < timeout) {
       // media_kit_video creates its native output after a Flutter frame.
       // Live integration tests must explicitly drive frames during creation.
-      await tester
-          .pump(const Duration(milliseconds: 100))
-          .timeout(timeout - watch.elapsed);
+      await tester.pump(const Duration(milliseconds: 100));
     }
     if (!completed) {
       throw TimeoutException('Native operation exceeded $timeout');
@@ -349,6 +347,9 @@ void main() {
   testWidgets(
     'native PiP returns through the root lock and revokes on screen off',
     (tester) async {
+      final previousFramePolicy = binding.framePolicy;
+      binding.framePolicy = LiveTestWidgetsFlutterBindingFramePolicy.fullyLive;
+      addTearDown(() => binding.framePolicy = previousFramePolicy);
       SharedPreferences.setMockInitialValues({
         'player_external': false,
         'flag_secure': false,
@@ -380,9 +381,9 @@ void main() {
         const timeout = Duration(seconds: 12);
         final watch = Stopwatch()..start();
         while (!condition() && watch.elapsed < timeout) {
-          await tester
-              .pump(const Duration(milliseconds: 100))
-              .timeout(timeout - watch.elapsed);
+          // Native lifecycle transitions can stop Flutter frames. Fully-live
+          // rendering drives normal UI updates without blocking this wait.
+          await Future<void>.delayed(const Duration(milliseconds: 100));
         }
         expect(condition(), isTrue, reason: message);
       }
@@ -456,10 +457,10 @@ void main() {
             await tester.tap(find.byType(VideoViewport));
             await tester.pump();
           }
-          // Keep the normal Android surface throughout the PiP test. Flutter's
-          // screenshot image surface is only restored at test teardown.
+          expect(find.byTooltip('Orientation'), findsOneWidget);
+          // Capture the real Android surface while fully-live frames continue.
           debugPrint('PRIVI_TEST_PLAYER_SCREENSHOT_$direction');
-          await tester.pump(const Duration(seconds: 2));
+          await Future<void>.delayed(const Duration(seconds: 1));
           expect(tester.takeException(), isNull);
         }
         await PlaybackOrientationService.instance.setMode('portrait');
@@ -469,11 +470,15 @@ void main() {
               .unlockForTest();
           await tester.pump(const Duration(milliseconds: 200));
           await waitFor(
-            () => binding.lifecycleState == AppLifecycleState.resumed,
+            () => pip.canPlay(controller: controller, mediaId: item.id),
             'PiP entry requires a focused foreground Activity',
           );
-          await controller.play();
-          await pumpOperation(tester, pip.enter());
+          debugPrint('PiP entry lifecycle: ${binding.lifecycleState}');
+          expect(
+            await pip.playIfAllowed(controller: controller, mediaId: item.id),
+            isTrue,
+          );
+          await pip.enter().timeout(const Duration(seconds: 6));
           await waitFor(
             () {
               final state = container.read(pictureInPictureControllerProvider);
