@@ -777,21 +777,25 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
           color: Colors.black54,
           child: SizedBox(
             height: kToolbarHeight,
-            child: Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.arrow_back, color: Colors.white),
-                  onPressed: _exitPlayer,
-                ),
-                Expanded(
-                  child: Text(
-                    '$title · $pos/$total',
-                    style: const TextStyle(color: Colors.white),
-                    overflow: TextOverflow.ellipsis,
+            child: LayoutBuilder(
+              builder: (context, constraints) => Row(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.arrow_back, color: Colors.white),
+                    onPressed: _exitPlayer,
                   ),
-                ),
-                if (_video != null) videoSessionTopActions(),
-              ],
+                  Expanded(
+                    child: Text(
+                      '$title · $pos/$total',
+                      maxLines: 1,
+                      style: const TextStyle(color: Colors.white),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (_video != null)
+                    videoSessionTopActions(compact: constraints.maxWidth < 320),
+                ],
+              ),
             ),
           ),
         ),

@@ -511,27 +511,39 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen>
           color: Colors.black54,
           child: SizedBox(
             height: kToolbarHeight,
-            child: Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.arrow_back, color: Colors.white),
-                  onPressed: _exit,
-                ),
-                Expanded(
-                  child: Text(
-                    _current.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white),
-                  ),
-                ),
-                Text(
-                  '${_index + 1}/${widget.items.length}',
-                  style: const TextStyle(color: Colors.white70, fontSize: 13),
-                ),
-                const SizedBox(width: 12),
-                if (_video != null) videoSessionTopActions(),
-              ],
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final compact = constraints.maxWidth < 320;
+                return Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.arrow_back, color: Colors.white),
+                      onPressed: _exit,
+                    ),
+                    Expanded(
+                      child: Text(
+                        compact
+                            ? '${_current.title} · ${_index + 1}/${widget.items.length}'
+                            : _current.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                    ),
+                    if (!compact)
+                      Text(
+                        '${_index + 1}/${widget.items.length}',
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 13,
+                        ),
+                      ),
+                    if (!compact) const SizedBox(width: 12),
+                    if (_video != null)
+                      videoSessionTopActions(compact: compact),
+                  ],
+                );
+              },
             ),
           ),
         ),

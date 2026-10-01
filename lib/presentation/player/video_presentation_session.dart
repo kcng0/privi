@@ -63,7 +63,13 @@ mixin VideoPresentationSession<T extends ConsumerStatefulWidget>
 
   bool get videoPipGranted =>
       ref.read(pictureInPictureControllerProvider).grantActive;
-  bool get videoChromeAllowed => !videoTouchLocked && !videoPipGranted;
+  bool get _videoPipVisible {
+    final pip = ref.read(pictureInPictureControllerProvider);
+    // Revocation can finish before Android expands the retained route.
+    return pip.grantActive || pip.isActive;
+  }
+
+  bool get videoChromeAllowed => !videoTouchLocked && !_videoPipVisible;
   bool get videoPipSupported =>
       ref.watch(pictureInPictureControllerProvider).supported;
 
@@ -260,42 +266,71 @@ mixin VideoPresentationSession<T extends ConsumerStatefulWidget>
         ),
       );
 
-  Widget videoSessionTopActions() => Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconButton(
-            tooltip: videoOrientationLocked
-                ? context.l10n.videoUnlockOrientation
-                : context.l10n.videoLockOrientation,
-            icon: Icon(
+  Widget videoSessionTopActions({
+    bool compact = false,
+    List<PopupMenuEntry<VoidCallback>> additionalMenuItems = const [],
+  }) {
+    if (compact) {
+      return PopupMenuButton<VoidCallback>(
+        key: const Key('video-session-menu'),
+        icon: const Icon(Icons.more_vert, color: Colors.white),
+        onSelected: (action) => action(),
+        itemBuilder: (_) => [
+          PopupMenuItem(
+            value: () => unawaited(toggleVideoOrientationLock()),
+            child: Text(
               videoOrientationLocked
-                  ? Icons.screen_lock_rotation
-                  : Icons.screen_rotation,
+                  ? context.l10n.videoUnlockOrientation
+                  : context.l10n.videoLockOrientation,
             ),
-            color: Colors.white,
-            onPressed: () => unawaited(toggleVideoOrientationLock()),
           ),
-          IconButton(
-            tooltip: context.l10n.videoLockTouch,
-            icon: const Icon(Icons.lock_outline),
-            color: Colors.white,
-            onPressed: () => setState(() => videoTouchLocked = true),
+          PopupMenuItem(
+            value: () => setState(() => videoTouchLocked = true),
+            child: Text(context.l10n.videoLockTouch),
           ),
+          ...additionalMenuItems,
         ],
       );
+    }
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          tooltip: videoOrientationLocked
+              ? context.l10n.videoUnlockOrientation
+              : context.l10n.videoLockOrientation,
+          icon: Icon(
+            videoOrientationLocked
+                ? Icons.screen_lock_rotation
+                : Icons.screen_rotation,
+          ),
+          color: Colors.white,
+          onPressed: () => unawaited(toggleVideoOrientationLock()),
+        ),
+        IconButton(
+          tooltip: context.l10n.videoLockTouch,
+          icon: const Icon(Icons.lock_outline),
+          color: Colors.white,
+          onPressed: () => setState(() => videoTouchLocked = true),
+        ),
+      ],
+    );
+  }
 
-  Widget videoUnlockControl() => Align(
-        alignment: Alignment.topRight,
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(8),
-            child: IconButton.filledTonal(
-              key: const Key('video-unlock-touch'),
-              tooltip: context.l10n.videoUnlockTouch,
-              icon: const Icon(Icons.lock_open),
-              onPressed: () => setState(() => videoTouchLocked = false),
+  Widget videoUnlockControl() => _videoPipVisible
+      ? const SizedBox.shrink()
+      : Align(
+          alignment: Alignment.topRight,
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(8),
+              child: IconButton.filledTonal(
+                key: const Key('video-unlock-touch'),
+                tooltip: context.l10n.videoUnlockTouch,
+                icon: const Icon(Icons.lock_open),
+                onPressed: () => setState(() => videoTouchLocked = false),
+              ),
             ),
           ),
-        ),
-      );
+        );
 }

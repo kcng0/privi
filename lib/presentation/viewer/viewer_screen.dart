@@ -605,39 +605,61 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
           color: Colors.black54,
           child: SizedBox(
             height: kToolbarHeight,
-            child: Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.arrow_back, color: Colors.white),
-                  onPressed: _exitViewer,
-                ),
-                Expanded(
-                  child: Text(
-                    item.originalName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white),
-                  ),
-                ),
-                Text(
-                  '${_index + 1}/${widget.items.length}',
-                  style: const TextStyle(color: Colors.white70, fontSize: 13),
-                ),
-                PopupMenuButton<String>(
-                  icon: const Icon(Icons.more_vert, color: Colors.white70),
-                  onSelected: (value) {
-                    if (value == 'unhide') unawaited(_unhide());
-                  },
-                  itemBuilder: (_) => [
-                    PopupMenuItem(
-                      value: 'unhide',
-                      child: Text(context.l10n.unhideRestoreOriginal),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final compact = constraints.maxWidth < 320;
+                return Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.arrow_back, color: Colors.white),
+                      onPressed: _exitViewer,
                     ),
+                    Expanded(
+                      child: Text(
+                        compact
+                            ? '${item.originalName} · ${_index + 1}/${widget.items.length}'
+                            : item.originalName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                    ),
+                    if (!compact)
+                      Text(
+                        '${_index + 1}/${widget.items.length}',
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 13,
+                        ),
+                      ),
+                    if (!compact || _video == null)
+                      PopupMenuButton<String>(
+                        icon:
+                            const Icon(Icons.more_vert, color: Colors.white70),
+                        onSelected: (value) {
+                          if (value == 'unhide') unawaited(_unhide());
+                        },
+                        itemBuilder: (_) => [
+                          PopupMenuItem(
+                            value: 'unhide',
+                            child: Text(context.l10n.unhideRestoreOriginal),
+                          ),
+                        ],
+                      ),
+                    if (_video != null)
+                      videoSessionTopActions(
+                        compact: compact,
+                        additionalMenuItems: [
+                          PopupMenuItem(
+                            value: () => unawaited(_unhide()),
+                            child: Text(context.l10n.unhideRestoreOriginal),
+                          ),
+                        ],
+                      ),
+                    if (!compact) const SizedBox(width: 4),
                   ],
-                ),
-                if (_video != null) videoSessionTopActions(),
-                const SizedBox(width: 4),
-              ],
+                );
+              },
             ),
           ),
         ),

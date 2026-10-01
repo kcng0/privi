@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:privi/application/lock/lock_controller.dart';
+import 'package:privi/application/player/picture_in_picture_controller.dart';
 import 'package:privi/application/player/player_controller.dart';
 import 'package:privi/application/providers.dart';
 import 'package:privi/core/theme/app_theme.dart';
@@ -24,6 +25,12 @@ import 'package:video_player_platform_interface/video_player_platform_interface.
 final class _UnlockedLock extends LockController {
   @override
   VaultLockState build() => const VaultLockState(status: LockStatus.unlocked);
+}
+
+final class _PipWindowProbe extends PictureInPictureController {
+  void updateWindow({required bool granted, required bool active}) {
+    state = state.copyWith(grantActive: granted, isActive: active);
+  }
 }
 
 final class _SerialProbeVideoPlatform extends VideoPlayerPlatform {
@@ -182,6 +189,7 @@ void main() {
       overrides: [
         sharedPreferencesProvider.overrideWithValue(preferences),
         lockControllerProvider.overrideWith(_UnlockedLock.new),
+        pictureInPictureControllerProvider.overrideWith(_PipWindowProbe.new),
       ],
     );
   });
@@ -242,6 +250,71 @@ void main() {
   }
 
   for (final entry in ['playlist', 'viewer', 'gallery']) {
+    testWidgets('$entry handles PiP revocation before the window expands',
+        (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(411, 731);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      await tester.pumpWidget(videoApp(entry));
+      await drain(tester);
+      videoPlatform.initializeFirstPlayer();
+      await drain(tester);
+      final before =
+          tester.widget<VideoViewport>(find.byType(VideoViewport)).controller;
+      final pip = container.read(pictureInPictureControllerProvider.notifier)
+          as _PipWindowProbe;
+
+      pip.updateWindow(granted: true, active: true);
+      tester.view.physicalSize = const Size(128, 228);
+      await tester.pump();
+      expect(find.byIcon(Icons.arrow_back), findsNothing);
+      expect(tester.takeException(), isNull);
+
+      // Revoking a grant does not mean the native window has left PiP yet.
+      pip.updateWindow(granted: false, active: true);
+      await tester.pump();
+      expect(find.byIcon(Icons.arrow_back), findsNothing);
+      expect(tester.takeException(), isNull);
+
+      // Android's exit callback can precede the expanded viewport metrics.
+      pip.updateWindow(granted: false, active: false);
+      await tester.pump();
+      expect(find.byIcon(Icons.arrow_back), findsOneWidget);
+      expect(find.byKey(const Key('video-session-menu')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.tap(find.byKey(const Key('video-session-menu')));
+      await tester.pumpAndSettle();
+      expect(find.text('Lock touch controls'), findsOneWidget);
+      if (entry == 'viewer') {
+        expect(find.text('Unhide (restore original name)'), findsOneWidget);
+      }
+      await tester.tap(find.text('Lock touch controls'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('video-unlock-touch')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      pip.updateWindow(granted: false, active: true);
+      await tester.pump();
+      expect(find.byKey(const Key('video-unlock-touch')), findsNothing);
+      pip.updateWindow(granted: false, active: false);
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('video-unlock-touch')));
+      await tester.pump();
+
+      tester.view.physicalSize = const Size(411, 731);
+      await tester.pump();
+      expect(find.byTooltip('Lock current orientation'), findsOneWidget);
+      expect(find.byTooltip('Lock touch controls'), findsOneWidget);
+      expect(find.byKey(const Key('video-session-menu')), findsNothing);
+      expect(
+        tester.widget<VideoViewport>(find.byType(VideoViewport)).controller,
+        same(before),
+      );
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+    });
+
     for (final interruption in ['background', 'lock']) {
       testWidgets('$entry held initialization never starts after $interruption',
           (tester) async {
