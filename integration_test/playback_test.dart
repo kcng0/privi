@@ -229,10 +229,14 @@ void main() {
           VideoPlayerPlatform.instance as MediaKitVideoPlayerPlatform;
       final failed = VideoPlayerController.file(files['corrupt.mp4']!);
       try {
-        await expectLater(
-          pumpOperation(tester, failed.initialize()),
-          throwsA(isA<PlatformException>()),
-        );
+        Object? openingError;
+        try {
+          await pumpOperation(tester, failed.initialize());
+        } catch (error) {
+          openingError = error;
+        }
+        // Inspect the error after all guarded frame APIs have completed.
+        expect(openingError, isA<PlatformException>());
       } finally {
         await failed.dispose().timeout(const Duration(seconds: 5));
       }
