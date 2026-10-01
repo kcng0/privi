@@ -455,16 +455,24 @@ void main() {
           // Show the actual screen's controls if the hide timer already fired.
           if (find.byTooltip('Orientation').evaluate().isEmpty) {
             await tester.tap(find.byType(VideoViewport));
-            await tester.pump();
           }
-          expect(find.byTooltip('Orientation'), findsOneWidget);
+          // The viewport also recognizes double taps; a single tap takes
+          // effect only after that gesture's decision timeout.
+          await waitFor(
+            () => find.byTooltip('Orientation').evaluate().isNotEmpty,
+            'A single tap must reveal the $direction controls',
+          );
           // Capture the real Android surface while fully-live frames continue.
           debugPrint('PRIVI_TEST_PLAYER_SCREENSHOT_$direction');
           await Future<void>.delayed(const Duration(seconds: 1));
           expect(tester.takeException(), isNull);
         }
         await PlaybackOrientationService.instance.setMode('portrait');
-        await tester.pump(const Duration(milliseconds: 300));
+        await waitFor(
+          () =>
+              tester.view.physicalSize.height > tester.view.physicalSize.width,
+          'Device must return to portrait before PiP entry',
+        );
         for (final action in ['EXPAND', 'SCREEN_OFF']) {
           (container.read(lockControllerProvider.notifier) as _IntegrationLock)
               .unlockForTest();
@@ -531,6 +539,10 @@ void main() {
                 !container.read(pictureInPictureControllerProvider).isActive,
             'Host action must return through a revoked PiP grant',
           );
+          await waitFor(
+            () => binding.lifecycleState == AppLifecycleState.resumed,
+            'Fullscreen return must resume the Activity before the next entry',
+          );
           await tester.pump(const Duration(milliseconds: 300));
           expect(
             container.read(lockControllerProvider).status,
@@ -544,10 +556,6 @@ void main() {
           expect(
             find.byKey(const Key('native-pip-route'), skipOffstage: false),
             findsOneWidget,
-          );
-          await waitFor(
-            () => binding.lifecycleState == AppLifecycleState.resumed,
-            'Fullscreen return must resume the Activity before the next entry',
           );
           debugPrint('PRIVI_TEST_PIP_FULLSCREEN_$action');
           // Leave the locked native window visible while adb captures its
