@@ -11,6 +11,7 @@ import 'package:privi/application/providers.dart';
 import 'package:privi/core/theme/app_theme.dart';
 import 'package:privi/data/services/gallery_service.dart';
 import 'package:privi/data/services/grid_thumbnail_service.dart';
+import 'package:privi/data/services/outbound_share_service.dart';
 import 'package:privi/data/services/thumbnail_cache.dart';
 import 'package:privi/domain/enums.dart';
 import 'package:privi/domain/models/media_item.dart';
@@ -72,6 +73,15 @@ MediaItem _video(String id) => MediaItem(
       durationMs: 65000,
     );
 
+class _RecordingShare extends OutboundShareService {
+  List<OutboundShareFile> captured = const [];
+
+  @override
+  Future<void> share(List<OutboundShareFile> files) async {
+    captured = List<OutboundShareFile>.from(files);
+  }
+}
+
 Widget _app(ProviderContainer container, Widget home) =>
     UncontrolledProviderScope(
       container: container,
@@ -91,12 +101,14 @@ void main() {
     SharedPreferences.setMockInitialValues({'media_kind_filter': 'video'});
     final preferences = await SharedPreferences.getInstance();
     final item = _video('private-video');
+    final share = _RecordingShare();
     final container = ProviderContainer(
       overrides: [
         sharedPreferencesProvider.overrideWithValue(preferences),
         gridThumbnailServiceProvider.overrideWithValue(
           _NoopGridThumbnailService(),
         ),
+        outboundShareServiceProvider.overrideWithValue(share),
         albumMediaProvider.overrideWith(
           (ref, albumId) => Stream.value([item]),
         ),
@@ -132,6 +144,13 @@ void main() {
       ['Unhide', 'Rate', 'Share', 'Delete', 'More'],
     );
     expect(capsule.actions[3].destructive, isTrue);
+
+    await tester.tap(find.text('Share'));
+    await tester.pump();
+    expect(share.captured, hasLength(1));
+    expect(share.captured.single.path, '/tmp/private-video.mp4');
+    expect(share.captured.single.name, 'private-video.mp4');
+    expect(share.captured.single.mimeType, 'video/mp4');
   });
 
   testWidgets('Visible list mode reaches folder media', (tester) async {
@@ -143,6 +162,7 @@ void main() {
       title: 'visible-video.mp4',
       durationMs: 65000,
     );
+    final share = _RecordingShare();
     final container = ProviderContainer(
       overrides: [
         sharedPreferencesProvider.overrideWithValue(preferences),
@@ -150,6 +170,7 @@ void main() {
         gridThumbnailServiceProvider.overrideWithValue(
           _NoopGridThumbnailService(),
         ),
+        outboundShareServiceProvider.overrideWithValue(share),
       ],
     );
     addTearDown(container.dispose);
@@ -182,5 +203,12 @@ void main() {
       ['Hide', 'Share', 'Delete'],
     );
     expect(capsule.actions[2].destructive, isTrue);
+
+    await tester.tap(find.text('Share'));
+    await tester.pump();
+    expect(share.captured, hasLength(1));
+    expect(share.captured.single.mediaId, 'visible-video');
+    expect(share.captured.single.isVideo, isTrue);
+    expect(share.captured.single.path, isNull);
   });
 }

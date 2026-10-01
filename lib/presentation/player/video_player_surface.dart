@@ -8,7 +8,7 @@ import 'package:video_player/video_player.dart';
 import '../../data/services/playback_display_service.dart';
 import '../../domain/models/video_playback_settings.dart';
 
-enum VideoFitMode { fit, fill, original, ratio4x3, ratio16x9 }
+export '../../domain/models/video_playback_settings.dart' show VideoFitMode;
 
 Duration clampVideoPosition(Duration position, Duration duration) {
   if (position < Duration.zero) return Duration.zero;
@@ -176,23 +176,6 @@ double displayAspectRatioForVideo(
   return display.width / display.height;
 }
 
-List<DeviceOrientation> preferredOrientationsForVideo(
-  Size size, {
-  int rotationCorrection = 0,
-}) {
-  final display = displaySizeForVideo(
-    size,
-    rotationCorrection: rotationCorrection,
-  );
-  if (display.width > display.height) {
-    return const [
-      DeviceOrientation.landscapeLeft,
-      DeviceOrientation.landscapeRight,
-    ];
-  }
-  return const [DeviceOrientation.portraitUp];
-}
-
 /// Built-in video hides status and navigation bars in every orientation.
 /// Landscape already used immersive sticky; portrait used to keep the bars.
 bool shouldHideSystemUiForBuiltInVideo(bool builtInVideo) => builtInVideo;
@@ -204,121 +187,125 @@ abstract final class VideoSystemUi {
     );
   }
 
-  static Future<void> toggle(bool currentlyLandscape) async {
-    await SystemChrome.setPreferredOrientations(
-      currentlyLandscape
-          ? const [DeviceOrientation.portraitUp]
-          : const [
-              DeviceOrientation.landscapeLeft,
-              DeviceOrientation.landscapeRight,
-            ],
-    );
-  }
-
-  static Future<void> lockToVideoSize(
-    Size size, {
-    int rotationCorrection = 0,
-  }) {
-    final display = displaySizeForVideo(
-      size,
-      rotationCorrection: rotationCorrection,
-    );
-    if (display.isEmpty) return Future<void>.value();
-    return SystemChrome.setPreferredOrientations(
-      preferredOrientationsForVideo(
-        size,
-        rotationCorrection: rotationCorrection,
-      ),
-    );
-  }
-
-  static Future<void> unlockOrientations() {
-    return SystemChrome.setPreferredOrientations(const []);
-  }
-
   static Future<void> restore() async {
-    await unlockOrientations();
     await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     await PlaybackDisplayService.instance.resetBrightness();
   }
 }
 
-class VideoViewport extends StatelessWidget {
+/// The only sizing owner. All sizes are in final display coordinates, so a
+/// fixed aspect ratio never reverses when the device rotates.
+Size videoViewportSize({
+  required Size viewport,
+  required Size displaySize,
+  required VideoFitMode mode,
+  double devicePixelRatio = 1,
+}) {
+  if (viewport.isEmpty) return Size.zero;
+  final source = displaySize.isEmpty ? const Size(16, 9) : displaySize;
+  if (mode == VideoFitMode.fill) return viewport;
+  if (mode == VideoFitMode.original && !displaySize.isEmpty) {
+    return source / devicePixelRatio;
+  }
+  final ratio = mode.aspectRatio ?? source.aspectRatio;
+  final contain = Size(viewport.width, viewport.width / ratio);
+  if (mode == VideoFitMode.fitScreen) {
+    return contain.height >= viewport.height
+        ? contain
+        : Size(viewport.height * ratio, viewport.height);
+  }
+  return contain.height <= viewport.height
+      ? contain
+      : Size(viewport.height * ratio, viewport.height);
+}
+
+class VideoViewport extends StatefulWidget {
   const VideoViewport({
     super.key,
     required this.controller,
     required this.fitMode,
+    this.displaySize,
   });
-
   final VideoPlayerController controller;
   final VideoFitMode fitMode;
 
+  /// Advanced backend dimensions have already applied rotation exactly once.
+  final Size? displaySize;
   @override
-  Widget build(BuildContext context) {
-    final value = controller.value;
-    final sourceAspect = displayAspectRatioForVideo(
-      value.size,
-      rotationCorrection: value.rotationCorrection,
-    );
-    final displaySize = displaySizeForVideo(
-      value.size,
-      rotationCorrection: value.rotationCorrection,
-    );
-    return ClipRect(
-      child: switch (fitMode) {
-        VideoFitMode.fit => _ratioViewport(sourceAspect),
-        VideoFitMode.fill => _fillViewport(sourceAspect),
-        VideoFitMode.original => _originalViewport(displaySize, sourceAspect),
-        VideoFitMode.ratio4x3 => _ratioViewport(4 / 3),
-        VideoFitMode.ratio16x9 => _ratioViewport(16 / 9),
-      },
-    );
+  State<VideoViewport> createState() => _VideoViewportState();
+}
+
+class _VideoViewportState extends State<VideoViewport> {
+  late Size _size;
+  late int _rotation;
+  late Widget _video;
+
+  void _attach() {
+    _size = widget.controller.value.size;
+    _rotation = widget.controller.value.rotationCorrection;
+    _video = VideoPlayer(widget.controller);
+    widget.controller.addListener(_metadataChanged);
   }
 
-  Widget _ratioViewport(double aspectRatio) {
-    return Center(
-      child: AspectRatio(
-        aspectRatio: aspectRatio,
-        child: VideoPlayer(controller),
-      ),
-    );
+  void _metadataChanged() {
+    final value = widget.controller.value;
+    if (value.size == _size && value.rotationCorrection == _rotation) return;
+    setState(() {
+      _size = value.size;
+      _rotation = value.rotationCorrection;
+    });
   }
 
-  Widget _fillViewport(double aspectRatio) {
-    return SizedBox.expand(
-      child: FittedBox(
-        fit: BoxFit.cover,
-        clipBehavior: Clip.hardEdge,
-        child: SizedBox(
-          width: aspectRatio * 1000,
-          height: 1000,
-          child: VideoPlayer(controller),
-        ),
-      ),
-    );
+  @override
+  void initState() {
+    super.initState();
+    _attach();
   }
 
-  Widget _originalViewport(Size sourceSize, double fallbackAspect) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        if (sourceSize.isEmpty) return _ratioViewport(fallbackAspect);
-        final scale = math.min(
-          1.0,
-          math.min(
-            constraints.maxWidth / sourceSize.width,
-            constraints.maxHeight / sourceSize.height,
-          ),
-        );
-        return Center(
-          child: SizedBox(
-            width: sourceSize.width * scale,
-            height: sourceSize.height * scale,
-            child: VideoPlayer(controller),
-          ),
-        );
-      },
-    );
+  @override
+  void didUpdateWidget(VideoViewport oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_metadataChanged);
+      _attach();
+    }
   }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_metadataChanged);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+        builder: (context, constraints) {
+          final size = videoViewportSize(
+            viewport: constraints.biggest,
+            displaySize: widget.displaySize ??
+                displaySizeForVideo(_size, rotationCorrection: _rotation),
+            mode: widget.fitMode,
+            devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+          );
+          return ClipRect(
+            child: SizedBox.expand(
+              child: OverflowBox(
+                alignment: Alignment.center,
+                minWidth: size.width,
+                maxWidth: size.width,
+                minHeight: size.height,
+                maxHeight: size.height,
+                child: SizedBox(
+                  key: const Key('video-display-rect'),
+                  width: size.width,
+                  height: size.height,
+                  child: _video,
+                ),
+              ),
+            ),
+          );
+        },
+      );
 }
 
 class VideoGestureSurface extends StatefulWidget {
@@ -331,16 +318,20 @@ class VideoGestureSurface extends StatefulWidget {
     this.dragSeekSeconds = defaultPlayerDragSeekSeconds,
     this.onPreviewFrameRequested,
     this.onUserSeek,
+    this.onResume,
     this.displayControls,
+    this.enabled = true,
   });
 
   final VideoPlayerController controller;
+  final bool enabled;
   final int seekSeconds;
   final int dragSeekSeconds;
   final VoidCallback onTap;
   final Widget child;
   final Future<Uint8List?> Function(Duration position)? onPreviewFrameRequested;
   final VoidCallback? onUserSeek;
+  final Future<void> Function()? onResume;
   final VideoDisplayControls? displayControls;
 
   @override
@@ -367,11 +358,8 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
 
   VideoDisplayControls get _displayControls =>
       widget.displayControls ?? PlaybackDisplayService.instance;
-  Timer? _previewTimer;
   Uint8List? _previewFrame;
   Duration? _previewPosition;
-  Duration? _pendingPreviewPosition;
-  bool _previewInFlight = false;
   int _previewGeneration = 0;
 
   @override
@@ -394,7 +382,6 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
   void dispose() {
     _restorePlaybackSpeed(widget.controller);
     _feedbackTimer?.cancel();
-    _previewTimer?.cancel();
     _feedbackNotifier.dispose();
     _levelNotifier.dispose();
     super.dispose();
@@ -492,7 +479,7 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
       await widget.controller.seekTo(target);
       widget.onUserSeek?.call();
     }
-    if (resume) await widget.controller.play();
+    if (resume) await (widget.onResume?.call() ?? widget.controller.play());
     _scheduleFeedbackHide();
   }
 
@@ -503,7 +490,7 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
     final resume = _resumeAfterDrag;
     _resumeAfterDrag = false;
     _clearPreviewAndRebuild();
-    if (resume) unawaited(widget.controller.play());
+    if (resume) unawaited(widget.onResume?.call() ?? widget.controller.play());
     _scheduleFeedbackHide();
   }
 
@@ -581,18 +568,9 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
   }
 
   void _schedulePreview(Duration position) {
-    if (widget.onPreviewFrameRequested == null) return;
-    _pendingPreviewPosition = position;
-    if (_previewInFlight || (_previewTimer?.isActive ?? false)) return;
-    _previewTimer = Timer(const Duration(milliseconds: 110), _requestPreview);
-  }
-
-  void _requestPreview() {
     final request = widget.onPreviewFrameRequested;
-    final position = _pendingPreviewPosition;
-    if (request == null || position == null || !mounted) return;
-    _pendingPreviewPosition = null;
-    _previewInFlight = true;
+    if (request == null) return;
+
     final generation = ++_previewGeneration;
     unawaited(() async {
       try {
@@ -600,25 +578,23 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
         if (!mounted || generation != _previewGeneration) return;
         setState(() {
           _previewFrame = frame;
-          _previewPosition = position;
+          _previewPosition = frame == null ? null : position;
         });
-      } finally {
-        _previewInFlight = false;
-        if (_pendingPreviewPosition != null && mounted) {
-          _previewTimer = Timer(
-            const Duration(milliseconds: 40),
-            _requestPreview,
-          );
-        }
+      } catch (error, stackTrace) {
+        // Preview failure must not interrupt seeking or the playing engine.
+        FlutterError.reportError(
+          FlutterErrorDetails(
+            exception: error,
+            stack: stackTrace,
+            library: 'Privi video preview',
+          ),
+        );
       }
     }());
   }
 
   void _clearPreview() {
     _previewGeneration++;
-    _previewTimer?.cancel();
-    _previewTimer = null;
-    _pendingPreviewPosition = null;
     _previewFrame = null;
     _previewPosition = null;
   }
@@ -631,6 +607,7 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
 
   @override
   Widget build(BuildContext context) {
+    if (!widget.enabled) return AbsorbPointer(child: widget.child);
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: widget.onTap,

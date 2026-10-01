@@ -3,15 +3,22 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:privi/application/lock/lock_controller.dart';
+import 'package:privi/application/player/picture_in_picture_controller.dart';
 import 'package:privi/application/player/player_controller.dart';
 import 'package:privi/application/providers.dart';
+import 'package:privi/core/theme/app_theme.dart';
+import 'package:privi/data/services/gallery_service.dart';
 import 'package:privi/domain/enums.dart';
 import 'package:privi/domain/models/media_item.dart';
 import 'package:privi/l10n/app_localizations.dart';
 import 'package:privi/presentation/player/player_screen.dart';
+import 'package:privi/presentation/player/video_player_surface.dart';
+import 'package:privi/presentation/viewer/viewer_screen.dart';
+import 'package:privi/presentation/visible/gallery_preview_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player_platform_interface/video_player_platform_interface.dart';
 
@@ -20,12 +27,19 @@ final class _UnlockedLock extends LockController {
   VaultLockState build() => const VaultLockState(status: LockStatus.unlocked);
 }
 
+final class _PipWindowProbe extends PictureInPictureController {
+  void updateWindow({required bool granted, required bool active}) {
+    state = state.copyWith(grantActive: granted, isActive: active);
+  }
+}
+
 final class _SerialProbeVideoPlatform extends VideoPlayerPlatform {
   final StreamController<VideoEvent> _firstPlayerEvents =
       StreamController<VideoEvent>.broadcast();
   final Set<int> activePlayers = {};
 
   int createCalls = 0;
+  int playCalls = 0;
   int maxActivePlayers = 0;
   int _nextPlayerId = 0;
 
@@ -39,10 +53,17 @@ final class _SerialProbeVideoPlatform extends VideoPlayerPlatform {
     _firstPlayerEvents.add(_initializedEvent);
   }
 
+  void completeFirstPlayer() {
+    _firstPlayerEvents.add(VideoEvent(eventType: VideoEventType.completed));
+  }
+
   Future<void> close() => _firstPlayerEvents.close();
 
   @override
   Future<void> init() async {}
+
+  @override
+  Future<void> setMixWithOthers(bool mixWithOthers) async {}
 
   @override
   Future<int?> createWithOptions(VideoCreationOptions options) async {
@@ -83,7 +104,9 @@ final class _SerialProbeVideoPlatform extends VideoPlayerPlatform {
   Future<void> setPlaybackSpeed(int playerId, double speed) async {}
 
   @override
-  Future<void> play(int playerId) async {}
+  Future<void> play(int playerId) async {
+    playCalls++;
+  }
 
   @override
   Future<void> pause(int playerId) async {}
@@ -117,6 +140,7 @@ Widget _app(
     UncontrolledProviderScope(
       container: container,
       child: MaterialApp(
+        theme: AppTheme.dark,
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         home: PlayerScreen(
@@ -127,14 +151,35 @@ Widget _app(
       ),
     );
 
+void restoreForeground(WidgetsBinding binding) {
+  if (binding.lifecycleState == AppLifecycleState.paused) {
+    binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+  }
+  if (binding.lifecycleState == AppLifecycleState.hidden) {
+    binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+  }
+  binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   late VideoPlayerPlatform originalPlatform;
   late _SerialProbeVideoPlatform videoPlatform;
   late ProviderContainer container;
+  late Directory videoDirectory;
+  late File videoFile;
 
   setUp(() async {
+    videoDirectory =
+        await Directory.systemTemp.createTemp('privi-playback-ui-');
+    videoFile =
+        await File('${videoDirectory.path}/video.mp4').writeAsBytes([0]);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+      const MethodChannel('com.privi.app/orientation'),
+      (_) async => null,
+    );
     originalPlatform = VideoPlayerPlatform.instance;
     videoPlatform = _SerialProbeVideoPlatform();
     VideoPlayerPlatform.instance = videoPlatform;
@@ -144,14 +189,212 @@ void main() {
       overrides: [
         sharedPreferencesProvider.overrideWithValue(preferences),
         lockControllerProvider.overrideWith(_UnlockedLock.new),
+        pictureInPictureControllerProvider.overrideWith(_PipWindowProbe.new),
       ],
     );
   });
 
   tearDown(() async {
+    restoreForeground(TestWidgetsFlutterBinding.instance);
     container.dispose();
     VideoPlayerPlatform.instance = originalPlatform;
     await videoPlatform.close();
+    await videoDirectory.delete(recursive: true);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+      const MethodChannel('com.privi.app/orientation'),
+      null,
+    );
+  });
+
+  Widget videoApp(String entry) {
+    final items = [
+      _video('one', videoFile.path),
+      _video('two', videoFile.path),
+    ];
+    final child = switch (entry) {
+      'playlist' => PlayerScreen(
+          items: items,
+          videoFileProbe: (_) => SynchronousFuture<bool>(true),
+        ),
+      'viewer' => ViewerScreen(items: items, initialIndex: 0),
+      _ => GalleryPreviewScreen(
+          items: const [
+            GalleryAsset(id: 'one', isVideo: true, title: 'one.mp4'),
+            GalleryAsset(id: 'two', isVideo: true, title: 'two.mp4'),
+          ],
+          initialIndex: 0,
+          resolveFile: (_) => SynchronousFuture<File?>(videoFile),
+        ),
+    };
+    return UncontrolledProviderScope(
+      container: container,
+      child: MaterialApp(
+        theme: AppTheme.dark,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: child,
+      ),
+    );
+  }
+
+  Future<void> drain(WidgetTester tester) async {
+    // File.exists in the gallery adapter uses real IO; release it without
+    // waiting for the deliberately held video initialization future.
+    await tester.runAsync(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    });
+    for (var i = 0; i < 8; i++) {
+      await tester.pump();
+    }
+  }
+
+  for (final entry in ['playlist', 'viewer', 'gallery']) {
+    testWidgets('$entry handles PiP revocation before the window expands',
+        (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(411, 731);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      await tester.pumpWidget(videoApp(entry));
+      await drain(tester);
+      videoPlatform.initializeFirstPlayer();
+      await drain(tester);
+      final before =
+          tester.widget<VideoViewport>(find.byType(VideoViewport)).controller;
+      final pip = container.read(pictureInPictureControllerProvider.notifier)
+          as _PipWindowProbe;
+
+      pip.updateWindow(granted: true, active: true);
+      tester.view.physicalSize = const Size(128, 228);
+      await tester.pump();
+      expect(find.byIcon(Icons.arrow_back), findsNothing);
+      expect(tester.takeException(), isNull);
+
+      // Revoking a grant does not mean the native window has left PiP yet.
+      pip.updateWindow(granted: false, active: true);
+      await tester.pump();
+      expect(find.byIcon(Icons.arrow_back), findsNothing);
+      expect(tester.takeException(), isNull);
+
+      // Android's exit callback can precede the expanded viewport metrics.
+      pip.updateWindow(granted: false, active: false);
+      await tester.pump();
+      expect(find.byIcon(Icons.arrow_back), findsOneWidget);
+      expect(find.byKey(const Key('video-session-menu')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.tap(find.byKey(const Key('video-session-menu')));
+      await tester.pumpAndSettle();
+      expect(find.text('Lock touch controls'), findsOneWidget);
+      if (entry == 'viewer') {
+        expect(find.text('Unhide (restore original name)'), findsOneWidget);
+      }
+      await tester.tap(find.text('Lock touch controls'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('video-unlock-touch')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      pip.updateWindow(granted: false, active: true);
+      await tester.pump();
+      expect(find.byKey(const Key('video-unlock-touch')), findsNothing);
+      pip.updateWindow(granted: false, active: false);
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('video-unlock-touch')));
+      await tester.pump();
+
+      tester.view.physicalSize = const Size(411, 731);
+      await tester.pump();
+      expect(find.byTooltip('Lock current orientation'), findsOneWidget);
+      expect(find.byTooltip('Lock touch controls'), findsOneWidget);
+      expect(find.byKey(const Key('video-session-menu')), findsNothing);
+      expect(
+        tester.widget<VideoViewport>(find.byType(VideoViewport)).controller,
+        same(before),
+      );
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+    });
+
+    for (final interruption in ['background', 'lock']) {
+      testWidgets('$entry held initialization never starts after $interruption',
+          (tester) async {
+        await tester.pumpWidget(videoApp(entry));
+        await drain(tester);
+        expect(videoPlatform.createCalls, 1);
+        if (interruption == 'background') {
+          tester.binding
+              .handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+          tester.binding
+              .handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+          tester.binding
+              .handleAppLifecycleStateChanged(AppLifecycleState.paused);
+        } else {
+          container.read(lockControllerProvider.notifier).lock();
+        }
+        videoPlatform.initializeFirstPlayer();
+        await drain(tester);
+        expect(videoPlatform.playCalls, 0);
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pump();
+        restoreForeground(tester.binding);
+      });
+
+      testWidgets('$entry ignores late completion after $interruption',
+          (tester) async {
+        await tester.pumpWidget(videoApp(entry));
+        await drain(tester);
+        videoPlatform.initializeFirstPlayer();
+        await drain(tester);
+        expect(videoPlatform.playCalls, greaterThan(0));
+        final before =
+            tester.widget<VideoViewport>(find.byType(VideoViewport)).controller;
+        if (interruption == 'background') {
+          tester.binding
+              .handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+          tester.binding
+              .handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+          tester.binding
+              .handleAppLifecycleStateChanged(AppLifecycleState.paused);
+        } else {
+          container.read(lockControllerProvider.notifier).lock();
+        }
+        videoPlatform.completeFirstPlayer();
+        await drain(tester);
+        expect(
+          tester.widget<VideoViewport>(find.byType(VideoViewport)).controller,
+          same(before),
+        );
+        if (entry == 'playlist') {
+          expect(container.read(playerControllerProvider).current?.id, 'one');
+        }
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pump();
+        restoreForeground(tester.binding);
+      });
+    }
+  }
+
+  testWidgets(
+      'playlist resumes on the first explicit Play after background pause',
+      (tester) async {
+    await tester.pumpWidget(videoApp('playlist'));
+    await drain(tester);
+    videoPlatform.initializeFirstPlayer();
+    await drain(tester);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await drain(tester);
+    restoreForeground(tester.binding);
+    await drain(tester);
+    final before = videoPlatform.playCalls;
+    expect(find.byTooltip('Play'), findsOneWidget);
+    await tester.tap(find.byTooltip('Play'));
+    await drain(tester);
+    expect(videoPlatform.playCalls, before + 1);
+    expect(find.byTooltip('Pause'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
   });
 
   for (final shuffle in [false, true]) {

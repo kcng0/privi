@@ -8,6 +8,10 @@
   replaces and disposes `HomeShell` while another route remains above it.
 - Correct approach: render authentication above the app Navigator, keep the app
   Navigator mounted, and disable its pointer, focus, and semantics while locked.
+  An explicit Android PiP grant may display only its current video above this
+  locked content. The grant is distinct from authentication: screen-off, PiP
+  closure, or fullscreen return revokes it and pauses before revealing the lock
+  overlay. A revoked PiP window stays black until fullscreen returns.
 - Verification: cover a pushed private route with the lock overlay, unlock,
   confirm the route is retained, then pop it and confirm the selected tab is
   unchanged. Keep lifecycle and biometric regression tests passing.
@@ -40,27 +44,31 @@
   Back and unknown external-player results must remain on the current item.
 - Verification: cover near-end VLC metadata, VLC's reset-at-end 0/0 result,
   quick Back, missing metadata, unrelated external viewers, lock bypass, and
-  the player screen's two-step system Back behavior.
+  the player screen's system Back behavior.
 - Scope: Android external video playlist playback. iOS continues to use the
   built-in player until it gains an explicit external hand-off contract.
 
-## In-app video interaction invariant
+## In-app video interaction and display invariant
 
-- Trigger signal: system Back changes the media item, a seek gesture flips the
-  Viewer page, landscape retains a top bar, opening a landscape video stays in
-  portrait, or leaving playback keeps the app orientation locked.
+- Trigger signal: Best fit stretches/crops a portrait video, a seek gesture
+  flips the Viewer page, changing media overrides the chosen direction, or
+  leaving playback keeps the app orientation locked.
 - Root cause: route navigation, PageView gestures, video gestures, and system
   UI lifecycle are handled by overlapping widgets without one owner.
 - Correct approach: video owns horizontal drag/double-tap seeking and
   left/right vertical brightness/volume swipes; dedicated bottom buttons own
-  Previous/Next; system Back hides visible controls before exiting; opening a
-  video locks orientation to its dimensions until the user overrides it or the
-  route is disposed; heart rating lives in the player settings sheet; route
-  disposal restores system UI, brightness, and supported orientations.
-- Verification: cover two-step system Back and immediate top-bar Back, seek
-  direction/magnitude limits, narrow landscape title/progress controls,
-  persisted seek time and playback speed, Viewer manual navigation, and absence
-  of the Viewer delete action.
+  Previous/Next. Video Back exits after any open panel is dismissed. Default
+  orientation follows the sensor; a session direction/axis lock survives media
+  changes. Heart rating lives in settings. Route disposal restores system UI,
+  brightness, and the previous orientation request. One viewport owns scaling:
+  Best fit contains, Fit screen covers, Fill stretches, Original uses physical
+  video pixels converted to logical pixels. Correct rotation/SAR exactly once.
+- Verification: cover delayed native dimensions (duration alone is not ready),
+  portrait/landscape and rotated/SAR videos, all fit modes and pixel densities,
+  narrow controls, persisted preferences, seeking, manual navigation, and
+  absence of the Viewer delete action. Android media_kit already reports display
+  dimensions; never invent a 16:9 initialized size or rotate those dimensions
+  again.
 - Scope: built-in video playback in playlist and Viewer routes on Android and
   iOS. External-player completion remains governed by the separate invariant.
 
@@ -76,6 +84,9 @@
   stale or failed controller. Keep at most the current and one preloaded
   controller alive; render a controller only when its media id matches the
   playlist cursor, and expose initialization failures with Retry.
+  The Android bridge must return a disposable id even when opening fails, then
+  report failure on `videoEventsFor`; throwing from `createWithOptions` leaves
+  video_player's creation barrier incomplete and can hang `dispose()`.
 - Verification: hold the first controller in initialization, press Next
   repeatedly in ordered and shuffle modes, and confirm no second controller is
   created until the first operation settles. Confirm stale work is released,

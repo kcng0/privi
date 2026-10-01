@@ -1,0 +1,11 @@
+Synthetic playback fixtures generated for Privi tests; no personal or third-party media.
+Generated with FFmpeg 6.1.1 using scripts/create-playback-fixtures.sh.
+Inputs are FFmpeg testsrc2/sine generators and the subtitle text in that script.
+Redistributed with this project under its MIT license. These files are never app assets.
+
+Regenerate locally:
+  bash scripts/create-playback-fixtures.sh integration_test/fixtures
+  (cd integration_test/fixtures && sha256sum *.mp4 *.mkv *.webm *.ass > SHA256SUMS)
+
+The checked-in corpus avoids installing a video toolchain during every emulator run.
+CI verifies SHA256SUMS before serving the corpus to the app's private test cache.

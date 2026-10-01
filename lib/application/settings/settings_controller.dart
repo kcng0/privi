@@ -15,6 +15,9 @@ class AppSettings {
     this.playerSeekSeconds = 3,
     this.playerDragSeekSeconds = defaultPlayerDragSeekSeconds,
     this.playerPlaybackSpeed = 1,
+    this.playerFitMode = VideoFitMode.bestFit,
+    this.playerDefaultOrientation = 'auto',
+    this.playerLastLockedOrientation = 'sensorLandscape',
     this.slideshowSeconds = 3,
     this.shuffleDefault = false,
     this.recycleRetentionDays = 7,
@@ -30,6 +33,9 @@ class AppSettings {
   final int playerSeekSeconds;
   final int playerDragSeekSeconds;
   final double playerPlaybackSpeed;
+  final VideoFitMode playerFitMode;
+  final String playerDefaultOrientation;
+  final String playerLastLockedOrientation;
   final int slideshowSeconds;
   final bool shuffleDefault;
   final int recycleRetentionDays;
@@ -49,6 +55,9 @@ class AppSettings {
     int? playerSeekSeconds,
     int? playerDragSeekSeconds,
     double? playerPlaybackSpeed,
+    VideoFitMode? playerFitMode,
+    String? playerDefaultOrientation,
+    String? playerLastLockedOrientation,
     int? slideshowSeconds,
     bool? shuffleDefault,
     int? recycleRetentionDays,
@@ -65,6 +74,11 @@ class AppSettings {
       playerDragSeekSeconds:
           playerDragSeekSeconds ?? this.playerDragSeekSeconds,
       playerPlaybackSpeed: playerPlaybackSpeed ?? this.playerPlaybackSpeed,
+      playerFitMode: playerFitMode ?? this.playerFitMode,
+      playerDefaultOrientation:
+          playerDefaultOrientation ?? this.playerDefaultOrientation,
+      playerLastLockedOrientation:
+          playerLastLockedOrientation ?? this.playerLastLockedOrientation,
       slideshowSeconds: slideshowSeconds ?? this.slideshowSeconds,
       shuffleDefault: shuffleDefault ?? this.shuffleDefault,
       recycleRetentionDays: recycleRetentionDays ?? this.recycleRetentionDays,
@@ -83,6 +97,9 @@ class SettingsController extends Notifier<AppSettings> {
   static const _kPlayerSeek = 'player_seek_seconds';
   static const _kPlayerDragSeek = 'player_drag_seek_seconds';
   static const _kPlayerSpeed = 'player_playback_speed';
+  static const _kPlayerFit = 'player_fit_mode';
+  static const _kPlayerOrientation = 'player_default_orientation';
+  static const _kPlayerLockedOrientation = 'player_last_locked_orientation';
   static const _kSlideshow = 'slideshow_seconds';
   static const _kShuffle = 'shuffle_default';
   static const _kRecycle = 'recycle_retention_days';
@@ -107,6 +124,15 @@ class SettingsController extends Notifier<AppSettings> {
       playerDragSeekSeconds:
           p.getInt(_kPlayerDragSeek) ?? defaultPlayerDragSeekSeconds,
       playerPlaybackSpeed: p.getDouble(_kPlayerSpeed) ?? 1,
+      playerFitMode: VideoFitMode.fromStored(p.getString(_kPlayerFit)),
+      playerDefaultOrientation: videoDefaultOrientationOptions
+              .contains(p.getString(_kPlayerOrientation))
+          ? p.getString(_kPlayerOrientation)!
+          : 'auto',
+      playerLastLockedOrientation:
+          p.getString(_kPlayerLockedOrientation) == 'sensorPortrait'
+              ? 'sensorPortrait'
+              : 'sensorLandscape',
       slideshowSeconds: p.getInt(_kSlideshow) ?? 3,
       shuffleDefault: p.getBool(_kShuffle) ?? false,
       recycleRetentionDays: p.getInt(_kRecycle) ?? 7,
@@ -158,8 +184,31 @@ class SettingsController extends Notifier<AppSettings> {
     );
     if (matches.isEmpty) throw ArgumentError.value(speed, 'speed');
     final normalized = matches.single;
+    if (!await _prefs.setDouble(_kPlayerSpeed, normalized)) {
+      throw StateError('Could not save the playback speed preference.');
+    }
     state = state.copyWith(playerPlaybackSpeed: normalized);
-    await _prefs.setDouble(_kPlayerSpeed, normalized);
+  }
+
+  Future<void> setPlayerFitMode(VideoFitMode mode) async {
+    state = state.copyWith(playerFitMode: mode);
+    await _prefs.setString(_kPlayerFit, mode.name);
+  }
+
+  Future<void> setPlayerDefaultOrientation(String mode) async {
+    if (!videoDefaultOrientationOptions.contains(mode)) {
+      throw ArgumentError.value(mode, 'mode');
+    }
+    state = state.copyWith(playerDefaultOrientation: mode);
+    await _prefs.setString(_kPlayerOrientation, mode);
+  }
+
+  Future<void> setPlayerLastLockedOrientation(String mode) async {
+    if (mode != 'sensorPortrait' && mode != 'sensorLandscape') {
+      throw ArgumentError.value(mode, 'mode');
+    }
+    state = state.copyWith(playerLastLockedOrientation: mode);
+    await _prefs.setString(_kPlayerLockedOrientation, mode);
   }
 
   Future<void> setSlideshowSeconds(int s) async {

@@ -1,0 +1,83 @@
+name: Android Playback Validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, feat/vlc-playback]
+    paths:
+      - 'lib/**'
+      - 'android/**'
+      - 'assets/fonts/**'
+      - 'third_party/media_kit_video/**'
+      - 'integration_test/**'
+      - 'test_driver/**'
+      - 'scripts/create-playback-fixtures.sh'
+      - 'scripts/run-playback-validation.sh'
+      - 'scripts/playback-device-actions.py'
+      - 'pubspec.*'
+      - '.github/workflows/player-validation.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  native-playback:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/cache/restore@v4
+        id: gradle-cache
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: playback-gradle-${{ runner.os }}-${{ hashFiles('android/**/*.gradle*', 'android/gradle/wrapper/gradle-wrapper.properties', 'pubspec.lock') }}
+          restore-keys: playback-gradle-${{ runner.os }}-
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.6'
+          cache: true
+      - name: Dependencies and generated code
+        run: |
+          flutter pub get
+          flutter gen-l10n
+          dart run build_runner build
+      - name: Serve verified synthetic codec and subtitle fixtures
+        run: |
+          (cd integration_test/fixtures && sha256sum -c SHA256SUMS)
+          nohup python3 -m http.server 8765 --bind 127.0.0.1 --directory integration_test/fixtures > "$RUNNER_TEMP/privi-fixture-server.log" 2>&1 < /dev/null &
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-privi-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Test native playback on Android
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          # Newer goldfish EGL rejects this bundled mpv's zero context flags.
+          # Keep actual frame assertions; see DEVELOPMENT.md for the limitation.
+          api-level: 33
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: bash scripts/run-playback-validation.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playback-validation
+          path: build/playback-validation
+          if-no-files-found: ignore
+      - uses: actions/cache/save@v4
+        if: always() && steps.gradle-cache.outputs.cache-hit != 'true'
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ steps.gradle-cache.outputs.cache-primary-key }}

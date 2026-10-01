@@ -1,6 +1,7 @@
 package com.privi.app
 
 import android.content.Intent
+import android.content.res.Configuration
 import android.net.Uri
 import android.media.AudioManager
 import android.os.Build
@@ -23,6 +24,9 @@ class MainActivity : FlutterFragmentActivity() {
     private val ioExecutor = Executors.newFixedThreadPool(3)
     private val mainHandler = Handler(Looper.getMainLooper())
     private var externalPlayer: ExternalPlayerHandler? = null
+    private var shareHandler: ShareHandler? = null
+    private var pictureInPicture: PictureInPictureHandler? = null
+    private var orientation: OrientationHandler? = null
 
     private fun <T> runIo(result: MethodChannel.Result, block: () -> T) {
         ioExecutor.execute {
@@ -44,6 +48,9 @@ class MainActivity : FlutterFragmentActivity() {
         val thumbnails = ThumbnailHandler()
         val messenger = flutterEngine.dartExecutor.binaryMessenger
         externalPlayer = ExternalPlayerHandler(this, messenger, vaultFiles)
+        shareHandler = ShareHandler(this, messenger, mediaStore)
+        pictureInPicture = PictureInPictureHandler(this, messenger)
+        orientation = OrientationHandler(this, messenger)
 
         MethodChannel(messenger, "com.privi.app/mediastore")
             .setMethodCallHandler { call, result ->
@@ -234,10 +241,37 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     override fun onDestroy() {
+        pictureInPicture?.dispose()
+        pictureInPicture = null
+        orientation?.dispose()
+        orientation = null
         externalPlayer?.dispose()
         externalPlayer = null
+        shareHandler?.dispose()
+        shareHandler = null
         ioExecutor.shutdown()
         super.onDestroy()
+    }
+
+    override fun onResume() {
+        // Cover a PiP return before Flutter resumes rendering the route.
+        pictureInPicture?.onResume()
+        super.onResume()
+    }
+
+    override fun onPause() {
+        pictureInPicture?.onPause()
+        super.onPause()
+    }
+
+    override fun onStop() {
+        pictureInPicture?.onStop()
+        super.onStop()
+    }
+
+    override fun onPictureInPictureModeChanged(active: Boolean, configuration: Configuration) {
+        pictureInPicture?.onModeChanged(active)
+        super.onPictureInPictureModeChanged(active, configuration)
     }
 
     private fun setWindowBrightness(value: Float) {

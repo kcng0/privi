@@ -1032,13 +1032,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String get videoDisplayMode => 'Display mode';
 
   @override
-  String get videoFit => 'Fit';
+  String get videoFit => 'Best fit';
 
   @override
-  String get videoFill => 'Fill screen';
+  String get videoFill => 'Fill (stretch)';
 
   @override
-  String get videoOriginal => 'Original';
+  String get videoOriginal => 'Original size';
 
   @override
   String get videoRatioFourThree => '4:3';
@@ -1262,4 +1262,93 @@ class AppLocalizationsEn extends AppLocalizations {
   String unlockLockout(int seconds) {
     return 'Try again in ${seconds}s';
   }
+
+  @override
+  String get videoFitScreen => 'Fit screen (crop)';
+
+  @override
+  String get videoTracks => 'Audio and subtitles';
+
+  @override
+  String get videoOrientation => 'Orientation';
+
+  @override
+  String get videoDefaultOrientation => 'Default playback orientation';
+
+  @override
+  String get videoAutoOrientation => 'Automatic (sensor)';
+
+  @override
+  String get videoReversePortrait => 'Reverse portrait';
+
+  @override
+  String get videoReverseLandscape => 'Reverse landscape';
+
+  @override
+  String get videoSensorLandscape => 'Landscape (sensor)';
+
+  @override
+  String get videoSensorPortrait => 'Portrait (sensor)';
+
+  @override
+  String get videoLastLocked => 'Last locked orientation';
+
+  @override
+  String get videoLockOrientation => 'Lock current orientation';
+
+  @override
+  String get videoUnlockOrientation => 'Unlock orientation';
+
+  @override
+  String get videoLockTouch => 'Lock touch controls';
+
+  @override
+  String get videoUnlockTouch => 'Unlock touch controls';
+
+  @override
+  String get videoPictureInPicture => 'Picture in picture';
+
+  @override
+  String get videoAdvanced => 'Tracks and advanced playback';
+
+  @override
+  String get videoAudioTracks => 'Audio tracks';
+
+  @override
+  String get videoSubtitles => 'Subtitles';
+
+  @override
+  String get videoSubtitleOff => 'Subtitles off';
+
+  @override
+  String get videoImportSubtitle => 'Open subtitle file';
+
+  @override
+  String get videoAudioDelay => 'Audio delay';
+
+  @override
+  String get videoSubtitleDelay => 'Subtitle delay';
+
+  @override
+  String get videoDelayHelp =>
+      'Positive values delay; negative values advance.';
+
+  @override
+  String get videoInvalidDelay => 'Enter a whole number of milliseconds.';
+
+  @override
+  String get videoAbLoop => 'A–B repeat';
+
+  @override
+  String get videoSetA => 'Set A here';
+
+  @override
+  String get videoSetB => 'Set B here';
+
+  @override
+  String get videoClearAb => 'Clear A–B';
+
+  @override
+  String get videoAdvancedUnavailable =>
+      'Advanced playback is unavailable on this player.';
 }

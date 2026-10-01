@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:privi/application/player/video_preview_coordinator.dart';
 import 'package:privi/core/theme/app_theme.dart';
 import 'package:privi/data/services/playback_display_service.dart';
 import 'package:privi/l10n/app_localizations.dart';
@@ -143,45 +144,7 @@ void main() {
     expect(videoVerticalAdjustDelta(verticalDelta: 0, viewportHeight: 400), 0);
   });
 
-  test('video size picks landscape or portrait lock', () {
-    expect(preferredOrientationsForVideo(const Size(1920, 1080)), [
-      DeviceOrientation.landscapeLeft,
-      DeviceOrientation.landscapeRight,
-    ]);
-    expect(preferredOrientationsForVideo(const Size(1080, 1920)), [
-      DeviceOrientation.portraitUp,
-    ]);
-    expect(preferredOrientationsForVideo(const Size(1080, 1080)), [
-      DeviceOrientation.portraitUp,
-    ]);
-    expect(
-      preferredOrientationsForVideo(
-        const Size(1920, 1080),
-        rotationCorrection: 90,
-      ),
-      [DeviceOrientation.portraitUp],
-    );
-    expect(
-      preferredOrientationsForVideo(
-        const Size(1920, 1080),
-        rotationCorrection: 270,
-      ),
-      [DeviceOrientation.portraitUp],
-    );
-    expect(
-      preferredOrientationsForVideo(
-        const Size(1920, 1080),
-        rotationCorrection: 180,
-      ),
-      [DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight],
-    );
-    expect(
-      preferredOrientationsForVideo(
-        const Size(1080, 1920),
-        rotationCorrection: 90,
-      ),
-      [DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight],
-    );
+  test('rotation metadata corrects display size exactly once', () {
     expect(
       displayAspectRatioForVideo(
         const Size(1920, 1080),
@@ -238,9 +201,8 @@ void main() {
     ]);
   });
 
-  testWidgets('viewport uses display aspect for rotated portrait videos', (
-    tester,
-  ) async {
+  testWidgets('viewport uses tight bounds and updates rotated display metadata',
+      (tester) async {
     final controller = VideoPlayerController.networkUrl(
       Uri.parse('https://example.com/video.mp4'),
     );
@@ -251,45 +213,140 @@ void main() {
       rotationCorrection: 90,
       isInitialized: true,
     );
-
     await tester.pumpWidget(
       MaterialApp(
-        home: SizedBox(
-          width: 360,
-          height: 640,
-          child: VideoViewport(
-            controller: controller,
-            fitMode: VideoFitMode.fit,
+        home: Center(
+          child: SizedBox(
+            width: 320,
+            height: 480,
+            child: VideoViewport(
+              controller: controller,
+              fitMode: VideoFitMode.bestFit,
+            ),
           ),
         ),
       ),
     );
+    expect(
+      tester.getSize(find.byKey(const Key('video-display-rect'))),
+      const Size(270, 480),
+    );
+    final mountedVideo = tester.element(find.byType(VideoPlayer));
+    controller.value =
+        controller.value.copyWith(position: const Duration(seconds: 3));
+    await tester.pump();
+    expect(tester.element(find.byType(VideoPlayer)), same(mountedVideo));
+    controller.value = controller.value
+        .copyWith(size: const Size(720, 1280), rotationCorrection: 0);
+    await tester.pump();
+    expect(
+      tester.getSize(find.byKey(const Key('video-display-rect'))),
+      const Size(270, 480),
+    );
+    controller.value = controller.value.copyWith(size: const Size(1920, 1080));
+    await tester.pump();
+    expect(
+      tester.getSize(find.byKey(const Key('video-display-rect'))),
+      const Size(320, 180),
+    );
+    expect(tester.element(find.byType(VideoPlayer)), same(mountedVideo));
+  });
 
-    final aspect = tester.widget<AspectRatio>(find.byType(AspectRatio));
-    expect(aspect.aspectRatio, closeTo(1080 / 1920, 0.0001));
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: SizedBox(
-          width: 360,
-          height: 640,
-          child: VideoViewport(
-            controller: controller,
-            fitMode: VideoFitMode.fill,
+  testWidgets(
+      'portrait video supports every mode without reversing fixed ratios',
+      (tester) async {
+    final controller = VideoPlayerController.networkUrl(
+      Uri.parse('https://example.com/video.mp4'),
+    );
+    addTearDown(controller.dispose);
+    final expected = <VideoFitMode, Size>{
+      VideoFitMode.bestFit: const Size(270, 480),
+      VideoFitMode.fitScreen: const Size(320, 320 * 16 / 9),
+      VideoFitMode.fill: const Size(320, 480),
+      VideoFitMode.original: const Size(540, 960),
+      VideoFitMode.ratio16x9: const Size(320, 180),
+      VideoFitMode.ratio4x3: const Size(320, 240),
+      VideoFitMode.ratio16x10: const Size(320, 200),
+      VideoFitMode.ratio2x1: const Size(320, 160),
+      VideoFitMode.ratio221x1: const Size(320, 320 / 2.21),
+      VideoFitMode.ratio235x1: const Size(320, 320 / 2.35),
+      VideoFitMode.ratio239x1: const Size(320, 320 / 2.39),
+      VideoFitMode.ratio5x4: const Size(320, 256),
+    };
+    for (final rotation in [0, 90, 270]) {
+      controller.value = VideoPlayerValue(
+        duration: const Duration(seconds: 10),
+        size: rotation == 0 ? const Size(1080, 1920) : const Size(1920, 1080),
+        rotationCorrection: rotation,
+        isInitialized: true,
+      );
+      for (final entry in expected.entries) {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: MediaQuery(
+              data: const MediaQueryData(devicePixelRatio: 2),
+              child: Center(
+                child: SizedBox(
+                  width: 320,
+                  height: 480,
+                  child: VideoViewport(
+                    controller: controller,
+                    fitMode: entry.key,
+                  ),
+                ),
+              ),
+            ),
           ),
-        ),
-      ),
-    );
+        );
+        final actual =
+            tester.getSize(find.byKey(const Key('video-display-rect')));
+        expect(
+          actual.width,
+          closeTo(entry.value.width, .001),
+          reason: '${entry.key} rotation=$rotation',
+        );
+        expect(
+          actual.height,
+          closeTo(entry.value.height, .001),
+          reason: '${entry.key} rotation=$rotation',
+        );
+        expect(tester.takeException(), isNull);
+      }
+    }
+  });
 
-    final fitted = tester.widget<FittedBox>(find.byType(FittedBox));
-    expect(fitted.fit, BoxFit.cover);
-    final inner = tester.widget<SizedBox>(
-      find.descendant(
-        of: find.byType(FittedBox),
-        matching: find.byType(SizedBox),
+  test(
+      'original size does not shrink and viewport resizing changes contain only',
+      () {
+    const portrait = Size(1080, 1920);
+    expect(
+      videoViewportSize(
+        viewport: const Size(640, 360),
+        displaySize: portrait,
+        mode: VideoFitMode.bestFit,
       ),
+      const Size(202.5, 360),
     );
-    expect(inner.width! / inner.height!, closeTo(1080 / 1920, 0.0001));
+    expect(
+      videoViewportSize(
+        viewport: const Size(640, 360),
+        displaySize: portrait,
+        mode: VideoFitMode.original,
+        devicePixelRatio: 3,
+      ),
+      const Size(360, 640),
+    );
+    expect(
+      videoViewportSize(
+        viewport: const Size(120, 120),
+        displaySize: portrait,
+        mode: VideoFitMode.original,
+        devicePixelRatio: 1,
+      ),
+      portrait,
+    );
+    expect(VideoFitMode.values.length, 12);
+    expect(VideoFitMode.fromStored('fit'), VideoFitMode.bestFit);
   });
 
   testWidgets('long press fast-forwards at 2x until release', (tester) async {
@@ -448,6 +505,15 @@ void main() {
     final png = base64Decode(
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=',
     );
+    final previews = VideoPreviewCoordinator(
+      load: (position) {
+        requests.add(position);
+        final response = Completer<Uint8List>();
+        responses.add(response);
+        return response.future;
+      },
+    );
+    addTearDown(previews.dispose);
     const value = VideoPlayerValue(
       duration: Duration(minutes: 2),
       position: Duration(seconds: 15),
@@ -471,12 +537,7 @@ void main() {
             onToggleOrientation: () {},
             onChooseFit: () {},
             onOpenSettings: () {},
-            onPreviewFrameRequested: (position) {
-              requests.add(position);
-              final response = Completer<Uint8List>();
-              responses.add(response);
-              return response.future;
-            },
+            onPreviewFrameRequested: previews.requestFrame,
           ),
         ),
       ),
@@ -541,7 +602,7 @@ void main() {
     expect(visible, isFalse);
   });
 
-  testWidgets('landscape controls hide time labels without overflowing', (
+  testWidgets('landscape controls retain progress without overflowing', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(320, 240);
@@ -581,14 +642,80 @@ void main() {
       ),
     );
 
-    expect(find.text('0:15'), findsNothing);
-    expect(find.text('2:00'), findsNothing);
+    expect(find.text('0:15/2:00'), findsOneWidget);
     expect(find.byIcon(Icons.skip_previous), findsOneWidget);
-    expect(find.byIcon(Icons.pause), findsOneWidget);
+    expect(find.byIcon(Icons.pause_circle), findsOneWidget);
     expect(find.byIcon(Icons.skip_next), findsOneWidget);
-    expect(find.byIcon(Icons.stay_current_portrait), findsOneWidget);
+    expect(find.byIcon(Icons.screen_rotation), findsOneWidget);
     expect(find.byIcon(Icons.fit_screen), findsOneWidget);
     expect(find.byIcon(Icons.settings_outlined), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('large text keeps transport above the complete bottom toolbar',
+      (tester) async {
+    tester.view.physicalSize = const Size(320, 240);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    const value = VideoPlayerValue(
+      duration: Duration(hours: 12),
+      position: Duration(hours: 10),
+      isInitialized: true,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context)
+              .copyWith(textScaler: const TextScaler.linear(2)),
+          child: child!,
+        ),
+        home: Scaffold(
+          body: Stack(
+            children: [
+              VideoTransportRegion(
+                child: VideoTransportControls(
+                  value: value,
+                  hasPrevious: true,
+                  hasNext: true,
+                  onPrevious: () {},
+                  onPlayPause: () {},
+                  onNext: () {},
+                ),
+              ),
+              Align(
+                alignment: Alignment.bottomCenter,
+                child: VideoBottomControls(
+                  value: value,
+                  landscape: true,
+                  fitMode: VideoFitMode.bestFit,
+                  hasPrevious: true,
+                  hasNext: true,
+                  onPrevious: () {},
+                  onSeek: (_) async {},
+                  onPlayPause: () {},
+                  onNext: () {},
+                  onToggleOrientation: () {},
+                  onChooseFit: () {},
+                  onOpenSettings: () {},
+                  onOpenTracks: () {},
+                  onPictureInPicture: () {},
+                  showTransport: false,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    expect(find.text('10:00:00/12:00:00'), findsOneWidget);
+    expect(find.byTooltip('Audio and subtitles'), findsOneWidget);
+    expect(find.byTooltip('Picture in picture'), findsOneWidget);
+    final transport = tester.getRect(find.byType(VideoTransportControls));
+    final timeline = tester.getRect(find.byType(Slider));
+    expect(transport.bottom, lessThanOrEqualTo(timeline.top));
     expect(tester.takeException(), isNull);
   });
 
@@ -616,7 +743,9 @@ void main() {
                   dragSeekSeconds: 600,
                   onDragSeekSecondsChanged: (_) {},
                   playbackSpeed: 1,
-                  onPlaybackSpeedChanged: (speed) => selectedSpeed = speed,
+                  onPlaybackSpeedChanged: (speed) async {
+                    selectedSpeed = speed;
+                  },
                   muted: false,
                   onMutedChanged: (_) {},
                   looping: false,
@@ -669,7 +798,7 @@ void main() {
                   dragSeekSeconds: 600,
                   onDragSeekSecondsChanged: (_) {},
                   playbackSpeed: 1,
-                  onPlaybackSpeedChanged: (_) {},
+                  onPlaybackSpeedChanged: (_) async {},
                   muted: false,
                   onMutedChanged: (_) {},
                   rating: rating,
@@ -692,6 +821,76 @@ void main() {
     await tester.pump();
 
     expect(rating, 0);
+  });
+
+  testWidgets('seek release delegates resume to the lifecycle owner',
+      (tester) async {
+    final video = VideoPlayerController.networkUrl(
+      Uri.parse('https://example.com/video.mp4'),
+    );
+    video.value = video.value.copyWith(
+      duration: const Duration(minutes: 2),
+      position: const Duration(seconds: 30),
+      isPlaying: true,
+    );
+    addTearDown(video.dispose);
+    var resumeRequests = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: VideoGestureSurface(
+          controller: video,
+          seekSeconds: 3,
+          onTap: () {},
+          onResume: () async {
+            resumeRequests++;
+          },
+          child: const SizedBox.expand(),
+        ),
+      ),
+    );
+    await tester.dragFrom(const Offset(200, 250), const Offset(100, 0));
+    await tester.pump();
+    expect(resumeRequests, 1);
+    expect(video.value.isPlaying, isFalse);
+    await tester.pump(const Duration(seconds: 1));
+  });
+
+  testWidgets('touch lock blocks seek, volume, brightness and long press',
+      (tester) async {
+    final video = VideoPlayerController.networkUrl(
+      Uri.parse('https://example.com/video.mp4'),
+    );
+    video.value = video.value.copyWith(
+      duration: const Duration(minutes: 2),
+      position: const Duration(seconds: 30),
+      playbackSpeed: 1.25,
+    );
+    addTearDown(video.dispose);
+    final display = _FakeDisplayControls();
+    var taps = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: VideoGestureSurface(
+          controller: video,
+          seekSeconds: 3,
+          enabled: false,
+          displayControls: display,
+          onTap: () => taps++,
+          child: const SizedBox.expand(),
+        ),
+      ),
+    );
+    await tester.tapAt(const Offset(100, 200));
+    await tester.tapAt(const Offset(100, 200));
+    await tester.dragFrom(const Offset(100, 250), const Offset(200, 0));
+    await tester.dragFrom(const Offset(100, 250), const Offset(0, -100));
+    await tester.dragFrom(const Offset(700, 250), const Offset(0, -100));
+    await tester.longPressAt(const Offset(400, 200));
+    expect(video.value.position, const Duration(seconds: 30));
+    expect(video.value.playbackSpeed, 1.25);
+    expect(display.brightnessWrites, isEmpty);
+    expect(display.volumeWrites, isEmpty);
+    expect(taps, 0);
   });
 
   testWidgets('left vertical swipe changes brightness', (tester) async {

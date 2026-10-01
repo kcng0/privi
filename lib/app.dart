@@ -3,12 +3,14 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:video_player/video_player.dart';
 
 import 'application/gallery/gallery_controller.dart';
 import 'application/import/import_controller.dart';
 import 'application/import/share_queue_controller.dart';
 import 'application/lock/lock_controller.dart';
 import 'application/player/external_player_coordinator.dart';
+import 'application/player/picture_in_picture_controller.dart';
 import 'application/player/player_controller.dart';
 import 'application/providers.dart';
 import 'application/settings/settings_controller.dart';
@@ -228,6 +230,8 @@ class _RootGate extends ConsumerWidget {
 
     final lock = ref.watch(lockControllerProvider);
     final requiresUnlock = lock.status != LockStatus.unlocked;
+    final pip = ref.watch(pictureInPictureControllerProvider);
+    final videoOnly = pip.grantActive || pip.isActive;
 
     return Stack(
       fit: StackFit.expand,
@@ -239,11 +243,11 @@ class _RootGate extends ConsumerWidget {
             child: IgnorePointer(
               key: const ValueKey('vault-content-interaction'),
               ignoring: requiresUnlock,
-              child: child,
+              child: Offstage(offstage: videoOnly, child: child),
             ),
           ),
         ),
-        if (requiresUnlock)
+        if (requiresUnlock && !videoOnly)
           HeroControllerScope.none(
             child: Navigator(
               key: const ValueKey('vault-lock-overlay'),
@@ -253,7 +257,31 @@ class _RootGate extends ConsumerWidget {
               ),
             ),
           ),
+        if (videoOnly)
+          ExcludeSemantics(
+            child: IgnorePointer(
+              child: ColoredBox(
+                key: const ValueKey('pip-video-only'),
+                color: Colors.black,
+                child: pip.grantActive && pip.controller != null
+                    ? Center(
+                        child: AspectRatio(
+                          aspectRatio: _pipAspectRatio(pip.controller!.value),
+                          child: VideoPlayer(pip.controller!),
+                        ),
+                      )
+                    : const SizedBox.expand(),
+              ),
+            ),
+          ),
       ],
     );
+  }
+
+  double _pipAspectRatio(VideoPlayerValue value) {
+    final size = value.size;
+    final rotated = value.rotationCorrection % 180 != 0;
+    final ratio = rotated ? size.height / size.width : size.width / size.height;
+    return ratio.isFinite && ratio > 0 ? ratio : 16 / 9;
   }
 }

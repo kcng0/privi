@@ -18,16 +18,32 @@ class ThumbnailHandler {
         return try {
             retriever = MediaMetadataRetriever()
             retriever.setDataSource(path)
-            val frame = retriever.getFrameAtTime(
-                timeUs,
-                MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
-            ) ?: return null
+            // Decode directly into a bounded preview instead of allocating a
+            // full-resolution frame on every drag update (API 27+).
+            val frame = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                retriever.getScaledFrameAtTime(
+                    timeUs,
+                    MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                    maxSize.coerceAtLeast(1),
+                    maxSize.coerceAtLeast(1),
+                )
+            } else {
+                retriever.getFrameAtTime(
+                    timeUs,
+                    MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                )
+            } ?: return null
             val scaled = scaleDown(frame, maxSize.coerceAtLeast(1))
-            val output = ByteArrayOutputStream()
-            scaled.compress(Bitmap.CompressFormat.JPEG, 78, output)
-            if (scaled !== frame) scaled.recycle()
-            frame.recycle()
-            output.toByteArray()
+            try {
+                val output = ByteArrayOutputStream()
+                if (!scaled.compress(Bitmap.CompressFormat.JPEG, 78, output)) {
+                    throw IllegalStateException("Could not encode preview frame")
+                }
+                output.toByteArray()
+            } finally {
+                if (scaled !== frame) scaled.recycle()
+                frame.recycle()
+            }
         } catch (e: Exception) {
             android.util.Log.w("Privi", "videoFrameAtTime: $e")
             null

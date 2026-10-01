@@ -51,6 +51,15 @@ jobs:
           flutter-version: "3.44.6"
           cache: true
 
+      - name: Restore verified Android build dependencies
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: playback-gradle-${{ runner.os }}-${{ hashFiles('android/**/*.gradle*', 'android/gradle/wrapper/gradle-wrapper.properties', 'pubspec.lock') }}
+          restore-keys: playback-gradle-${{ runner.os }}-
+
       - name: Set up Shorebird
         uses: shorebirdtech/setup-shorebird@v1
         with:

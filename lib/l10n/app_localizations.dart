@@ -1903,19 +1903,19 @@ abstract class AppLocalizations {
   /// No description provided for @videoFit.
   ///
   /// In en, this message translates to:
-  /// **'Fit'**
+  /// **'Best fit'**
   String get videoFit;
 
   /// No description provided for @videoFill.
   ///
   /// In en, this message translates to:
-  /// **'Fill screen'**
+  /// **'Fill (stretch)'**
   String get videoFill;
 
   /// No description provided for @videoOriginal.
   ///
   /// In en, this message translates to:
-  /// **'Original'**
+  /// **'Original size'**
   String get videoOriginal;
 
   /// No description provided for @videoRatioFourThree.
@@ -2325,6 +2325,180 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Try again in {seconds}s'**
   String unlockLockout(int seconds);
+
+  /// No description provided for @videoFitScreen.
+  ///
+  /// In en, this message translates to:
+  /// **'Fit screen (crop)'**
+  String get videoFitScreen;
+
+  /// No description provided for @videoTracks.
+  ///
+  /// In en, this message translates to:
+  /// **'Audio and subtitles'**
+  String get videoTracks;
+
+  /// No description provided for @videoOrientation.
+  ///
+  /// In en, this message translates to:
+  /// **'Orientation'**
+  String get videoOrientation;
+
+  /// No description provided for @videoDefaultOrientation.
+  ///
+  /// In en, this message translates to:
+  /// **'Default playback orientation'**
+  String get videoDefaultOrientation;
+
+  /// No description provided for @videoAutoOrientation.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatic (sensor)'**
+  String get videoAutoOrientation;
+
+  /// No description provided for @videoReversePortrait.
+  ///
+  /// In en, this message translates to:
+  /// **'Reverse portrait'**
+  String get videoReversePortrait;
+
+  /// No description provided for @videoReverseLandscape.
+  ///
+  /// In en, this message translates to:
+  /// **'Reverse landscape'**
+  String get videoReverseLandscape;
+
+  /// No description provided for @videoSensorLandscape.
+  ///
+  /// In en, this message translates to:
+  /// **'Landscape (sensor)'**
+  String get videoSensorLandscape;
+
+  /// No description provided for @videoSensorPortrait.
+  ///
+  /// In en, this message translates to:
+  /// **'Portrait (sensor)'**
+  String get videoSensorPortrait;
+
+  /// No description provided for @videoLastLocked.
+  ///
+  /// In en, this message translates to:
+  /// **'Last locked orientation'**
+  String get videoLastLocked;
+
+  /// No description provided for @videoLockOrientation.
+  ///
+  /// In en, this message translates to:
+  /// **'Lock current orientation'**
+  String get videoLockOrientation;
+
+  /// No description provided for @videoUnlockOrientation.
+  ///
+  /// In en, this message translates to:
+  /// **'Unlock orientation'**
+  String get videoUnlockOrientation;
+
+  /// No description provided for @videoLockTouch.
+  ///
+  /// In en, this message translates to:
+  /// **'Lock touch controls'**
+  String get videoLockTouch;
+
+  /// No description provided for @videoUnlockTouch.
+  ///
+  /// In en, this message translates to:
+  /// **'Unlock touch controls'**
+  String get videoUnlockTouch;
+
+  /// No description provided for @videoPictureInPicture.
+  ///
+  /// In en, this message translates to:
+  /// **'Picture in picture'**
+  String get videoPictureInPicture;
+
+  /// No description provided for @videoAdvanced.
+  ///
+  /// In en, this message translates to:
+  /// **'Tracks and advanced playback'**
+  String get videoAdvanced;
+
+  /// No description provided for @videoAudioTracks.
+  ///
+  /// In en, this message translates to:
+  /// **'Audio tracks'**
+  String get videoAudioTracks;
+
+  /// No description provided for @videoSubtitles.
+  ///
+  /// In en, this message translates to:
+  /// **'Subtitles'**
+  String get videoSubtitles;
+
+  /// No description provided for @videoSubtitleOff.
+  ///
+  /// In en, this message translates to:
+  /// **'Subtitles off'**
+  String get videoSubtitleOff;
+
+  /// No description provided for @videoImportSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Open subtitle file'**
+  String get videoImportSubtitle;
+
+  /// No description provided for @videoAudioDelay.
+  ///
+  /// In en, this message translates to:
+  /// **'Audio delay'**
+  String get videoAudioDelay;
+
+  /// No description provided for @videoSubtitleDelay.
+  ///
+  /// In en, this message translates to:
+  /// **'Subtitle delay'**
+  String get videoSubtitleDelay;
+
+  /// No description provided for @videoDelayHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Positive values delay; negative values advance.'**
+  String get videoDelayHelp;
+
+  /// No description provided for @videoInvalidDelay.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a whole number of milliseconds.'**
+  String get videoInvalidDelay;
+
+  /// No description provided for @videoAbLoop.
+  ///
+  /// In en, this message translates to:
+  /// **'A–B repeat'**
+  String get videoAbLoop;
+
+  /// No description provided for @videoSetA.
+  ///
+  /// In en, this message translates to:
+  /// **'Set A here'**
+  String get videoSetA;
+
+  /// No description provided for @videoSetB.
+  ///
+  /// In en, this message translates to:
+  /// **'Set B here'**
+  String get videoSetB;
+
+  /// No description provided for @videoClearAb.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear A–B'**
+  String get videoClearAb;
+
+  /// No description provided for @videoAdvancedUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Advanced playback is unavailable on this player.'**
+  String get videoAdvancedUnavailable;
 }
 
 class _AppLocalizationsDelegate
