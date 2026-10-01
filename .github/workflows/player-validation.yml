@@ -38,11 +38,10 @@ jobs:
           flutter pub get
           flutter gen-l10n
           dart run build_runner build
-      - name: Generate synthetic codec and subtitle fixtures
+      - name: Serve verified synthetic codec and subtitle fixtures
         run: |
-          command -v ffmpeg || (sudo apt-get update && sudo apt-get install -y ffmpeg)
-          bash scripts/create-playback-fixtures.sh "$RUNNER_TEMP/privi-fixtures"
-          python3 -m http.server 8765 --bind 127.0.0.1 --directory "$RUNNER_TEMP/privi-fixtures" > "$RUNNER_TEMP/privi-fixture-server.log" 2>&1 &
+          (cd integration_test/fixtures && sha256sum -c SHA256SUMS)
+          nohup python3 -m http.server 8765 --bind 127.0.0.1 --directory integration_test/fixtures > "$RUNNER_TEMP/privi-fixture-server.log" 2>&1 < /dev/null &
       - name: Enable emulator acceleration
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-privi-kvm.rules
