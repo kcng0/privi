@@ -92,17 +92,61 @@ void main() {
     await fixtures.delete(recursive: true);
   });
 
-  Future<VideoPlayerController> open(String name) async {
+  Future<T> pumpOperation<T>(
+    WidgetTester tester,
+    Future<T> operation, {
+    Duration timeout = const Duration(seconds: 45),
+  }) async {
+    var completed = false;
+    T? result;
+    Object? failure;
+    StackTrace? failureStack;
+    unawaited(
+      operation.then<void>(
+        (value) {
+          result = value;
+          completed = true;
+        },
+        onError: (Object error, StackTrace stack) {
+          failure = error;
+          failureStack = stack;
+          completed = true;
+        },
+      ),
+    );
+    final watch = Stopwatch()..start();
+    while (!completed && watch.elapsed < timeout) {
+      // media_kit_video creates its native output after a Flutter frame.
+      // Live integration tests must explicitly drive frames during creation.
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    if (!completed) {
+      throw TimeoutException('Native operation exceeded $timeout');
+    }
+    if (failure != null) Error.throwWithStackTrace(failure!, failureStack!);
+    return result as T;
+  }
+
+  Future<VideoPlayerController> open(WidgetTester tester, String name) async {
     final watch = Stopwatch()..start();
     final controller = VideoPlayerController.file(files[name]!);
     try {
-      await controller.initialize().timeout(const Duration(seconds: 25));
+      await pumpOperation(tester, controller.initialize());
       (metrics['initialization_ms'] as List<dynamic>? ??
               (metrics['initialization_ms'] = <dynamic>[]))
           .add({'file': name, 'ms': watch.elapsedMilliseconds});
       return controller;
-    } catch (_) {
-      await controller.dispose();
+    } catch (error) {
+      debugPrint('Native opening failed for $name: $error');
+      try {
+        await pumpOperation(
+          tester,
+          controller.dispose(),
+          timeout: const Duration(seconds: 5),
+        );
+      } catch (cleanupError) {
+        debugPrint('Native opening cleanup failed for $name: $cleanupError');
+      }
       rethrow;
     }
   }
@@ -141,7 +185,7 @@ void main() {
           'tracks.mkv': 180 / 320,
         };
         for (final entry in cases.entries) {
-          final controller = await open(entry.key);
+          final controller = await open(tester, entry.key);
           try {
             expect(
               controller.value.aspectRatio,
@@ -184,14 +228,14 @@ void main() {
       final failed = VideoPlayerController.file(files['corrupt.mp4']!);
       try {
         await expectLater(
-          failed.initialize().timeout(const Duration(seconds: 45)),
+          pumpOperation(tester, failed.initialize()),
           throwsA(isA<PlatformException>()),
         );
       } finally {
         await failed.dispose().timeout(const Duration(seconds: 5));
       }
       expect(platform.activePlayerCount, 0);
-      final next = await open('portrait.mp4');
+      final next = await open(tester, 'portrait.mp4');
       try {
         await display(tester, next);
         await next.play();
@@ -209,7 +253,7 @@ void main() {
   testWidgets(
     'native audio, ASS subtitles, delays, rate and A-B controls',
     (tester) async {
-      final controller = await open('tracks.mkv');
+      final controller = await open(tester, 'tracks.mkv');
       final advanced = AdvancedVideoController(controller);
       try {
         await display(tester, controller);
@@ -267,7 +311,7 @@ void main() {
       for (var index = 0; index < 100; index++) {
         final timer = Stopwatch()..start();
         final controller =
-            await open(index.isEven ? 'portrait.mp4' : 'landscape.mp4');
+            await open(tester, index.isEven ? 'portrait.mp4' : 'landscape.mp4');
         try {
           expect(platform.activePlayerCount, 1);
           await display(tester, controller);

@@ -155,6 +155,18 @@ class MediaKitVideoPlayerPlatform extends VideoPlayerPlatform {
   }
 
   Future<_PlayerSlot> _openSlot(String uri, {required bool hardware}) async {
+    final watch = Stopwatch()..start();
+    var phase = 'constructing';
+    void trace(String message) {
+      assert(() {
+        debugPrint(
+            'Video initialization (${hardware ? 'hardware' : 'software'}, '
+            '${watch.elapsedMilliseconds}ms): $message');
+        return true;
+      }());
+    }
+
+    trace(phase);
     final player = Player(
       configuration: const PlayerConfiguration(
         libass: true,
@@ -175,6 +187,33 @@ class MediaKitVideoPlayerPlatform extends VideoPlayerPlatform {
       await player.dispose();
       rethrow;
     }
+    Timer? watchdog;
+    assert(() {
+      var playerReady = false;
+      var outputReady = false;
+      unawaited(
+        player.platform!.waitForPlayerInitialization.then<void>(
+          (_) {
+            playerReady = true;
+            trace('native player ready');
+          },
+          onError: (Object error) => trace('native player failed: $error'),
+        ),
+      );
+      unawaited(
+        controller.platform.future.then<void>(
+          (_) {
+            outputReady = true;
+            trace('video output ready');
+          },
+          onError: (Object error) => trace('video output failed: $error'),
+        ),
+      );
+      watchdog = Timer(const Duration(seconds: 5), () {
+        trace('waiting at $phase; player=$playerReady, output=$outputReady');
+      });
+      return true;
+    }());
     // Closed in [_PlayerSlot.dispose] when the player id is released.
     // ignore: close_sinks
     final events = StreamController<VideoEvent>.broadcast();
@@ -215,18 +254,31 @@ class MediaKitVideoPlayerPlatform extends VideoPlayerPlatform {
     String? error;
     VideoEvent? ready;
     try {
+      phase = 'configure';
+      trace(phase);
       final native = player.platform;
       if (native is NativePlayer) {
         await native.setProperty('vd-lavc-software-fallback', 'yes');
       }
+      phase = 'open';
+      trace(phase);
       await player.open(Media(uri), play: false);
       if (runtimeError != null) {
         throw PlatformException(code: 'video_player', message: runtimeError);
       }
+      phase = 'metadata';
+      trace(phase);
       ready = await waitUntilPlaybackReady(player);
+      phase = 'advanced controls';
+      trace(phase);
       await advanced.refresh();
+      trace('ready');
     } catch (e) {
       error = e is PlatformException ? (e.message ?? '$e') : '$e';
+      trace('failed at $phase: $error');
+    } finally {
+      watchdog?.cancel();
+      watch.stop();
     }
     return _PlayerSlot(
       player: player,
