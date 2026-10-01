@@ -468,10 +468,12 @@ void main() {
           (container.read(lockControllerProvider.notifier) as _IntegrationLock)
               .unlockForTest();
           await tester.pump(const Duration(milliseconds: 200));
+          await waitFor(
+            () => binding.lifecycleState == AppLifecycleState.resumed,
+            'PiP entry requires a focused foreground Activity',
+          );
           await controller.play();
-          final entering = pip.enter();
-          await tester.pump();
-          await entering;
+          await pumpOperation(tester, pip.enter());
           await waitFor(
             () {
               final state = container.read(pictureInPictureControllerProvider);

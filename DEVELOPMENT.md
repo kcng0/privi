@@ -222,6 +222,12 @@ rotation/SAR and ASS fixtures, repeated controller disposal, and native PiP
 transitions. Screenshots, timings, and device
 logs are saved as workflow artifacts. No personal media is used. Emulator results
 do not substitute for physical-device codec, battery, or thermal measurements.
+The render suite uses API 33: API 34–36 goldfish EGL rejects the bundled mpv's
+zero context flags before reaching the host renderer. The upstream mpv fix is
+`6b8bd8072fc2abcc14183f91e31f5823481e5614`; even native artifact v1.1.11 retains
+the older mpv commit. Do not remove frame assertions to make newer emulators
+pass. API 35 metadata/disposal checks ran, but its visual rendering did not pass;
+physical-device validation remains separate.
 
 ## Code generation
 

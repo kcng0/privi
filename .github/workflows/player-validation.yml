@@ -8,6 +8,7 @@ on:
       - 'lib/**'
       - 'android/**'
       - 'assets/fonts/**'
+      - 'third_party/media_kit_video/**'
       - 'integration_test/**'
       - 'test_driver/**'
       - 'scripts/create-playback-fixtures.sh'
@@ -36,6 +37,7 @@ jobs:
             ~/.gradle/caches
             ~/.gradle/wrapper
           key: playback-gradle-${{ runner.os }}-${{ hashFiles('android/**/*.gradle*', 'android/gradle/wrapper/gradle-wrapper.properties', 'pubspec.lock') }}
+          restore-keys: playback-gradle-${{ runner.os }}-
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.44.6'
@@ -57,12 +59,14 @@ jobs:
       - name: Test native playback on Android
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 35
+          # Newer goldfish EGL rejects this bundled mpv's zero context flags.
+          # Keep actual frame assertions; see DEVELOPMENT.md for the limitation.
+          api-level: 33
           arch: x86_64
           target: google_apis
           profile: pixel_6
           disable-animations: true
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          emulator-options: -no-window -gpu swiftshader -no-snapshot -noaudio -no-boot-anim -camera-back none
           script: bash scripts/run-playback-validation.sh
       - uses: actions/upload-artifact@v4
         if: always()
