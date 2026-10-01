@@ -50,6 +50,11 @@ try:
             recovery.start()
         elif marker == "PRIVI_TEST_PIP_EXPAND":
             adb("shell", "am", "start", "-n", "com.privi.app/.MainActivity")
+        elif marker.startswith("PRIVI_TEST_PLAYER_SCREENSHOT_"):
+            name = marker.removeprefix("PRIVI_TEST_PLAYER_SCREENSHOT_").lower()
+            with (output / f"player-{name}-controls.png").open("wb") as screenshot:
+                subprocess.run(["adb", "exec-out", "screencap", "-p"],
+                               stdout=screenshot, check=True, timeout=15)
         elif marker.startswith("PRIVI_TEST_PIP_FULLSCREEN_"):
             name = marker.removeprefix("PRIVI_TEST_PIP_FULLSCREEN_").lower()
             with (output / f"native-fullscreen-{name}.png").open("wb") as screenshot:

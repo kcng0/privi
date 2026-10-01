@@ -118,7 +118,9 @@ void main() {
     while (!completed && watch.elapsed < timeout) {
       // media_kit_video creates its native output after a Flutter frame.
       // Live integration tests must explicitly drive frames during creation.
-      await tester.pump(const Duration(milliseconds: 100));
+      await tester
+          .pump(const Duration(milliseconds: 100))
+          .timeout(timeout - watch.elapsed);
     }
     if (!completed) {
       throw TimeoutException('Native operation exceeded $timeout');
@@ -363,9 +365,12 @@ void main() {
       );
 
       Future<void> waitFor(bool Function() condition, String message) async {
+        const timeout = Duration(seconds: 12);
         final watch = Stopwatch()..start();
-        while (!condition() && watch.elapsed < const Duration(seconds: 12)) {
-          await tester.pump(const Duration(milliseconds: 100));
+        while (!condition() && watch.elapsed < timeout) {
+          await tester
+              .pump(const Duration(milliseconds: 100))
+              .timeout(timeout - watch.elapsed);
         }
         expect(condition(), isTrue, reason: message);
       }
@@ -413,10 +418,14 @@ void main() {
         await tester.tap(find.byTooltip('Player settings'));
         await tester.pump(const Duration(milliseconds: 300));
         await tester.ensureVisible(find.text('Loop video'));
+        await tester.pump();
         await tester.tap(find.text('Loop video'));
+        await tester.pump();
+        await tester.ensureVisible(find.byTooltip('Close'));
         await tester.pump();
         await tester.tap(find.byTooltip('Close'));
         await tester.pump(const Duration(milliseconds: 300));
+        expect(find.text('Loop video'), findsNothing);
         expect(controller.value.isLooping, isTrue);
         await controller.seekTo(Duration.zero);
         await controller.play();
@@ -435,7 +444,10 @@ void main() {
             await tester.tap(find.byType(VideoViewport));
             await tester.pump();
           }
-          await screenshot(tester, 'player-$direction-controls');
+          // Keep the normal Android surface throughout the PiP test. Flutter's
+          // screenshot image surface is only restored at test teardown.
+          debugPrint('PRIVI_TEST_PLAYER_SCREENSHOT_$direction');
+          await tester.pump(const Duration(seconds: 2));
           expect(tester.takeException(), isNull);
         }
         await PlaybackOrientationService.instance.setMode('portrait');
