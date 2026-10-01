@@ -13,6 +13,7 @@ import '../../application/settings/settings_controller.dart';
 import '../../core/l10n.dart';
 import '../../domain/models/media_item.dart';
 import '../common/keep_vault_unlocked.dart';
+import 'video_playback_speed.dart';
 import 'video_player_controls.dart';
 import 'video_player_surface.dart';
 import 'video_presentation_session.dart';
@@ -134,15 +135,18 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     }
   }
 
-  void _setPlaybackSpeed(double speed) {
-    setState(() => _playbackSpeed = speed);
-    unawaited(
-      ref
-          .read(settingsControllerProvider.notifier)
-          .setPlayerPlaybackSpeed(speed),
-    );
+  Future<void> _setPlaybackSpeed(double speed) async {
     final video = _video;
-    if (video != null) unawaited(video.setPlaybackSpeed(speed));
+    if (video == null) throw StateError('There is no active video.');
+    final settings = ref.read(settingsControllerProvider.notifier);
+    await updateVideoPlaybackSpeed(
+      controller: video,
+      speed: speed,
+      previousSpeed: _playbackSpeed,
+      isCurrent: () => mounted && identical(_video, video),
+      persist: () => settings.setPlayerPlaybackSpeed(speed),
+    );
+    if (mounted) setState(() => _playbackSpeed = speed);
   }
 
   void _setMuted(bool muted) {

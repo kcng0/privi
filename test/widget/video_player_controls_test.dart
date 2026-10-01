@@ -743,7 +743,9 @@ void main() {
                   dragSeekSeconds: 600,
                   onDragSeekSecondsChanged: (_) {},
                   playbackSpeed: 1,
-                  onPlaybackSpeedChanged: (speed) => selectedSpeed = speed,
+                  onPlaybackSpeedChanged: (speed) async {
+                    selectedSpeed = speed;
+                  },
                   muted: false,
                   onMutedChanged: (_) {},
                   looping: false,
@@ -796,7 +798,7 @@ void main() {
                   dragSeekSeconds: 600,
                   onDragSeekSecondsChanged: (_) {},
                   playbackSpeed: 1,
-                  onPlaybackSpeedChanged: (_) {},
+                  onPlaybackSpeedChanged: (_) async {},
                   muted: false,
                   onMutedChanged: (_) {},
                   rating: rating,

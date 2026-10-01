@@ -84,6 +84,9 @@
   stale or failed controller. Keep at most the current and one preloaded
   controller alive; render a controller only when its media id matches the
   playlist cursor, and expose initialization failures with Retry.
+  The Android bridge must return a disposable id even when opening fails, then
+  report failure on `videoEventsFor`; throwing from `createWithOptions` leaves
+  video_player's creation barrier incomplete and can hang `dispose()`.
 - Verification: hold the first controller in initialization, press Next
   repeatedly in ordered and shuffle modes, and confirm no second controller is
   created until the first operation settles. Confirm stale work is released,

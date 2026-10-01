@@ -184,8 +184,10 @@ class SettingsController extends Notifier<AppSettings> {
     );
     if (matches.isEmpty) throw ArgumentError.value(speed, 'speed');
     final normalized = matches.single;
+    if (!await _prefs.setDouble(_kPlayerSpeed, normalized)) {
+      throw StateError('Could not save the playback speed preference.');
+    }
     state = state.copyWith(playerPlaybackSpeed: normalized);
-    await _prefs.setDouble(_kPlayerSpeed, normalized);
   }
 
   Future<void> setPlayerFitMode(VideoFitMode mode) async {

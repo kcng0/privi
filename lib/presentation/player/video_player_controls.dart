@@ -573,7 +573,7 @@ Future<void> showVideoSettingsSheet(
   required int dragSeekSeconds,
   required ValueChanged<int> onDragSeekSecondsChanged,
   required double playbackSpeed,
-  required ValueChanged<double> onPlaybackSpeedChanged,
+  required Future<void> Function(double) onPlaybackSpeedChanged,
   required bool muted,
   required ValueChanged<bool> onMutedChanged,
   bool? looping,
@@ -649,7 +649,7 @@ class _VideoSettingsSheet extends StatefulWidget {
   final int dragSeekSeconds;
   final ValueChanged<int> onDragSeekSecondsChanged;
   final double playbackSpeed;
-  final ValueChanged<double> onPlaybackSpeedChanged;
+  final Future<void> Function(double) onPlaybackSpeedChanged;
   final bool muted;
   final ValueChanged<bool> onMutedChanged;
   final bool? looping;
@@ -668,11 +668,29 @@ class _VideoSettingsSheetState extends State<_VideoSettingsSheet> {
   late int _seekSeconds = widget.seekSeconds;
   late int _dragSeekSeconds = widget.dragSeekSeconds;
   late double _playbackSpeed = widget.playbackSpeed;
+  bool _changingPlaybackSpeed = false;
+  String? _playbackSpeedError;
   late bool _muted = widget.muted;
   late bool? _looping = widget.looping;
   late bool? _shuffle = widget.shuffle;
   late int? _rating = widget.rating;
   late String _defaultOrientation = widget.defaultOrientation;
+
+  Future<void> _changePlaybackSpeed(double speed) async {
+    if (_changingPlaybackSpeed || speed == _playbackSpeed) return;
+    setState(() {
+      _changingPlaybackSpeed = true;
+      _playbackSpeedError = null;
+    });
+    try {
+      await widget.onPlaybackSpeedChanged(speed);
+      if (mounted) setState(() => _playbackSpeed = speed);
+    } catch (error) {
+      if (mounted) setState(() => _playbackSpeedError = error.toString());
+    } finally {
+      if (mounted) setState(() => _changingPlaybackSpeed = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -775,11 +793,19 @@ class _VideoSettingsSheetState extends State<_VideoSettingsSheet> {
                 divisions: videoPlaybackSpeedOptions.length - 1,
                 value: _playbackSpeed,
                 label: formatPlaybackSpeed(_playbackSpeed),
-                onChanged: (value) {
-                  setState(() => _playbackSpeed = value);
-                  widget.onPlaybackSpeedChanged(value);
-                },
+                onChanged: _changingPlaybackSpeed
+                    ? null
+                    : (value) => unawaited(_changePlaybackSpeed(value)),
               ),
+              if (_playbackSpeedError != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                  child: Text(
+                    context.l10n.errorWithDetails(_playbackSpeedError!),
+                    style:
+                        TextStyle(color: Theme.of(context).colorScheme.error),
+                  ),
+                ),
               SwitchListTile.adaptive(
                 contentPadding: EdgeInsets.zero,
                 title: Text(context.l10n.mute),

@@ -88,6 +88,7 @@ void installVaultVideoPlayer() {
 
 class MediaKitVideoPlayerPlatform extends VideoPlayerPlatform {
   final Map<int, _PlayerSlot> _players = {};
+  final Map<int, PlatformException> _initializationErrors = {};
   int _nextId = 1;
 
   @visibleForTesting
@@ -98,6 +99,7 @@ class MediaKitVideoPlayerPlatform extends VideoPlayerPlatform {
 
   @override
   Future<void> init() async {
+    _initializationErrors.clear();
     for (final id in _players.keys.toList()) {
       await dispose(id);
     }
@@ -115,19 +117,40 @@ class MediaKitVideoPlayerPlatform extends VideoPlayerPlatform {
 
   @override
   Future<int?> createWithOptions(VideoCreationOptions options) async {
-    final uri = mediaUriForDataSource(options.dataSource);
-    var slot = await _openSlot(uri, hardware: true);
-    if (slot.error != null) {
-      await slot.dispose();
-      slot = await _openSlot(uri, hardware: false);
-    }
-    if (slot.error != null) {
-      final message = slot.error!;
-      await slot.dispose();
-      throw PlatformException(code: 'video_player', message: message);
-    }
     final id = _nextId++;
-    _players[id] = slot;
+    _PlayerSlot? slot;
+    try {
+      final uri = mediaUriForDataSource(options.dataSource);
+      slot = await _openSlot(uri, hardware: true);
+      if (slot.error != null) {
+        final failedHardware = slot;
+        slot = null;
+        await failedHardware.dispose();
+        slot = await _openSlot(uri, hardware: false);
+      }
+      if (slot.error != null) {
+        throw PlatformException(code: 'video_player', message: slot.error);
+      }
+      _players[id] = slot;
+    } catch (error) {
+      var message = error is PlatformException
+          ? error.message ?? error.toString()
+          : error.toString();
+      if (slot != null) {
+        try {
+          await slot.dispose();
+        } catch (cleanupError) {
+          message = '$message; releasing failed player: $cleanupError';
+        }
+      }
+      // video_player completes its creation barrier only after receiving an id.
+      // Throwing here would leave its dispose() waiting forever. Failed players
+      // own no live slot: report the failure through the event stream instead.
+      _initializationErrors[id] = PlatformException(
+        code: 'video_player',
+        message: message,
+      );
+    }
     return id;
   }
 
@@ -219,12 +242,15 @@ class MediaKitVideoPlayerPlatform extends VideoPlayerPlatform {
 
   @override
   Future<void> dispose(int playerId) async {
+    _initializationErrors.remove(playerId);
     final slot = _players.remove(playerId);
     if (slot != null) await slot.dispose();
   }
 
   @override
   Stream<VideoEvent> videoEventsFor(int playerId) async* {
+    final initializationError = _initializationErrors[playerId];
+    if (initializationError != null) throw initializationError;
     final slot = _players[playerId];
     if (slot == null) return;
     final ready = slot.ready;
@@ -355,15 +381,24 @@ class _PlayerSlot {
   final String? error;
 
   Future<void> dispose() async {
-    await advanced.close();
-    for (final subscription in subscriptions) {
-      await subscription.cancel();
-    }
-    await events.close();
     try {
-      await player.dispose();
+      await advanced.close();
     } finally {
-      await advanced.deleteTemporarySubtitles();
+      try {
+        await Future.wait(
+          subscriptions.map((subscription) => subscription.cancel()),
+        );
+      } finally {
+        try {
+          await events.close();
+        } finally {
+          try {
+            await player.dispose();
+          } finally {
+            await advanced.deleteTemporarySubtitles();
+          }
+        }
+      }
     }
   }
 }

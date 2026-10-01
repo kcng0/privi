@@ -4,9 +4,61 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:privi/data/services/playback/media_kit_video_player_platform.dart';
+import 'package:video_player/video_player.dart' as facade;
 import 'package:video_player_platform_interface/video_player_platform_interface.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('facade initialization failure can dispose and create again', () async {
+    final previous = VideoPlayerPlatform.instance;
+    final platform = MediaKitVideoPlayerPlatform();
+    VideoPlayerPlatform.instance = platform;
+    addTearDown(() => VideoPlayerPlatform.instance = previous);
+    int? previousId;
+    for (var attempt = 0; attempt < 2; attempt++) {
+      // Invalid asset input fails before constructing a native engine. Exercise
+      // the real facade's creation barrier and error listener, not a fake one.
+      final controller = facade.VideoPlayerController.asset('');
+      await expectLater(
+        controller.initialize().timeout(const Duration(seconds: 2)),
+        throwsA(
+          isA<PlatformException>().having(
+            (error) => error.message,
+            'original failure',
+            contains('Missing asset path'),
+          ),
+        ),
+      );
+      final id = controller.playerId;
+      expect(id, greaterThan(0));
+      expect(id, isNot(previousId));
+      expect(controller.value.hasError, isTrue);
+      expect(controller.value.isInitialized, isFalse);
+      expect(platform.activePlayerCount, 0);
+      expect(platform.advancedPortFor(id), isNull);
+      await controller.dispose().timeout(const Duration(seconds: 2));
+      expect(await platform.videoEventsFor(id).toList(), isEmpty);
+      previousId = id;
+    }
+  });
+
+  test('platform init removes failures that have not been disposed', () async {
+    final platform = MediaKitVideoPlayerPlatform();
+    final id = await platform.create(
+      DataSource(sourceType: DataSourceType.file, uri: ''),
+    );
+    expect(id, isNotNull);
+    expect(platform.activePlayerCount, 0);
+    await expectLater(
+      platform.videoEventsFor(id!).toList(),
+      throwsA(isA<PlatformException>()),
+    );
+    await platform.init();
+    expect(await platform.videoEventsFor(id).toList(), isEmpty);
+    await platform.dispose(id);
+  });
+
   test('duration and a single dimension cannot initialize video', () async {
     final changes = StreamController<void>.broadcast();
     final errors = StreamController<String>.broadcast();

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
@@ -30,6 +31,19 @@ void main() {
   final metrics = <String, dynamic>{};
   final files = <String, File>{};
   late Directory fixtures;
+  var screenshotReady = false;
+
+  setUp(() => screenshotReady = false);
+
+  Future<void> screenshot(WidgetTester tester, String name) async {
+    if (!screenshotReady) {
+      // integration_test automatically restores this surface after each test.
+      await binding.convertFlutterSurfaceToImage();
+      screenshotReady = true;
+    }
+    await tester.pump();
+    await binding.takeScreenshot(name);
+  }
 
   setUpAll(() async {
     fixtures = await Directory('${(await getTemporaryDirectory()).path}/'
@@ -69,6 +83,8 @@ void main() {
     } finally {
       client.close(force: true);
     }
+    files['corrupt.mp4'] = await File('${fixtures.path}/corrupt.mp4')
+        .writeAsString('Intentionally invalid synthetic video fixture.');
   });
 
   tearDownAll(() async {
@@ -144,6 +160,10 @@ void main() {
             await controller.play();
             await tester.pump(const Duration(milliseconds: 400));
             expect(controller.value.hasError, isFalse);
+            if (['portrait.mp4', 'rotated.mp4', 'rotated270.mp4', 'sar.mp4']
+                .contains(entry.key)) {
+              await screenshot(tester, 'best-fit-${entry.key}');
+            }
           } finally {
             await tester.pumpWidget(const SizedBox.shrink());
             await controller.dispose();
@@ -154,6 +174,36 @@ void main() {
       }
     },
     timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  testWidgets(
+    'a native opening failure can dispose and open another video',
+    (tester) async {
+      final platform =
+          VideoPlayerPlatform.instance as MediaKitVideoPlayerPlatform;
+      final failed = VideoPlayerController.file(files['corrupt.mp4']!);
+      try {
+        await expectLater(
+          failed.initialize().timeout(const Duration(seconds: 45)),
+          throwsA(isA<PlatformException>()),
+        );
+      } finally {
+        await failed.dispose().timeout(const Duration(seconds: 5));
+      }
+      expect(platform.activePlayerCount, 0);
+      final next = await open('portrait.mp4');
+      try {
+        await display(tester, next);
+        await next.play();
+        expect(next.value.hasError, isFalse);
+      } finally {
+        await tester.pumpWidget(const SizedBox.shrink());
+        await next.dispose();
+      }
+      expect(platform.activePlayerCount, 0);
+      metrics['native_failure_recovery'] = 'passed';
+    },
+    timeout: const Timeout(Duration(seconds: 90)),
   );
 
   testWidgets(
@@ -193,9 +243,7 @@ void main() {
         await controller.seekTo(const Duration(seconds: 1));
         await controller.play();
         await tester.pump(const Duration(milliseconds: 400));
-        await binding.convertFlutterSurfaceToImage();
-        await tester.pump();
-        await binding.takeScreenshot('portrait-ass-best-fit');
+        await screenshot(tester, 'portrait-ass-best-fit');
         await advanced.setAbLoop(null, null);
         expect(advanced.value.abLoopEnd, isNull);
         await advanced.selectSubtitleTrack('no');
@@ -343,7 +391,7 @@ void main() {
             await tester.tap(find.byType(VideoViewport));
             await tester.pump();
           }
-          await binding.takeScreenshot('player-$direction-controls');
+          await screenshot(tester, 'player-$direction-controls');
           expect(tester.takeException(), isNull);
         }
         await PlaybackOrientationService.instance.setMode('portrait');

@@ -13,7 +13,9 @@ Future<void> main() async {
       return true;
     },
     responseDataCallback: (data) async {
-      await File('${output.path}/metrics.json').writeAsString(jsonEncode(data));
+      final metrics = {...?data}..remove('screenshots');
+      await File('${output.path}/metrics.json')
+          .writeAsString(jsonEncode(metrics));
     },
   );
 }
