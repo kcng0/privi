@@ -198,6 +198,11 @@ only advertises capabilities that it actually implements. Preview extraction
 is serialized and shared between timeline/gesture controls, with a bounded
 session-only cache; Android API 27+ decodes bounded preview frames directly.
 
+The pinned `third_party/media_kit_video` 2.0.1 override fixes Android callbacks
+that outlive disposal during a failed decoder attempt. `PRIVI_PATCH.md` records
+the exact upstream source and removal criteria; keep its lifecycle tests when
+upgrading the dependency.
+
 Android PiP is opt-in for the current video only. It reuses the existing player
 and Activity, locks the vault, and displays a video-only root layer while the
 app Navigator remains mounted and inaccessible. Normal backgrounding pauses.

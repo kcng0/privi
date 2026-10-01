@@ -92,6 +92,11 @@ dev_dependencies:
   # Host-side Drift tests (open.overrideFor libsqlite3.so.0 on Linux/WSL).
   sqlite3: ^2.9.0
 
+dependency_overrides:
+  # Android callback/disposal race fix; see third_party/media_kit_video/PRIVI_PATCH.md.
+  media_kit_video:
+    path: third_party/media_kit_video
+
 flutter:
   generate: true
   config:
