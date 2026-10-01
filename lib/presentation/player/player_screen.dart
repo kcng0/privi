@@ -7,14 +7,15 @@ import 'package:video_player/video_player.dart';
 
 import '../../application/media/rating_controller.dart';
 import '../../application/player/external_player_coordinator.dart';
+import '../../application/player/picture_in_picture_controller.dart';
 import '../../application/player/player_controller.dart';
 import '../../application/settings/settings_controller.dart';
 import '../../core/l10n.dart';
-import '../../data/services/video_frame_service.dart';
 import '../../domain/models/media_item.dart';
 import '../common/keep_vault_unlocked.dart';
 import 'video_player_controls.dart';
 import 'video_player_surface.dart';
+import 'video_presentation_session.dart';
 
 typedef VideoFileProbe = Future<bool> Function(String path);
 
@@ -42,7 +43,8 @@ class PlayerScreen extends ConsumerStatefulWidget {
   ConsumerState<PlayerScreen> createState() => _PlayerScreenState();
 }
 
-class _PlayerScreenState extends ConsumerState<PlayerScreen> {
+class _PlayerScreenState extends ConsumerState<PlayerScreen>
+    with VideoPresentationSession<PlayerScreen> {
   VideoPlayerController? _video;
   String? _videoItemId;
   VideoPlayerController? _nextVideo;
@@ -60,15 +62,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   VideoFitMode _fitMode = VideoFitMode.fit;
   double _playbackSpeed = 1;
   bool _muted = false;
+  bool _looping = false;
   bool? _lastImmersive;
-  String? _orientationLockedItemId;
-  bool _orientationOverridden = false;
   final Map<String, int> _ratingOverrides = {};
 
   @override
   void initState() {
     super.initState();
     _playbackSpeed = ref.read(settingsControllerProvider).playerPlaybackSpeed;
+    _fitMode = ref.read(settingsControllerProvider).playerFitMode;
     unawaited(VideoSystemUi.apply(false));
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(playerControllerProvider.notifier).start(
@@ -97,6 +99,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       unawaited(_disposeController(n));
     }
     unawaited(VideoSystemUi.restore());
+    disposeVideoPresentation();
     super.dispose();
   }
 
@@ -109,32 +112,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     unawaited(VideoSystemUi.apply(immersive));
   }
 
-  Future<void> _toggleOrientation(BuildContext context) async {
-    _orientationOverridden = true;
-    await VideoSystemUi.toggle(_isLandscape(context));
-  }
-
-  void _maybeLockOrientationToVideo() {
-    final video = _video;
-    final itemId = _videoItemId;
-    if (video == null || itemId == null || !video.value.isInitialized) return;
-    if (_orientationLockedItemId == itemId) return;
-    _orientationLockedItemId = itemId;
-    _orientationOverridden = false;
-    unawaited(
-      VideoSystemUi.lockToVideoSize(
-        video.value.size,
-        rotationCorrection: video.value.rotationCorrection,
-      ),
-    );
-  }
-
-  void _clearOrientationLock() {
-    if (_orientationLockedItemId == null && !_orientationOverridden) return;
-    _orientationLockedItemId = null;
-    _orientationOverridden = false;
-    unawaited(VideoSystemUi.unlockOrientations());
-  }
+  Future<void> _toggleOrientation(BuildContext context) =>
+      chooseVideoOrientation();
 
   int _ratingFor(MediaItem item) => _ratingOverrides[item.id] ?? item.rating;
 
@@ -147,7 +126,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
   Future<void> _chooseFit() async {
     final selected = await showVideoFitModeSheet(context, current: _fitMode);
-    if (selected != null && mounted) setState(() => _fitMode = selected);
+    if (selected != null && mounted) {
+      await ref
+          .read(settingsControllerProvider.notifier)
+          .setPlayerFitMode(selected);
+      if (mounted) setState(() => _fitMode = selected);
+    }
   }
 
   void _setPlaybackSpeed(double speed) {
@@ -177,6 +161,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     final item = ui.current;
     await showVideoSettingsSheet(
       context,
+      advanced: videoAdvanced,
+      controller: _video,
+      defaultOrientation: settings.playerDefaultOrientation,
+      onDefaultOrientationChanged: (mode) => unawaited(
+        ref
+            .read(settingsControllerProvider.notifier)
+            .setPlayerDefaultOrientation(mode),
+      ),
       seekSeconds: settings.playerSeekSeconds,
       onSeekSecondsChanged: (seconds) => unawaited(
         ref
@@ -193,6 +185,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       onPlaybackSpeedChanged: _setPlaybackSpeed,
       muted: _muted,
       onMutedChanged: _setMuted,
+      looping: _looping,
+      onLoopingChanged: (looping) {
+        setState(() => _looping = looping);
+        final video = _video;
+        if (video != null) unawaited(video.setLooping(looping));
+      },
       shuffle: ui.playlist?.shuffle,
       onShuffleChanged: (value) {
         if (value != ref.read(playerControllerProvider).playlist?.shuffle) {
@@ -208,14 +206,29 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   Future<void> _configureVideo(
     VideoPlayerController controller, {
     required bool playing,
+    required int request,
+    required String itemId,
   }) async {
-    await controller.setLooping(false);
+    bool current() => _isCurrentVideoRequest(request, itemId);
+    await controller.setLooping(_looping);
+    if (!current()) return;
     await controller.setVolume(_muted ? 0 : 1);
+    if (!current()) return;
+    await controller.setPlaybackSpeed(_playbackSpeed);
+    if (!current()) return;
     if (playing) {
-      await controller.play();
-      await controller.setPlaybackSpeed(_playbackSpeed);
+      await playVideoWhenAllowed(controller, itemId, isCurrent: current);
+    }
+  }
+
+  void _toggleVideoPlayPause() {
+    final ui = ref.read(playerControllerProvider);
+    if (_video?.value.isPlaying == false && ui.playing) {
+      // A lifecycle pause leaves the playlist cursor intact. The next explicit
+      // Play should resume once, even if the playlist was already marked playing.
+      _requestVideoSync(ui.current, true);
     } else {
-      await controller.setPlaybackSpeed(_playbackSpeed);
+      ref.read(playerControllerProvider.notifier).togglePlayPause();
     }
   }
 
@@ -298,7 +311,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       await _disposeVideo();
       if (!_isCurrentVideoRequest(request, itemId)) return;
       await _disposeNextVideo();
-      _clearOrientationLock();
       return;
     }
     final external = ref.read(settingsControllerProvider).playerExternal &&
@@ -317,8 +329,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
             _completedForId = null;
             await currentVideo.seekTo(Duration.zero);
           }
-          await currentVideo.play();
+          if (!_isCurrentVideoRequest(request, item.id)) return;
           await currentVideo.setPlaybackSpeed(_playbackSpeed);
+          await playVideoWhenAllowed(
+            currentVideo,
+            item.id,
+            isCurrent: () => _isCurrentVideoRequest(request, item.id),
+          );
         } else if (!playing && currentVideo.value.isPlaying) {
           await currentVideo.pause();
         }
@@ -343,7 +360,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           await _disposeController(candidate);
           return;
         }
-        await _configureVideo(candidate, playing: playing);
+        await _configureVideo(
+          candidate,
+          playing: playing,
+          request: request,
+          itemId: item.id,
+        );
       } catch (error, stackTrace) {
         await _disposeController(candidate);
         _showVideoError(request, item.id, error, stackTrace);
@@ -382,14 +404,22 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     }
     if (!_isCurrentVideoRequest(request, item.id)) return;
 
-    final candidate = VideoPlayerController.file(file);
+    final candidate = VideoPlayerController.file(
+      file,
+      videoPlayerOptions: VideoPlayerOptions(allowBackgroundPlayback: true),
+    );
     try {
       await candidate.initialize();
       if (!_isCurrentVideoRequest(request, item.id)) {
         await _disposeController(candidate);
         return;
       }
-      await _configureVideo(candidate, playing: playing);
+      await _configureVideo(
+        candidate,
+        playing: playing,
+        request: request,
+        itemId: item.id,
+      );
     } catch (error, stackTrace) {
       await _disposeController(candidate);
       _showVideoError(request, item.id, error, stackTrace);
@@ -411,6 +441,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   }
 
   Future<void> _disposeController(VideoPlayerController controller) async {
+    releaseVideoPlayback(controller);
     try {
       await controller.pause();
     } catch (error, stackTrace) {
@@ -424,6 +455,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   }
 
   Future<void> _disposeVideo() async {
+    detachVideoPresentation();
     final c = _video;
     _video = null;
     _videoItemId = null;
@@ -482,7 +514,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     )) {
       return;
     }
-    final candidate = VideoPlayerController.file(file);
+    final candidate = VideoPlayerController.file(
+      file,
+      videoPlayerOptions: VideoPlayerOptions(allowBackgroundPlayback: true),
+    );
     try {
       await candidate.initialize();
       if (!_isCurrentPreloadRequest(
@@ -524,14 +559,24 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     });
   }
 
-  void _toggleChrome() => setState(() => _chrome = !_chrome);
+  void _toggleChrome() {
+    if (videoChromeAllowed) setState(() => _chrome = !_chrome);
+  }
 
   void _hideChrome() {
-    if (_chrome) setState(() => _chrome = false);
+    if (_chrome && videoChromeAllowed) setState(() => _chrome = false);
   }
 
   void _maybeAdvanceOnVideoEnd(VideoPlayerController c, String itemId) {
-    if (!mounted) return;
+    if (!videoMayAdvance ||
+        !identical(_video, c) ||
+        _videoItemId != itemId ||
+        ref.read(playerControllerProvider).current?.id != itemId ||
+        _looping ||
+        videoPipGranted ||
+        videoAdvanced?.value.abLoopEnd != null) {
+      return;
+    }
     if (!ref.read(playerControllerProvider).playing) return;
     if (_completedForId == itemId) return;
     if (!videoPlaybackEnded(c.value)) return;
@@ -556,6 +601,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    ref.watch(pictureInPictureControllerProvider);
     final ui = ref.watch(playerControllerProvider);
     final item = ui.current;
     final pl = ui.playlist;
@@ -567,7 +613,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     final immersive = shouldHideSystemUiForBuiltInVideo(builtInVideo);
     _syncSystemUi(immersive);
     if (builtInVideo) {
-      _maybeLockOrientationToVideo();
+      bindVideoPresentation(_video!, item!.privatePath);
     }
 
     // Keep video engine in sync with playlist cursor.
@@ -593,7 +639,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         },
         child: AutoHideVideoControls(
           enabled: item?.isVideo == true,
-          visible: _chrome,
+          visible: _chrome && videoChromeAllowed,
           onHide: _hideChrome,
           child: Scaffold(
             backgroundColor: Colors.black,
@@ -611,11 +657,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                   _buildVideo(item, ui)
                 else
                   _buildImage(item),
-                if (_chrome)
+                if (_chrome && videoChromeAllowed && builtInVideo)
+                  _centerVideoControls(),
+                if (videoTouchLocked && !videoPipGranted) videoUnlockControl(),
+                if (_chrome && videoChromeAllowed)
                   _topBar(ui, pl?.positionDisplay ?? 0, pl?.length ?? 0),
-                if (_chrome && builtInVideo)
+                if (_chrome && videoChromeAllowed && builtInVideo)
                   _videoBottomBar(ui, landscape)
-                else if (_chrome)
+                else if (_chrome && videoChromeAllowed)
                   _bottomBar(ui, landscape),
               ],
             ),
@@ -707,17 +756,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         ),
       );
     }
-    return VideoGestureSurface(
+    return videoViewportWithLifecycle(
       controller: c,
-      seekSeconds: ref.watch(settingsControllerProvider).playerSeekSeconds,
-      dragSeekSeconds:
-          ref.watch(settingsControllerProvider).playerDragSeekSeconds,
+      mediaId: item.id,
+      fitMode: _fitMode,
       onTap: _toggleChrome,
-      onPreviewFrameRequested: (position) => VideoFrameService().frameAtTime(
-        path: item.privatePath,
-        position: position,
-      ),
-      child: VideoViewport(controller: c, fitMode: _fitMode),
     );
   }
 
@@ -743,6 +786,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
+                if (_video != null) videoSessionTopActions(),
               ],
             ),
           ),
@@ -833,10 +877,27 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     );
   }
 
+  Widget _centerVideoControls() => VideoTransportRegion(
+        child: ValueListenableBuilder<VideoPlayerValue>(
+          valueListenable: _video!,
+          builder: (context, value, _) => VideoTransportControls(
+            value: value,
+            hasPrevious:
+                ref.read(playerControllerProvider).playlist?.hasPrev == true,
+            hasNext:
+                ref.read(playerControllerProvider).playlist?.hasNext == true,
+            onPrevious: () =>
+                unawaited(ref.read(playerControllerProvider.notifier).prev()),
+            onPlayPause: _toggleVideoPlayPause,
+            onNext: () =>
+                unawaited(ref.read(playerControllerProvider.notifier).next()),
+          ),
+        ),
+      );
+
   Widget _videoBottomBar(PlayerUiState ui, bool landscape) {
     final video = _video;
     final playlist = ui.playlist;
-    final item = ui.current;
     if (video == null || !video.value.isInitialized) {
       return const SizedBox.shrink();
     }
@@ -854,19 +915,18 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
             onPrevious: () =>
                 unawaited(ref.read(playerControllerProvider.notifier).prev()),
             onSeek: _seekTo,
-            onPlayPause: () =>
-                ref.read(playerControllerProvider.notifier).togglePlayPause(),
+            onPlayPause: _toggleVideoPlayPause,
             onNext: () =>
                 unawaited(ref.read(playerControllerProvider.notifier).next()),
             onToggleOrientation: () => unawaited(_toggleOrientation(context)),
             onChooseFit: () => unawaited(_chooseFit()),
             onOpenSettings: () => unawaited(_openSettings(ui)),
-            onPreviewFrameRequested: item == null
-                ? null
-                : (position) => VideoFrameService().frameAtTime(
-                      path: item.privatePath,
-                      position: position,
-                    ),
+            showTransport: false,
+            onOpenTracks: () => unawaited(openVideoAdvanced()),
+            onPictureInPicture: videoPipSupported
+                ? () => unawaited(enterVideoPictureInPicture())
+                : null,
+            onPreviewFrameRequested: videoPreviewFrame,
           );
         },
       ),

@@ -1,0 +1,25 @@
+Noto Sans CJK SC Regular — libass subtitle font
+
+Upstream: https://github.com/notofonts/noto-cjk
+Release: Sans2.004
+Fixed commit: 523d033d6cb47f4a80c58a35753646f5c3608a78
+Original font:
+https://raw.githubusercontent.com/notofonts/noto-cjk/523d033d6cb47f4a80c58a35753646f5c3608a78/Sans/Variable/TTF/NotoSansCJKsc-VF.ttf
+Original SHA-256:
+990c807e79c25662a5a9ecf7f971baeb2bf2eab9a559e5ecf15cdfdb8561d21f
+
+Copyright (embedded upstream notice):
+© 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'.
+License: SIL Open Font License 1.1; see OFL-NotoSansCJK.txt.
+The reserved font name 'Source' is not used by this font.
+
+This bundled derivative is a static TrueType instance of the full CJK font,
+with wght fixed at 400 (Regular). It is not subsetted. Runtime family:
+Noto Sans CJK SC. FontTools updates the static naming metadata and retains
+upstream timestamps for reproducible output.
+
+Generation (fonttools==4.61.1):
+fonttools varLib.instancer NotoSansCJKsc-VF.ttf wght=400 --static --update-name-table --no-recalc-timestamp --output NotoSansCJKsc-Regular.ttf
+
+Bundled SHA-256:
+3012a9b63f5eca3e3b38f23a1be5ed504675e394abf8e7a4fa981506582c04aa

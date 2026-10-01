@@ -45,6 +45,9 @@ final class _SerialProbeVideoPlatform extends VideoPlayerPlatform {
   Future<void> init() async {}
 
   @override
+  Future<void> setMixWithOthers(bool mixWithOthers) async {}
+
+  @override
   Future<int?> createWithOptions(VideoCreationOptions options) async {
     createCalls++;
     final playerId = _nextPlayerId++;

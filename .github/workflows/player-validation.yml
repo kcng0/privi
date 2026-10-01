@@ -1,0 +1,66 @@
+name: Android Playback Validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, feat/vlc-playback]
+    paths:
+      - 'lib/**'
+      - 'android/**'
+      - 'assets/fonts/**'
+      - 'integration_test/**'
+      - 'test_driver/**'
+      - 'scripts/create-playback-fixtures.sh'
+      - 'scripts/run-playback-validation.sh'
+      - 'scripts/playback-device-actions.py'
+      - 'pubspec.*'
+      - '.github/workflows/player-validation.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  native-playback:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.6'
+          cache: true
+      - name: Dependencies and generated code
+        run: |
+          flutter pub get
+          flutter gen-l10n
+          dart run build_runner build
+      - name: Generate synthetic codec and subtitle fixtures
+        run: |
+          command -v ffmpeg || (sudo apt-get update && sudo apt-get install -y ffmpeg)
+          bash scripts/create-playback-fixtures.sh "$RUNNER_TEMP/privi-fixtures"
+          python3 -m http.server 8765 --bind 127.0.0.1 --directory "$RUNNER_TEMP/privi-fixtures" > "$RUNNER_TEMP/privi-fixture-server.log" 2>&1 &
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-privi-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Test native playback on Android
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: bash scripts/run-playback-validation.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playback-validation
+          path: build/playback-validation
+          if-no-files-found: ignore

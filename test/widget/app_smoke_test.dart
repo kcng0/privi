@@ -7,6 +7,7 @@ import 'package:privi/application/gallery/gallery_controller.dart';
 import 'package:privi/application/lock/lock_controller.dart';
 import 'package:privi/application/media/album_list_preferences.dart';
 import 'package:privi/application/media/visible_folder_view_preferences.dart';
+import 'package:privi/application/player/picture_in_picture_controller.dart';
 import 'package:privi/application/providers.dart';
 import 'package:privi/application/settings/settings_controller.dart';
 import 'package:privi/data/db/database.dart';
@@ -77,6 +78,15 @@ class _FakeBio extends BiometricService {
     String cancelButton = 'Cancel',
   }) async =>
       false;
+}
+
+class _TestPip extends PictureInPictureController {
+  @override
+  PictureInPictureState build() => const PictureInPictureState();
+
+  void showVideoOnly({required bool granted, required bool active}) {
+    state = PictureInPictureState(grantActive: granted, isActive: active);
+  }
 }
 
 void main() {
@@ -303,6 +313,7 @@ void main() {
         securityServiceProvider.overrideWithValue(_FakeSecurity()),
         biometricServiceProvider.overrideWithValue(_FakeBio()),
         lockControllerProvider.overrideWith(_UnlockedLock.new),
+        pictureInPictureControllerProvider.overrideWith(_TestPip.new),
         albumsProvider.overrideWith((ref) => Stream.value(const [])),
       ],
     );
@@ -345,6 +356,25 @@ void main() {
           .ignoring,
       isTrue,
     );
+
+    final pip =
+        container.read(pictureInPictureControllerProvider.notifier) as _TestPip;
+    pip.showVideoOnly(granted: true, active: true);
+    await tester.pump();
+    expect(find.byKey(const ValueKey('pip-video-only')), findsOneWidget);
+    expect(find.byKey(const ValueKey('vault-lock-overlay')), findsNothing);
+    expect(find.text('Private route'), findsNothing);
+    expect(find.text('Private route', skipOffstage: false), findsOneWidget);
+    expect(container.read(lockControllerProvider).status, LockStatus.locked);
+
+    // Revoked-but-still-pinned renders black, never credential widgets.
+    pip.showVideoOnly(granted: false, active: true);
+    await tester.pump();
+    expect(find.byKey(const ValueKey('pip-video-only')), findsOneWidget);
+    expect(find.byKey(const ValueKey('vault-lock-overlay')), findsNothing);
+    pip.showVideoOnly(granted: false, active: false);
+    await tester.pump();
+    expect(find.byKey(const ValueKey('vault-lock-overlay')), findsOneWidget);
 
     await container.read(lockControllerProvider.notifier).enterAppAfterSetup();
     await tester.pumpAndSettle();

@@ -4,10 +4,12 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../application/player/advanced_video_controller.dart';
 import '../../core/constants.dart';
 import '../../core/l10n.dart';
 import '../../domain/models/video_playback_settings.dart';
 import '../common/heart_rating_bar.dart';
+import 'video_advanced_controls.dart';
 import 'video_player_surface.dart';
 
 String formatPlaybackSpeed(double speed) {
@@ -121,8 +123,14 @@ class VideoBottomControls extends StatefulWidget {
     required this.onChooseFit,
     required this.onOpenSettings,
     this.onPreviewFrameRequested,
+    this.showTransport = true,
+    this.onOpenTracks,
+    this.onPictureInPicture,
   });
 
+  final bool showTransport;
+  final VoidCallback? onOpenTracks;
+  final VoidCallback? onPictureInPicture;
   final VideoPlayerValue value;
   final bool landscape;
   final VideoFitMode fitMode;
@@ -144,17 +152,13 @@ class VideoBottomControls extends StatefulWidget {
 class _VideoBottomControlsState extends State<VideoBottomControls> {
   double? _scrubPositionMs;
   bool _scrubbing = false;
-  Timer? _previewTimer;
   Uint8List? _previewFrame;
   Duration? _previewPosition;
-  Duration? _pendingPreviewPosition;
-  bool _previewInFlight = false;
   int _previewGeneration = 0;
 
   @override
   void dispose() {
     _previewGeneration++;
-    _previewTimer?.cancel();
     super.dispose();
   }
 
@@ -170,18 +174,9 @@ class _VideoBottomControlsState extends State<VideoBottomControls> {
   }
 
   void _schedulePreview(double positionMs) {
-    if (widget.onPreviewFrameRequested == null) return;
-    _pendingPreviewPosition = Duration(milliseconds: positionMs.round());
-    if (_previewInFlight || (_previewTimer?.isActive ?? false)) return;
-    _previewTimer = Timer(const Duration(milliseconds: 110), _requestPreview);
-  }
-
-  void _requestPreview() {
     final request = widget.onPreviewFrameRequested;
-    final position = _pendingPreviewPosition;
-    if (request == null || position == null || !mounted) return;
-    _pendingPreviewPosition = null;
-    _previewInFlight = true;
+    if (request == null) return;
+    final position = Duration(milliseconds: positionMs.round());
     final generation = ++_previewGeneration;
     unawaited(() async {
       try {
@@ -189,25 +184,23 @@ class _VideoBottomControlsState extends State<VideoBottomControls> {
         if (!mounted || generation != _previewGeneration) return;
         setState(() {
           _previewFrame = frame;
-          _previewPosition = position;
+          _previewPosition = frame == null ? null : position;
         });
-      } finally {
-        _previewInFlight = false;
-        if (_pendingPreviewPosition != null && mounted) {
-          _previewTimer = Timer(
-            const Duration(milliseconds: 40),
-            _requestPreview,
-          );
-        }
+      } catch (error, stackTrace) {
+        // Preview failure must not interrupt seeking or the playing engine.
+        FlutterError.reportError(
+          FlutterErrorDetails(
+            exception: error,
+            stack: stackTrace,
+            library: 'Privi video preview',
+          ),
+        );
       }
     }());
   }
 
   void _clearPreview() {
     _previewGeneration++;
-    _previewTimer?.cancel();
-    _previewTimer = null;
-    _pendingPreviewPosition = null;
     _previewFrame = null;
     _previewPosition = null;
   }
@@ -265,71 +258,78 @@ class _VideoBottomControlsState extends State<VideoBottomControls> {
                           : (next) => unawaited(_finishScrub(next)),
                     ),
                   ),
-                  if (!widget.landscape)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      child: Row(
-                        children: [
-                          _timeLabel(
-                            formatVideoProgress(
-                              _scrubbing
-                                  ? Duration(milliseconds: positionMs.round())
-                                  : value.position,
-                              value.duration,
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerLeft,
+                            child: _timeLabel(
+                              formatVideoProgress(
+                                _scrubbing
+                                    ? Duration(
+                                        milliseconds: positionMs.round(),
+                                      )
+                                    : value.position,
+                                value.duration,
+                              ),
                             ),
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
+                  ),
                   const SizedBox(height: AppSpacing.xs),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      _iconButton(
-                        context,
-                        icon: Icons.skip_previous,
-                        tooltip: context.l10n.previousMedia,
-                        onPressed:
-                            widget.hasPrevious ? widget.onPrevious : null,
-                      ),
-                      _iconButton(
-                        context,
-                        icon: value.isPlaying ? Icons.pause : Icons.play_arrow,
-                        tooltip: value.isPlaying
-                            ? context.l10n.pause
-                            : context.l10n.play,
-                        onPressed: widget.onPlayPause,
-                        size: 30,
-                      ),
-                      _iconButton(
-                        context,
-                        icon: Icons.skip_next,
-                        tooltip: context.l10n.nextMedia,
-                        onPressed: widget.hasNext ? widget.onNext : null,
-                      ),
-                      _iconButton(
-                        context,
-                        icon: widget.landscape
-                            ? Icons.stay_current_portrait
-                            : Icons.stay_current_landscape,
-                        tooltip: widget.landscape
-                            ? context.l10n.portrait
-                            : context.l10n.landscape,
-                        onPressed: widget.onToggleOrientation,
-                      ),
-                      _iconButton(
-                        context,
-                        icon: videoFitModeIcon(widget.fitMode),
-                        tooltip: context.l10n.videoDisplayMode,
-                        onPressed: widget.onChooseFit,
-                      ),
-                      _iconButton(
-                        context,
-                        icon: Icons.settings_outlined,
-                        tooltip: context.l10n.playerSettings,
-                        onPressed: widget.onOpenSettings,
-                      ),
-                    ],
+                  if (widget.showTransport)
+                    VideoTransportControls(
+                      value: value,
+                      hasPrevious: widget.hasPrevious,
+                      hasNext: widget.hasNext,
+                      onPrevious: widget.onPrevious,
+                      onPlayPause: widget.onPlayPause,
+                      onNext: widget.onNext,
+                    ),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        if (widget.onOpenTracks != null)
+                          _iconButton(
+                            context,
+                            icon: Icons.subtitles_outlined,
+                            tooltip: context.l10n.videoTracks,
+                            onPressed: widget.onOpenTracks,
+                          ),
+                        _iconButton(
+                          context,
+                          icon: videoFitModeIcon(widget.fitMode),
+                          tooltip: context.l10n.videoDisplayMode,
+                          onPressed: widget.onChooseFit,
+                        ),
+                        _iconButton(
+                          context,
+                          icon: Icons.screen_rotation,
+                          tooltip: context.l10n.videoOrientation,
+                          onPressed: widget.onToggleOrientation,
+                        ),
+                        _iconButton(
+                          context,
+                          icon: Icons.settings_outlined,
+                          tooltip: context.l10n.playerSettings,
+                          onPressed: widget.onOpenSettings,
+                        ),
+                        if (widget.onPictureInPicture != null)
+                          _iconButton(
+                            context,
+                            icon: Icons.picture_in_picture_alt,
+                            tooltip: context.l10n.videoPictureInPicture,
+                            onPressed: widget.onPictureInPicture,
+                          ),
+                      ],
+                    ),
                   ),
                 ],
               ),
@@ -367,9 +367,10 @@ class _VideoBottomControlsState extends State<VideoBottomControls> {
     required VoidCallback? onPressed,
     double size = 26,
   }) {
-    return Expanded(
+    return SizedBox(
+      width: 52,
       child: SizedBox(
-        height: 48,
+        height: 44,
         child: IconButton(
           icon: Icon(icon, size: size),
           tooltip: tooltip,
@@ -402,7 +403,11 @@ Future<VideoFitMode?> showVideoFitModeSheet(
             title: Text(context.l10n.videoDisplayMode),
             leading: const Icon(Icons.aspect_ratio),
           ),
-          for (final option in VideoFitMode.values)
+          for (final option in [
+            ...videoFitQuickModes,
+            ...VideoFitMode.values
+                .where((mode) => !videoFitQuickModes.contains(mode)),
+          ])
             ListTile(
               leading: Icon(_fitIcon(option)),
               title: Text(_fitLabel(context, option)),
@@ -421,26 +426,94 @@ Future<VideoFitMode?> showVideoFitModeSheet(
   );
 }
 
-IconData videoFitModeIcon(VideoFitMode mode) {
-  return switch (mode) {
-    VideoFitMode.fit => Icons.fit_screen,
-    VideoFitMode.fill => Icons.fullscreen,
-    VideoFitMode.original => Icons.crop_free,
-    VideoFitMode.ratio4x3 => Icons.crop_3_2,
-    VideoFitMode.ratio16x9 => Icons.crop_16_9,
-  };
-}
+IconData videoFitModeIcon(VideoFitMode mode) => switch (mode) {
+      VideoFitMode.bestFit => Icons.fit_screen,
+      VideoFitMode.fitScreen => Icons.crop,
+      VideoFitMode.fill => Icons.fullscreen,
+      VideoFitMode.original => Icons.crop_free,
+      _ => Icons.aspect_ratio,
+    };
 
 IconData _fitIcon(VideoFitMode mode) => videoFitModeIcon(mode);
 
-String _fitLabel(BuildContext context, VideoFitMode mode) {
-  return switch (mode) {
-    VideoFitMode.fit => context.l10n.videoFit,
-    VideoFitMode.fill => context.l10n.videoFill,
-    VideoFitMode.original => context.l10n.videoOriginal,
-    VideoFitMode.ratio4x3 => context.l10n.videoRatioFourThree,
-    VideoFitMode.ratio16x9 => context.l10n.videoRatioSixteenNine,
-  };
+String _fitLabel(BuildContext context, VideoFitMode mode) => switch (mode) {
+      VideoFitMode.bestFit => context.l10n.videoFit,
+      VideoFitMode.fitScreen => context.l10n.videoFitScreen,
+      VideoFitMode.fill => context.l10n.videoFill,
+      VideoFitMode.original => context.l10n.videoOriginal,
+      VideoFitMode.ratio4x3 => '4:3',
+      VideoFitMode.ratio16x9 => '16:9',
+      VideoFitMode.ratio16x10 => '16:10',
+      VideoFitMode.ratio2x1 => '2:1',
+      VideoFitMode.ratio221x1 => '2.21:1',
+      VideoFitMode.ratio235x1 => '2.35:1',
+      VideoFitMode.ratio239x1 => '2.39:1',
+      VideoFitMode.ratio5x4 => '5:4',
+    };
+
+/// Reserves top and bottom chrome before centering transport in the video.
+class VideoTransportRegion extends StatelessWidget {
+  const VideoTransportRegion({super.key, required this.child});
+  final Widget child;
+  @override
+  Widget build(BuildContext context) => Positioned.fill(
+        top: MediaQuery.paddingOf(context).top + kToolbarHeight,
+        bottom: MediaQuery.paddingOf(context).bottom +
+            106 +
+            MediaQuery.textScalerOf(context).scale(16),
+        child: Center(child: FittedBox(fit: BoxFit.scaleDown, child: child)),
+      );
+}
+
+class VideoTransportControls extends StatelessWidget {
+  const VideoTransportControls({
+    super.key,
+    required this.value,
+    required this.hasPrevious,
+    required this.hasNext,
+    required this.onPrevious,
+    required this.onPlayPause,
+    required this.onNext,
+  });
+  final VideoPlayerValue value;
+  final bool hasPrevious;
+  final bool hasNext;
+  final VoidCallback onPrevious;
+  final VoidCallback onPlayPause;
+  final VoidCallback onNext;
+
+  @override
+  Widget build(BuildContext context) => Row(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          IconButton(
+            tooltip: context.l10n.previousMedia,
+            icon: const Icon(Icons.skip_previous, size: 32),
+            color: Colors.white,
+            disabledColor: Colors.white24,
+            onPressed: hasPrevious ? onPrevious : null,
+          ),
+          const SizedBox(width: 20),
+          IconButton(
+            tooltip: value.isPlaying ? context.l10n.pause : context.l10n.play,
+            icon: Icon(
+              value.isPlaying ? Icons.pause_circle : Icons.play_circle,
+              size: 48,
+            ),
+            color: Colors.white,
+            onPressed: onPlayPause,
+          ),
+          const SizedBox(width: 20),
+          IconButton(
+            tooltip: context.l10n.nextMedia,
+            icon: const Icon(Icons.skip_next, size: 32),
+            color: Colors.white,
+            disabledColor: Colors.white24,
+            onPressed: hasNext ? onNext : null,
+          ),
+        ],
+      );
 }
 
 class _VideoFramePreview extends StatelessWidget {
@@ -510,6 +583,10 @@ Future<void> showVideoSettingsSheet(
   VoidCallback? onOpenExternal,
   int? rating,
   ValueChanged<int>? onRatingChanged,
+  AdvancedVideoController? advanced,
+  VideoPlayerController? controller,
+  String defaultOrientation = 'auto',
+  ValueChanged<String>? onDefaultOrientationChanged,
 }) {
   return showModalBottomSheet<void>(
     context: context,
@@ -532,6 +609,10 @@ Future<void> showVideoSettingsSheet(
       onOpenExternal: onOpenExternal,
       rating: rating,
       onRatingChanged: onRatingChanged,
+      advanced: advanced,
+      controller: controller,
+      defaultOrientation: defaultOrientation,
+      onDefaultOrientationChanged: onDefaultOrientationChanged,
     ),
   );
 }
@@ -553,8 +634,16 @@ class _VideoSettingsSheet extends StatefulWidget {
     this.onOpenExternal,
     this.rating,
     this.onRatingChanged,
+    this.advanced,
+    this.controller,
+    this.defaultOrientation = 'auto',
+    this.onDefaultOrientationChanged,
   });
 
+  final AdvancedVideoController? advanced;
+  final VideoPlayerController? controller;
+  final String defaultOrientation;
+  final ValueChanged<String>? onDefaultOrientationChanged;
   final int seekSeconds;
   final ValueChanged<int> onSeekSecondsChanged;
   final int dragSeekSeconds;
@@ -583,6 +672,7 @@ class _VideoSettingsSheetState extends State<_VideoSettingsSheet> {
   late bool? _looping = widget.looping;
   late bool? _shuffle = widget.shuffle;
   late int? _rating = widget.rating;
+  late String _defaultOrientation = widget.defaultOrientation;
 
   @override
   Widget build(BuildContext context) {
@@ -632,40 +722,40 @@ class _VideoSettingsSheetState extends State<_VideoSettingsSheet> {
               ],
               Text(context.l10n.doubleTapSeek),
               const SizedBox(height: AppSpacing.xs),
-              SegmentedButton<int>(
-                segments: [
+              Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: [
                   for (final seconds in videoSeekSecondOptions)
-                    ButtonSegment<int>(
-                      value: seconds,
+                    ChoiceChip(
                       label: Text('${seconds}s'),
+                      selected: _seekSeconds == seconds,
+                      showCheckmark: false,
+                      onSelected: (_) {
+                        setState(() => _seekSeconds = seconds);
+                        widget.onSeekSecondsChanged(seconds);
+                      },
                     ),
                 ],
-                selected: {_seekSeconds},
-                showSelectedIcon: false,
-                onSelectionChanged: (selected) {
-                  final value = selected.first;
-                  setState(() => _seekSeconds = value);
-                  widget.onSeekSecondsChanged(value);
-                },
               ),
               const SizedBox(height: AppSpacing.md),
               Text(context.l10n.dragSeek),
               const SizedBox(height: AppSpacing.xs),
-              SegmentedButton<int>(
-                segments: [
+              Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: [
                   for (final seconds in videoDragSeekSecondOptions)
-                    ButtonSegment<int>(
-                      value: seconds,
+                    ChoiceChip(
                       label: Text(formatDragSeekOption(seconds)),
+                      selected: _dragSeekSeconds == seconds,
+                      showCheckmark: false,
+                      onSelected: (_) {
+                        setState(() => _dragSeekSeconds = seconds);
+                        widget.onDragSeekSecondsChanged(seconds);
+                      },
                     ),
                 ],
-                selected: {_dragSeekSeconds},
-                showSelectedIcon: false,
-                onSelectionChanged: (selected) {
-                  final value = selected.first;
-                  setState(() => _dragSeekSeconds = value);
-                  widget.onDragSeekSecondsChanged(value);
-                },
               ),
               const SizedBox(height: AppSpacing.md),
               Row(
@@ -718,6 +808,35 @@ class _VideoSettingsSheetState extends State<_VideoSettingsSheet> {
                     setState(() => _shuffle = value);
                     widget.onShuffleChanged!(value);
                   },
+                ),
+              if (widget.onDefaultOrientationChanged != null)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.screen_rotation),
+                  title: Text(context.l10n.videoDefaultOrientation),
+                  subtitle:
+                      Text(videoOrientationLabel(context, _defaultOrientation)),
+                  onTap: () async {
+                    final mode = await showVideoOrientationSheet(
+                      context,
+                      current: _defaultOrientation,
+                      defaults: true,
+                    );
+                    if (mode == null || !mounted) return;
+                    setState(() => _defaultOrientation = mode);
+                    widget.onDefaultOrientationChanged!(mode);
+                  },
+                ),
+              if (widget.advanced != null && widget.controller != null)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.tune),
+                  title: Text(context.l10n.videoAdvanced),
+                  onTap: () => showVideoAdvancedSheet(
+                    context,
+                    advanced: widget.advanced!,
+                    controller: widget.controller!,
+                  ),
                 ),
               if (widget.onOpenExternal != null)
                 ListTile(

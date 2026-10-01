@@ -168,14 +168,55 @@ resume and biometric state machine.
 hide after three seconds without input; an active pointer keeps them visible,
 and the countdown restarts when the final pointer is released.
 
-When controls are visible, the current video title and playlist position stay in
-the top bar in both portrait and landscape. Landscape may still use immersive
-system UI, but it does not move this app header into the bottom controls.
-Opening a video locks orientation to its width/height; the bottom orientation
-button can still override that lock. Vertical swipes on the left half adjust
-window brightness, and vertical swipes on the right half adjust media volume.
-Heart rating for videos lives in the player settings sheet, not above the
-timeline; tapping the already-selected rating still clears it to zero.
+The current title stays at the top; playback/Previous/Next occupy the center;
+the timeline, elapsed/total time, and playback tools remain at the bottom in
+both orientations. Touch lock disables gestures and tools until explicitly
+unlocked. Video Back exits; an open settings/track panel is dismissed first.
+Vertical swipes on the left adjust window brightness and those on the right
+adjust media volume. Heart rating remains in the settings sheet.
+
+Default orientation follows Android's `FULL_SENSOR`, independently of the
+system rotation lock. The session direction menu and axis-lock control survive
+media changes; global defaults and the last locked axis are stored separately.
+Leaving playback restores the original orientation request. Large-screen or
+multi-window restrictions may override the requested direction, so layout uses
+the actual viewport rather than assuming a successful device rotation.
+
+`VideoViewport` alone owns picture sizing. Best fit contains the complete image;
+Fit screen covers and crops; Fill stretches; Original uses the displayed video
+pixel dimensions divided by device pixel ratio, without shrinking to fit.
+Explicit ratios apply in display coordinates. Default Best fit and the chosen
+mode are global playback preferences. Android's media_kit bridge waits for real
+display dimensions and does not invent a 16:9 size when only duration is known.
+Its dimensions already include rotation/SAR corrections; apply them once.
+
+Android retains the existing media_kit/mpv decoder behind video_player. Per-player
+advanced capabilities expose tracks, local subtitles, audio/subtitle delay, and
+A-B repeat. libass renders styled subtitles using the bundled Noto CJK font;
+font provenance and licensing are in `assets/fonts`. iOS keeps AVFoundation and
+only advertises capabilities that it actually implements. Preview extraction
+is serialized and shared between timeline/gesture controls, with a bounded
+session-only cache; Android API 27+ decodes bounded preview frames directly.
+
+Android PiP is opt-in for the current video only. It reuses the existing player
+and Activity, locks the vault, and displays a video-only root layer while the
+app Navigator remains mounted and inaccessible. Normal backgrounding pauses.
+PiP closure, screen-off, and fullscreen return revoke the grant and pause; a
+native shield prevents a private frame appearing before the root lock returns.
+PiP does not advance to the next media item or use the external-player unlock
+bypass. Returning to the retained playback route requires authentication.
+The same permission owner guards initial playback before widget binding, seek
+resume, and completion. Late initialization/completion while locked or in the
+background must neither start playback nor advance the playlist. PiP's entry
+deadline includes its first-frame wait, so leaving before that frame revokes
+the grant without waiting for rendering to resume.
+
+`.github/workflows/player-validation.yml` exercises the real Android bridge on
+an emulator with synthetic MP4/MKV/WebM (H.264, HEVC, AV1, VP9), AAC/AC3/EAC3/Opus,
+rotation/SAR and ASS fixtures, repeated controller disposal, and native PiP
+transitions. Screenshots, timings, and device
+logs are saved as workflow artifacts. No personal media is used. Emulator results
+do not substitute for physical-device codec, battery, or thermal measurements.
 
 ## Code generation
 

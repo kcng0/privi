@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pip_play">播放</string>
+    <string name="pip_pause">暂停</string>
+</resources>

@@ -1008,13 +1008,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get videoDisplayMode => '画面比例';
 
   @override
-  String get videoFit => '适应';
+  String get videoFit => '最佳适配';
 
   @override
-  String get videoFill => '铺满';
+  String get videoFill => '填满（拉伸）';
 
   @override
-  String get videoOriginal => '原始';
+  String get videoOriginal => '原始大小';
 
   @override
   String get videoRatioFourThree => '4:3';
@@ -1235,6 +1235,93 @@ class AppLocalizationsZh extends AppLocalizations {
   String unlockLockout(int seconds) {
     return '请在 $seconds 秒后重试';
   }
+
+  @override
+  String get videoFitScreen => '适应屏幕（裁切）';
+
+  @override
+  String get videoTracks => '音轨与字幕';
+
+  @override
+  String get videoOrientation => '播放方向';
+
+  @override
+  String get videoDefaultOrientation => '默认播放方向';
+
+  @override
+  String get videoAutoOrientation => '自动（传感器）';
+
+  @override
+  String get videoReversePortrait => '反向竖屏';
+
+  @override
+  String get videoReverseLandscape => '反向横屏';
+
+  @override
+  String get videoSensorLandscape => '传感器横屏';
+
+  @override
+  String get videoSensorPortrait => '传感器竖屏';
+
+  @override
+  String get videoLastLocked => '上次锁定方向';
+
+  @override
+  String get videoLockOrientation => '锁定当前横竖方向';
+
+  @override
+  String get videoUnlockOrientation => '解除方向锁定';
+
+  @override
+  String get videoLockTouch => '锁定触控';
+
+  @override
+  String get videoUnlockTouch => '解锁触控';
+
+  @override
+  String get videoPictureInPicture => '画中画';
+
+  @override
+  String get videoAdvanced => '轨道与高级播放';
+
+  @override
+  String get videoAudioTracks => '音轨';
+
+  @override
+  String get videoSubtitles => '字幕';
+
+  @override
+  String get videoSubtitleOff => '关闭字幕';
+
+  @override
+  String get videoImportSubtitle => '打开外挂字幕';
+
+  @override
+  String get videoAudioDelay => '音频延迟';
+
+  @override
+  String get videoSubtitleDelay => '字幕延迟';
+
+  @override
+  String get videoDelayHelp => '正值延后，负值提前。';
+
+  @override
+  String get videoInvalidDelay => '请输入整数毫秒。';
+
+  @override
+  String get videoAbLoop => 'A–B 区间循环';
+
+  @override
+  String get videoSetA => '当前位置设为 A';
+
+  @override
+  String get videoSetB => '当前位置设为 B';
+
+  @override
+  String get videoClearAb => '清除 A–B';
+
+  @override
+  String get videoAdvancedUnavailable => '当前播放器不支持高级播放功能。';
 }
 
 /// The translations for Chinese, as used in China (`zh_CN`).
@@ -2241,13 +2328,13 @@ class AppLocalizationsZhCn extends AppLocalizationsZh {
   String get videoDisplayMode => '画面比例';
 
   @override
-  String get videoFit => '适应';
+  String get videoFit => '最佳适配';
 
   @override
-  String get videoFill => '铺满';
+  String get videoFill => '填满（拉伸）';
 
   @override
-  String get videoOriginal => '原始';
+  String get videoOriginal => '原始大小';
 
   @override
   String get videoRatioFourThree => '4:3';
@@ -2468,6 +2555,93 @@ class AppLocalizationsZhCn extends AppLocalizationsZh {
   String unlockLockout(int seconds) {
     return '请在 $seconds 秒后重试';
   }
+
+  @override
+  String get videoFitScreen => '适应屏幕（裁切）';
+
+  @override
+  String get videoTracks => '音轨与字幕';
+
+  @override
+  String get videoOrientation => '播放方向';
+
+  @override
+  String get videoDefaultOrientation => '默认播放方向';
+
+  @override
+  String get videoAutoOrientation => '自动（传感器）';
+
+  @override
+  String get videoReversePortrait => '反向竖屏';
+
+  @override
+  String get videoReverseLandscape => '反向横屏';
+
+  @override
+  String get videoSensorLandscape => '传感器横屏';
+
+  @override
+  String get videoSensorPortrait => '传感器竖屏';
+
+  @override
+  String get videoLastLocked => '上次锁定方向';
+
+  @override
+  String get videoLockOrientation => '锁定当前横竖方向';
+
+  @override
+  String get videoUnlockOrientation => '解除方向锁定';
+
+  @override
+  String get videoLockTouch => '锁定触控';
+
+  @override
+  String get videoUnlockTouch => '解锁触控';
+
+  @override
+  String get videoPictureInPicture => '画中画';
+
+  @override
+  String get videoAdvanced => '轨道与高级播放';
+
+  @override
+  String get videoAudioTracks => '音轨';
+
+  @override
+  String get videoSubtitles => '字幕';
+
+  @override
+  String get videoSubtitleOff => '关闭字幕';
+
+  @override
+  String get videoImportSubtitle => '打开外挂字幕';
+
+  @override
+  String get videoAudioDelay => '音频延迟';
+
+  @override
+  String get videoSubtitleDelay => '字幕延迟';
+
+  @override
+  String get videoDelayHelp => '正值延后，负值提前。';
+
+  @override
+  String get videoInvalidDelay => '请输入整数毫秒。';
+
+  @override
+  String get videoAbLoop => 'A–B 区间循环';
+
+  @override
+  String get videoSetA => '当前位置设为 A';
+
+  @override
+  String get videoSetB => '当前位置设为 B';
+
+  @override
+  String get videoClearAb => '清除 A–B';
+
+  @override
+  String get videoAdvancedUnavailable => '当前播放器不支持高级播放功能。';
 }
 
 /// The translations for Chinese, as used in Hong Kong (`zh_HK`).
@@ -3474,13 +3648,13 @@ class AppLocalizationsZhHk extends AppLocalizationsZh {
   String get videoDisplayMode => '畫面比例';
 
   @override
-  String get videoFit => '適應';
+  String get videoFit => '最佳適應';
 
   @override
-  String get videoFill => '填滿';
+  String get videoFill => '填滿（拉伸）';
 
   @override
-  String get videoOriginal => '原始';
+  String get videoOriginal => '原始大小';
 
   @override
   String get videoRatioFourThree => '4:3';
@@ -3701,4 +3875,91 @@ class AppLocalizationsZhHk extends AppLocalizationsZh {
   String unlockLockout(int seconds) {
     return '請在 $seconds 秒後重試';
   }
+
+  @override
+  String get videoFitScreen => '適應螢幕（裁切）';
+
+  @override
+  String get videoTracks => '音軌與字幕';
+
+  @override
+  String get videoOrientation => '播放方向';
+
+  @override
+  String get videoDefaultOrientation => '預設播放方向';
+
+  @override
+  String get videoAutoOrientation => '自動（感應器）';
+
+  @override
+  String get videoReversePortrait => '反向直向';
+
+  @override
+  String get videoReverseLandscape => '反向橫向';
+
+  @override
+  String get videoSensorLandscape => '感應器橫向';
+
+  @override
+  String get videoSensorPortrait => '感應器直向';
+
+  @override
+  String get videoLastLocked => '上次鎖定方向';
+
+  @override
+  String get videoLockOrientation => '鎖定目前橫直方向';
+
+  @override
+  String get videoUnlockOrientation => '解除方向鎖定';
+
+  @override
+  String get videoLockTouch => '鎖定觸控';
+
+  @override
+  String get videoUnlockTouch => '解鎖觸控';
+
+  @override
+  String get videoPictureInPicture => '子母畫面';
+
+  @override
+  String get videoAdvanced => '軌道與進階播放';
+
+  @override
+  String get videoAudioTracks => '音軌';
+
+  @override
+  String get videoSubtitles => '字幕';
+
+  @override
+  String get videoSubtitleOff => '關閉字幕';
+
+  @override
+  String get videoImportSubtitle => '開啟外掛字幕';
+
+  @override
+  String get videoAudioDelay => '音訊延遲';
+
+  @override
+  String get videoSubtitleDelay => '字幕延遲';
+
+  @override
+  String get videoDelayHelp => '正值延後，負值提前。';
+
+  @override
+  String get videoInvalidDelay => '請輸入整數毫秒。';
+
+  @override
+  String get videoAbLoop => 'A–B 區間循環';
+
+  @override
+  String get videoSetA => '目前位置設為 A';
+
+  @override
+  String get videoSetB => '目前位置設為 B';
+
+  @override
+  String get videoClearAb => '清除 A–B';
+
+  @override
+  String get videoAdvancedUnavailable => '目前播放器不支援進階播放功能。';
 }
