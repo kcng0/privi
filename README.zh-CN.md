@@ -2,7 +2,7 @@
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文（香港）](./README.zh-HK.md)
 
-个人使用、完全在设备上的 **Android 媒体保险库**。将照片和视频从系统相册中隐藏，支持 **1–3 颗红心**评分、收藏、播放列表（内置播放器或 **VLC**），以及**图案 / PIN + 生物识别**锁。仅支持深色主题。仅提供 APK 侧载，不使用云存储、账号或分析服务。
+个人使用、完全在设备上的 **Android 媒体保险库**。将照片和视频从系统相册中隐藏，支持 **1–3 颗红心**评分、相册与合集整理、**对齐 VLC 的内置播放器**或外部 **VLC**、本地保险库备份，以及**图案 / PIN + 生物识别**锁。仅支持深色主题。仅提供 APK 侧载，不使用云存储、账号或分析服务。
 
 **作者：** [kcng0](https://github.com/kcng0) · **许可证：** [MIT](./LICENSE) · **支持：** [Buy Me a Coffee](https://buymeacoffee.com/kcng0)。
 
@@ -46,16 +46,22 @@ Android/原生代码、插件、权限、内置资源和 Flutter 引擎变化仍
 ## 功能
 
 - **Visible | Invisible** 首页：浏览系统相册文件夹或私人保险库
-- **独立的马赛克/列表视图**：每个首页页签分别记住自己的布局
-- **隐藏文件夹**：从系统相册移除媒体，但保留磁盘文件
+- **记住的马赛克/列表布局**：每个首页页签、文件夹和合集各自保存视图
+- **隐藏文件夹**：从系统相册移除媒体，同时保留磁盘文件
 - **一致的高清封面**：隐藏前后使用同一张 768 px 视频帧
 - **稳定的日期顺序**：隐藏后文件夹仍保持原始拍摄顺序
-- **红心（0–3）**、收藏、相册排序和拖拽手动整理
+- **红心（0–3）**、收藏、评分筛选、多重排序和拖拽手动整理
 - **合集**：创建、重命名、整理成员和无损解散
-- **内置查看器/播放器**，以及带结果追踪的外部媒体应用
-- **图案 / PIN + 生物识别**锁，可选 `FLAG_SECURE`（禁止截图）
-- **根路由恢复锁**：覆盖所有页签/路由，仅追踪中的媒体应用返回可绕过
-- 支持通过分享 Intent 导入图片和视频
+- **分享**：通过系统分享面板发送选中的 Visible 或 Invisible 媒体，也可导入分享进来的图片和视频
+- **内置播放器**对齐 VLC：上一首/下一首、已播放与总时长、长按 2 倍速、双击与拖动快进、时间轴帧预览，以及左侧亮度、右侧音量滑动
+- **画面**：最佳适配、适应屏幕（裁切）、填满（拉伸）、原始大小和固定比例。方向跟随传感器；会话锁定在切换媒体后仍然保留
+- **音轨与字幕**：选择音轨和字幕、打开外部字幕文件、调整音轨/字幕延迟，以及 Android 播放器上的 A–B 区间循环
+- **画中画**：仅限当前 Android 视频。保险库保持锁定，播放不会自动切到下一项
+- **外部播放列表**：VLC 和其他外部播放器只在播放完成时切到下一项。返回停留在当前项
+- **图案 / PIN + 生物识别**锁、自动锁定，以及可选的 `FLAG_SECURE`（禁止截图）
+- **根路由恢复锁**：覆盖所有页签和路由。只有正在追踪的媒体应用返回可以跳过重新认证
+- **可校验的保险库备份**：导出和恢复媒体与元数据，并核对校验和
+- 语言：跟随系统、English、简体中文、繁體中文（香港）
 - 媒体保存在设备上；签名更新检查由用户主动触发
 
 ### 关键词
@@ -72,7 +78,7 @@ GitHub topics：`flutter` `android` `photo-vault` `video-vault` `private-gallery
 
 ## 截图
 
-截图来自当前 **Privi v1.0.14** Flutter UI，使用合成的文件夹、相册、合集和内置应用图标生成。不使用个人媒体或连接设备；截图展示已发布的深色主题以及最新 Visible/Invisible/合集流程。
+截图来自当前 **Privi v1.1.0** Flutter UI，使用合成的文件夹、相册、合集和内置应用图标生成。不使用个人媒体或连接设备。播放器截图使用与 Android 内置播放器相同的公开控件，widget 测试不会启动解码器。
 
 维护者无需 Android 设备即可重新生成：
 `flutter test tool/readme_screenshots_test.dart --update-goldens`。
@@ -85,14 +91,24 @@ GitHub topics：`flutter` `android` `photo-vault` `video-vault` `private-gallery
 |:--------------:|:--------:|:------:|
 | <img src="assets/screenshots/04_invisible_list.png" width="200" alt="Invisible 相册和合集列表视图"> | <img src="assets/screenshots/05_collection_mosaic.png" width="200" alt="合集成员马赛克视图"> | <img src="assets/screenshots/06_collection_list.png" width="200" alt="合集成员列表视图"> |
 
-| 合集管理 | 设置 | 锁设置 |
-|:--------:|:----:|:------:|
-| <img src="assets/screenshots/07_collection_management.png" width="200" alt="合集成员管理菜单"> | <img src="assets/screenshots/08_settings.png" width="200" alt="安全、显示和播放设置"> | <img src="assets/screenshots/09_lock_setup.png" width="200" alt="图案锁设置页面"> |
+| 合集管理 | 相册 | 多选 |
+|:--------:|:----:|:----:|
+| <img src="assets/screenshots/07_collection_management.png" width="200" alt="合集成员管理菜单"> | <img src="assets/screenshots/08_album_mosaic.png" width="200" alt="带红心评分和筛选的相册马赛克"> | <img src="assets/screenshots/09_album_selection.png" width="200" alt="选中媒体后的分享、评分和取消隐藏"> |
 
-- **Visible 马赛克/列表**：按页签隔离保存的首页视图切换
-- **Invisible 马赛克/列表**：保险库相册、评分、数量和合集
-- **合集页面**：成员马赛克/列表视图及 CRUD 管理操作
-- **设置/锁**：安全、显示、播放和首次图案设置
+| 播放器 | 播放器设置 | 设置 |
+|:------:|:----------:|:----:|
+| <img src="assets/screenshots/10_player.png" width="200" alt="内置播放器的时间、切换、画面、音轨和画中画"> | <img src="assets/screenshots/11_player_settings.png" width="200" alt="红心、快进、倍速和方向的播放器设置"> | <img src="assets/screenshots/12_settings.png" width="200" alt="安全、显示和播放设置"> |
+
+| 保险库备份 | 锁设置 |
+|:----------:|:------:|
+| <img src="assets/screenshots/13_vault_backup.png" width="200" alt="存储设置中的保险库导出和恢复"> | <img src="assets/screenshots/14_lock_setup.png" width="200" alt="图案锁设置页面"> |
+
+- **Visible / Invisible**：文件夹、相册和合集按范围记住马赛克或列表
+- **相册**：保险库媒体上的红心评分和评分筛选
+- **多选**：对当前选择取消隐藏、评分、分享和删除
+- **播放器**：已播放/总时长、上一首/下一首、画面模式、方向、音轨和画中画
+- **播放器设置**：红心评分、双击与拖动快进、播放速度和默认方向
+- **设置 / 备份 / 锁**：安全、播放、可校验的保险库导出与恢复，以及首次图案设置
 
 ---
 
@@ -145,7 +161,9 @@ make help      # 列出 Make 目标
 ```
 ├── lib/           # Dart 源码（按功能组织）
 ├── test/          # 单元测试和 widget 测试
+├── tool/          # README 截图生成器
 ├── android/       # Android 宿主工程
+├── ios/           # 仓库内的 iOS 宿主；发布文件是 Android APK
 ├── assets/        # 品牌 / 图标 / 截图
 ├── scripts/       # bootstrap + 工具链安装器
 ├── .github/       # CI + Release 工作流

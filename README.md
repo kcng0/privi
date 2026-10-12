@@ -2,9 +2,10 @@
 
 [English](./README.md) · [简体中文](./README.zh-CN.md) · [繁體中文（香港）](./README.zh-HK.md)
 
-Personal, on-device **Android media vault**. Hide photos & videos from the system
-gallery, rate them **1–3 hearts**, favorite, play playlists (built-in or
-**VLC**), and lock the app with **pattern / PIN + biometric**. Dark theme only.
+Personal, on-device **Android media vault**. Hide photos and videos from the
+system gallery, rate them with **1–3 hearts**, organize albums and collections,
+play with a **VLC-style built-in player** or external **VLC**, back up the vault
+on disk, and lock the app with **pattern / PIN + biometric**. Dark theme only.
 Sideload-only — media stays local; no cloud storage, accounts, or analytics.
 
 **Author:** [kcng0](https://github.com/kcng0) · **License:** [MIT](./LICENSE) · **Support:** [Buy Me a Coffee](https://buymeacoffee.com/kcng0).
@@ -63,17 +64,23 @@ media stays on-device.
 
 ## Features
 
-- **Visible | Invisible** home — browse system gallery albums or the private vault
-- **Independent mosaic/list views** — each home tab remembers its own layout
+- **Visible | Invisible** home — browse system gallery folders or the private vault
+- **Remembered mosaic and list layouts** — each home tab, folder, and collection keeps its own view
 - **Directory hide** — media removed from the system gallery while kept on disk
 - **Consistent HD posters** — the same 768 px video frame before and after Hide
 - **Stable date order** — folders keep original capture chronology after Hide
-- **Hearts (0–3)** + favorites, album sorting, and manual drag-to-arrange
+- **Hearts (0–3)**, favorites, rating filters, multi-sort, and manual drag-to-arrange
 - **Collections** — create, rename, organize members, and dissolve without deleting media
-- **Built-in viewer/player** + result-tracked external media apps
-- **Pattern / PIN + biometric** lock, optional `FLAG_SECURE` (block screenshots)
-- **Root resume lock** — covers every tab/route; only tracked media-app Back bypasses it
-- **Share-to-Privi** import intents for images and videos
+- **Share** selected Visible or Invisible media through the system chooser, and import images or videos shared into Privi
+- **Built-in player** aligned with VLC: previous/next, elapsed and total time, long-press 2×, double-tap and drag seek, timeline frame preview, and left brightness / right volume swipes
+- **Display** — Best fit, Fit screen (crop), Fill (stretch), Original size, and fixed ratios. Orientation follows the sensor; a session lock survives media changes
+- **Audio and subtitles** — track selection, an external subtitle file, audio/subtitle delay, and A–B repeat on the Android player
+- **Picture in picture** for the current Android video. The vault stays locked and playback does not advance
+- **External playlists** — VLC and other external players advance only when playback completes. Back stays on the current item
+- **Pattern / PIN + biometric** lock, auto-lock, and optional `FLAG_SECURE` (block screenshots)
+- **Root resume lock** — covers every tab and route. Only a tracked media-app return skips re-authentication
+- **Verified vault backup** — export and restore media plus metadata, with checksum checks
+- Languages: system default, English, 简体中文, and 繁體中文（香港）
 - On-device media storage; signed update checks are user-triggered
 
 ### Keywords / search terms
@@ -90,10 +97,10 @@ GitHub topics: `flutter` `android` `photo-vault` `video-vault` `private-gallery`
 
 ## Screenshots
 
-Captured from the current **Privi v1.0.14** Flutter UI using synthetic folders,
+Captured from the current **Privi v1.1.0** Flutter UI using synthetic folders,
 albums, collections, and the bundled app icon. No personal media or connected
-device is used; the dark theme and latest Visible/Invisible/collection flows are
-shown as they ship.
+device is used. The player frame uses the same public controls as the built-in
+Android player; the widget test does not start a decoder.
 
 Maintainers can regenerate them without an Android device:
 `flutter test tool/readme_screenshots_test.dart --update-goldens`.
@@ -106,14 +113,24 @@ Maintainers can regenerate them without an Android device:
 |:--------------:|:-----------------:|:---------------:|
 | <img src="assets/screenshots/04_invisible_list.png" width="200" alt="Invisible albums and collection in list view"> | <img src="assets/screenshots/05_collection_mosaic.png" width="200" alt="Collection members in mosaic view"> | <img src="assets/screenshots/06_collection_list.png" width="200" alt="Collection members in list view"> |
 
-| Collection management | Settings | Lock setup |
-|:--------------------:|:--------:|:----------:|
-| <img src="assets/screenshots/07_collection_management.png" width="200" alt="Collection member management menu"> | <img src="assets/screenshots/08_settings.png" width="200" alt="Security, display, and playback settings"> | <img src="assets/screenshots/09_lock_setup.png" width="200" alt="Pattern lock setup screen"> |
+| Collection management | Album | Selection |
+|:--------------------:|:-----:|:---------:|
+| <img src="assets/screenshots/07_collection_management.png" width="200" alt="Collection member management menu"> | <img src="assets/screenshots/08_album_mosaic.png" width="200" alt="Album mosaic with heart ratings and filters"> | <img src="assets/screenshots/09_album_selection.png" width="200" alt="Selected album items with share, rate, and unhide"> |
 
-- **Visible mosaic/list** — the new tab-isolated home presentation toggle.
-- **Invisible mosaic/list** — vault albums, ratings, counts, and collections.
-- **Collection screens** — member mosaic/list views and CRUD management actions.
-- **Settings / lock** — security, display, playback, and first-run pattern setup.
+| Player | Player settings | Settings |
+|:------:|:---------------:|:--------:|
+| <img src="assets/screenshots/10_player.png" width="200" alt="Built-in player with time, transport, fit, tracks, and picture in picture"> | <img src="assets/screenshots/11_player_settings.png" width="200" alt="Player settings for hearts, seek, speed, and orientation"> | <img src="assets/screenshots/12_settings.png" width="200" alt="Security, display, and playback settings"> |
+
+| Vault backup | Lock setup |
+|:------------:|:----------:|
+| <img src="assets/screenshots/13_vault_backup.png" width="200" alt="Vault export and restore in storage settings"> | <img src="assets/screenshots/14_lock_setup.png" width="200" alt="Pattern lock setup screen"> |
+
+- **Visible / Invisible** — tab-specific mosaic and list layouts for folders, albums, and collections.
+- **Album** — heart ratings and the rating filter on vault media.
+- **Selection** — unhide, rate, share, and delete for the current selection.
+- **Player** — elapsed/total time, previous/next, display mode, orientation, tracks, and picture in picture.
+- **Player settings** — heart rating, double-tap and drag seek, playback speed, and the default orientation.
+- **Settings / backup / lock** — security, playback, verified vault export and restore, and first-run pattern setup.
 
 ---
 
@@ -167,7 +184,9 @@ Full environment notes, troubleshooting, and CI details:
 ```
 ├── lib/           # Dart source (feature-first)
 ├── test/          # unit + widget tests
+├── tool/          # README screenshot generator
 ├── android/       # Android host project
+├── ios/           # in-repo iOS host; releases are Android APKs
 ├── assets/        # branding / icons / screenshots
 ├── scripts/       # bootstrap + toolchain installer
 ├── .github/       # CI + release workflows
