@@ -6,8 +6,8 @@ import 'package:video_player/video_player.dart';
 import 'package:video_player_platform_interface/video_player_platform_interface.dart'
     show VideoPlayerPlatform;
 
-import '../../data/services/playback/media_kit_video_player_platform.dart';
 import '../../domain/models/advanced_video_state.dart';
+import '../../domain/models/video_player_capabilities.dart';
 
 export '../../domain/models/advanced_video_state.dart';
 
@@ -39,9 +39,9 @@ class AdvancedVideoController extends ValueNotifier<AdvancedVideoState>
   void _onVideoChanged() {
     if (_disposed) return;
     if (_port == null) {
-      final platform = VideoPlayerPlatform.instance;
+      final Object platform = VideoPlayerPlatform.instance;
       final port = _injectedPort ??
-          (platform is MediaKitVideoPlayerPlatform
+          (platform is AdvancedVideoPortProvider
               // video_player exposes no public controller-to-platform handle.
               // Its own Video widget uses this same stable facade identifier.
               // ignore: invalid_use_of_visible_for_testing_member

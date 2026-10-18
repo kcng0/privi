@@ -14,6 +14,7 @@ import io.flutter.embedding.android.FlutterFragment
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.android.FlutterView
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.FlutterInjector
 import io.flutter.plugin.common.MethodChannel
 import java.util.concurrent.Executors
 
@@ -29,6 +30,7 @@ class MainActivity : FlutterFragmentActivity() {
     private var shareHandler: ShareHandler? = null
     private var pictureInPicture: PictureInPictureHandler? = null
     private var orientation: OrientationHandler? = null
+    private var libVlcPlayers: LibVlcPlayerHost? = null
 
     private fun <T> runIo(result: MethodChannel.Result, block: () -> T) {
         ioExecutor.execute {
@@ -51,7 +53,16 @@ class MainActivity : FlutterFragmentActivity() {
         val messenger = flutterEngine.dartExecutor.binaryMessenger
         externalPlayer = ExternalPlayerHandler(this, messenger, vaultFiles)
         shareHandler = ShareHandler(this, messenger, mediaStore)
-        pictureInPicture = PictureInPictureHandler(this, messenger)
+        libVlcPlayers = LibVlcPlayerHost(this, messenger) { asset, assetPackage ->
+            val loader = FlutterInjector.instance().flutterLoader()
+            if (assetPackage == null) loader.getLookupKeyForAsset(asset)
+            else loader.getLookupKeyForAsset(asset, assetPackage)
+        }.also {
+            it.registerViewFactory(flutterEngine.platformViewsController.registry)
+        }
+        pictureInPicture = PictureInPictureHandler(this, messenger) {
+            libVlcPlayers?.revokePresentation()
+        }
         orientation = OrientationHandler(this, messenger)
 
         MethodChannel(messenger, "com.privi.app/mediastore")
@@ -253,6 +264,8 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     override fun onDestroy() {
+        libVlcPlayers?.dispose()
+        libVlcPlayers = null
         pictureInPicture?.dispose()
         pictureInPicture = null
         orientation?.dispose()
@@ -273,6 +286,9 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun onPause() {
         pictureInPicture?.onPause()
+        if (pictureInPicture?.hasPresentationGrant != true) {
+            libVlcPlayers?.revokePresentation()
+        }
         super.onPause()
     }
 

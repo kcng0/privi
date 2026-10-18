@@ -82,3 +82,7 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    implementation("org.videolan.android:libvlc-all:3.7.7")
+}

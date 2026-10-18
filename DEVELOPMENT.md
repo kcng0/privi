@@ -195,51 +195,53 @@ Leaving playback restores the original orientation request. Large-screen or
 multi-window restrictions may override the requested direction, so layout uses
 the actual viewport rather than assuming a successful device rotation.
 
-`VideoViewport` alone owns picture sizing. Best fit contains the complete image;
-Fit screen covers and crops; Fill stretches; Original uses the displayed video
-pixel dimensions divided by device pixel ratio, without shrinking to fit.
-Explicit ratios apply in display coordinates. Default Best fit and the chosen
-mode are global playback preferences. Android's media_kit bridge waits for real
-display dimensions and does not invent a 16:9 size when only duration is known.
-Its dimensions already include rotation/SAR corrections; apply them once.
+`VideoViewport` selects one sizing owner. Android delegates the entire bounded
+viewport to LibVLC's native `VLCVideoLayout`; Flutter does not also scale its
+SurfaceViews. iOS retains the Flutter viewport. Best fit contains; Fit screen
+covers and crops; Fill stretches; Original uses physical video pixels. Explicit
+ratios apply in display coordinates. LibVLC applies rotation/SAR to output once;
+the bridge reports corrected display dimensions with rotationCorrection zero.
+Unknown dimensions never initialize as an invented 16:9 image. Native layout uses
+the actual view bounds, independently of the Activity's requested orientation.
 
-Android retains the existing media_kit/mpv decoder behind video_player. Per-player
-advanced capabilities expose tracks, local subtitles, audio/subtitle delay, and
-A-B repeat. libass renders styled subtitles using the bundled Noto CJK font;
-font provenance and licensing are in `assets/fonts`. iOS keeps AVFoundation and
-only advertises capabilities that it actually implements. Timeline preview
-extraction is serialized with a bounded session-only cache; Android API 27+
-decodes bounded preview frames directly. Preview callbacks belong to their
-controller so a late scrub cannot request frames from the next video.
+Android production playback uses `org.videolan.android:libvlc-all:3.7.7` with
+`MediaPlayer.attachViews(..., subtitles=true, textureView=false)`. Flutter hybrid
+composition embeds the actual video/subtitle SurfaceViews; neither mpv copy-back
+nor a Flutter video Texture is on this production path. iOS keeps AVFoundation.
+`video_player` remains the public controller facade. Optional advanced ports
+expose tracks, local subtitles, audio/subtitle delays, A–B repeat and diagnostics.
+LibVLC enables audio time stretching and automatic hardware decoding with its
+software fallback; speed changes update the existing player's native rate.
+The bundled Noto CJK font is made available to native subtitle rendering.
 
-Android opens paused with the SDK's original hardware policy. After metadata is
-ready, only `auto-safe` / `mediacodec-copy` with reported 8-bit output and SDR raw
-`video-dec-params` may prefer `mediacodec,auto-safe`. The normalized `video-params`
-include guessed colors and must not authorize this choice. Reported HDR, higher output bit depths,
-wide gamut, missing metadata, software fallback and emulator `no` retain their
-existing policy. Changing `hwdec` rebuilds the decoder and queues a seek, so this
-choice happens once during initialization, never during rate changes. Readback
-confirms the requested policy; it does not prove direct output or a ready frame.
+Creation returns a disposable id before asynchronous parsing can fail. Parsed
+metadata initializes the facade without opening a decoder. A preloaded item owns
+metadata, not an active MediaPlayer: decoding starts only after play is requested,
+a native viewport is attached and the playback permission owner grants
+presentation. Fatal LibVLC player events propagate as video_player errors; SDK
+logs are not treated as fatal events. Failed media can be disposed and retried.
+All stop/release work is serialized; stale surfaces cannot detach a newer PiP
+surface. Each viewport retains its own fit mode during PiP reparenting.
 
-The draft advanced sheet includes a session-only direct decoding experiment
-(currently blocked from publication by the recovery issue below). It accepts active MediaCodec copy-back with reported 8-bit output
-and either SDR or explicitly unspecified raw color values; missing properties
-and reported HDR/wide gamut/high-depth output remain ineligible. This does not
-prove source bit depth: Android decoders may convert high-depth sources to NV12.
-Unspecified source details remain unknown, and users see the color/dynamic-range
-risk before selection. The default policy is unchanged. The controller pauses
-through video_player before the port serializes pause verification and hwdec
-mutation with native playback operations. It never resumes automatically,
-changes audio or rate, or persists this choice. Requested hwdec and actual
-hwdec-current are shown separately, including allowed fallback. Users resume
-manually and compare the same clip, including sound; actual frame pacing and
-source quality still require physical-device acceptance.
+Presentation is denied by default. The existing root lock/PiP owner grants the
+current controller before play, and hides its native video/subtitle surfaces
+when locking, backgrounding or releasing it. Native screen-off and PiP revoke
+callbacks also hide/pause before returning to Dart. A normal user pause retains
+the visible paused frame. Granting visibility does not automatically resume.
+The Navigator and underlying playback route remain mounted across locking.
 
-Publication of the session switch is blocked: the pinned media_kit promotes
-some recoverable vd error logs to fatal video_player events. A successful native
-fallback can therefore leave the facade uninitialized, with no in-place recovery.
-Do not suppress diagnostics or re-emit initialized to work around this boundary.
-The current release does not include the switch; native-stack selection is pending.
+The blocked mpv direct-decoding experiment is not advertised by LibVLC. The old
+adapter remains available to historical probes; it is not installed by `main`.
+`media_kit_libs_video` is a development dependency, so its native libraries are
+excluded from release APKs by Flutter. The old patched media_kit_video widget
+remains solely for those probes; its removal requires retiring the old harness.
+SDK HTTP overrides support User-Agent/Referer; other custom headers produce an
+explicit initialization error. Current product sources are local files/content.
+
+Timeline preview extraction remains serialized with a bounded session cache;
+Android API 27+ decodes bounded preview frames directly. Preview callbacks belong
+to their controller so a late scrub cannot request frames from the next video.
+Horizontal swipes continue playing and commit one seek on release.
 
 The advanced playback sheet offers an explicit Copy playback diagnostics action
 on supported backends. It reads an allowlist of technical native properties once,
@@ -247,11 +249,6 @@ with unknown counters preserved as unknown. Reports contain no source names,
 paths, URLs, subtitle text or device names. No polling, persistence or automatic
 upload is attached to playback; clipboard writes require the requesting sheet to
 remain current. Diagnostics share the port's operation/disposal queue.
-
-The pinned `third_party/media_kit_video` 2.0.1 override fixes Android callbacks
-that outlive disposal during a failed decoder attempt. `PRIVI_PATCH.md` records
-the exact upstream source and removal criteria; keep its lifecycle tests when
-upgrading the dependency.
 
 Android PiP is opt-in for the current video only. It reuses the existing player
 and Activity, locks the vault, and displays a video-only root layer while the
@@ -266,27 +263,23 @@ background must neither start playback nor advance the playlist. PiP's entry
 deadline includes its first-frame wait, so leaving before that frame revokes
 the grant without waiting for rendering to resume.
 
-`.github/workflows/player-validation.yml` exercises the real Android bridge on
-an emulator with synthetic MP4/MKV/WebM (H.264, HEVC, AV1, VP9), AAC/AC3/EAC3/Opus,
-rotation/SAR and ASS fixtures, repeated controller disposal, and native PiP
-transitions. Screenshots, timings, and device
-logs are saved as workflow artifacts. No personal media is used. Emulator results
-do not substitute for physical-device codec, battery, or thermal measurements.
-The render suite uses API 33: API 34–36 goldfish EGL rejects the bundled mpv's
-zero context flags before reaching the host renderer. The upstream mpv fix is
-`6b8bd8072fc2abcc14183f91e31f5823481e5614`; even native artifact v1.1.11 retains
-the older mpv commit. Do not remove frame assertions to make newer emulators
-pass. API 35 metadata/disposal checks ran, but its visual rendering did not pass;
-physical-device validation remains separate.
+The existing `.github/workflows/player-validation.yml` and rate-profile harness
+explicitly install a MediaKit subclass and use mpv-only properties/screenshots.
+Their historical green runs are not LibVLC acceptance. Do not change assertions
+to manufacture a pass. Host-side existing tests remain regression probes for
+controls, playlist ownership and lock/PiP policy; they do not demonstrate native
+SurfaceView composition, subtitles, frame pacing, or device audio output.
 
-`scripts/run-playback-rate-profile.sh` is the independent 1080p24 SDR rate
-experiment. It uses actual Android MotionEvents, six real-time measurement
-windows and an APK whose `com.privi.app.playbackprofile` id is checked before
-installation. It cannot replace the release vault. The optional recording adds
-encoder load. Flutter timings, source FPS and command counts are not video output
-FPS; decoder/VO counters and playback progress also require their documented
-interpretation. See `docs/05-review/video-performance-practices-2026-10-18.md` for
-primary sources, measurement limits and the physical A52 validation matrix.
+True acceptance must open a video through Privi's built-in player, compare the
+same Samsung A52 clip with VLC at 1×/2×/back to 1× (menu and hold), exercise drag
+release, all fit modes, rotation/SAR, audio/subtitle tracks, ASS/CJK text, A–B and
+errors/Retry, then enter PiP, switch it back, lock/screen-off and authenticate.
+Record actual visible output and sound; media-clock progress, decoder counters
+and Flutter frame timings are not display FPS. This checkout has no connected
+Android device or KVM; any missing native true-path evidence must remain marked
+unverified and must not be described as a performance fix proven on A52.
+Primary-source research and the historical diagnostic limitations are recorded in
+`docs/05-review/video-performance-practices-2026-10-18.md`.
 
 ## Code generation
 

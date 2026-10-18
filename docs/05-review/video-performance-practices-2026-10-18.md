@@ -147,3 +147,14 @@ Hacker 首轮发现的源位深保护合同反证已用于收窄上述声明；�
 新增会话开关提交 `6d1459e` 已推送可审阅，但没有打版本标签或发布。第二轮 Hacker 定位到恢复设计反例：direct codec open 失败后，即使 mpv 自行回退成功，`vd/error: Could not open codec.` 仍被 media_kit 转成错误流；当前桥接无条件转成 video_player 致命事件，已初始化的 facade 会变为未初始化。随后切回兼容或刷新 Advanced 状态不能恢复同一 facade；重复发送 initialized 也会被依赖拒绝。该反例依据固定版本源码的完整传播链，尚没有真实设备失败复现；因此不能将其记为实机观察，也不能据未复现忽略恢复合同。
 
 两轮审查已到上限，新增开关的发布被阻止，现有已部署版本没有这次开关。用户已通过真实入口复制并提供 JSON，诊断导出这条真路径已有实机回报；新的硬件切换、音画改善、颜色和失败恢复仍未验。接下来向用户提交重大底层选型：内置 LibVLC + 原生 SurfaceView，或保留 mpv 并升级内核、输出与错误边界。仅更换 Dart 开关、吞掉日志或把同一 facade 重新标为 initialized，都不作为根因修复。
+
+
+### 用户选定 LibVLC + 原生 SurfaceView
+
+用户明确选择内置 LibVLC 与原生 SurfaceView。Android 生产入口改为官方稳定 `org.videolan.android:libvlc-all:3.7.7`，由 Flutter hybrid composition 嵌入 `VLCVideoLayout`，调用 `attachViews(..., true, false)` 同时挂载视频与字幕 Surface。原生负责完整有界 viewport 内的缩放、SAR 和旋转；Flutter 保留既有控件与手势。稳定版本与许可证按实际 Maven 元数据核实；4.0.0-eap 是预览版，本轮不用。[Maven 元数据](https://repo.maven.apache.org/maven2/org/videolan/android/libvlc-all/maven-metadata.xml)、[3.7.7 发布 POM](https://repo.maven.apache.org/maven2/org/videolan/android/libvlc-all/3.7.7/libvlc-all-3.7.7.pom)、[实际 SDK 源码](https://repo.maven.apache.org/maven2/org/videolan/android/libvlc-all/3.7.7/libvlc-all-3.7.7-sources.jar)。
+
+该迁移消除旧 mpv copy-back → GPU → Flutter Texture 的生产视频路径，不能据此先声称 A52 性能已达 VLC。官方 LibVLC 自动选择硬解并允许软件回退；不再显示旧 mpv 会话 direct 实验。预加载只异步读取媒体信息，真正开始播放、具备 Surface 且应用授权后才创建播放/解码实例。倍速直接修改当前 LibVLC player.rate，开启音调保持。
+
+锁屏权限与 view 生命周期分开：root lock/PiP 仍是唯一授权 owner；原生默认隐藏，锁屏/后台/熄屏撤授权并暂停，临时 PiP view 重挂不会获得额外权限。各 view 单独保存 fit 模式。原生错误仅由明确的 fatal player 事件传播，调试日志不会再次污染 video_player facade。iOS 保留 AVFoundation。
+
+旧 mpv 原生回归和 profile 代码都显式安装旧 adapter，不能作为 LibVLC 真路径证据。当前环境没有连接 Android 手机，也无可运行模拟器；源码/SDK 编译及既有 Flutter tests 只作探针。验收必须保留“native 真播放、字幕与 Surface 叠层、PiP/屏幕遮挡、A52 2×音画和持续温度未验”的明确边界，直到取得实际输出。最终验收与发布结果随交付补记。

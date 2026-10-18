@@ -28,6 +28,7 @@ import io.flutter.plugin.common.MethodChannel
 class PictureInPictureHandler(
     private val activity: Activity,
     messenger: BinaryMessenger,
+    private val revokeVideoPresentation: () -> Unit = {},
 ) {
     private val channel = MethodChannel(messenger, "com.privi.app/pip")
     private val actionName = "${activity.packageName}.PIP_PLAYBACK"
@@ -39,6 +40,9 @@ class PictureInPictureHandler(
     private var aspect = Rational(16, 9)
     private var sourceRect: Rect? = null
     private var shield: View? = null
+
+    val hasPresentationGrant: Boolean
+        get() = authorized
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -231,6 +235,7 @@ class PictureInPictureHandler(
     }
 
     private fun cover() {
+        revokeVideoPresentation()
         if (shield != null) return
         val root = activity.findViewById<ViewGroup>(android.R.id.content)
         shield = View(activity).apply {

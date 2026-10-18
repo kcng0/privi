@@ -10,6 +10,9 @@ import 'package:path_provider/path_provider.dart';
 import 'package:video_player_platform_interface/video_player_platform_interface.dart';
 
 import '../../../domain/models/advanced_video_state.dart';
+import '../../../domain/models/video_player_capabilities.dart';
+
+export 'vault_video_player.dart' show installVaultVideoPlayer;
 
 /// ExoPlayer/MediaCodec refused the stream because the device decoder cannot
 /// handle that profile, size, or frame rate (e.g. 2560x1440 @ 120fps H.264
@@ -100,15 +103,8 @@ bool shouldPreferDirectAndroidDecoding({
           const {'bt.601-525', 'bt.601-625'}.contains(primaries));
 }
 
-/// Replaces Android ExoPlayer/MediaCodec with libmpv so in-app playback can
-/// software-decode formats the device hardware rejects.
-void installVaultVideoPlayer() {
-  if (!Platform.isAndroid) return;
-  MediaKit.ensureInitialized();
-  VideoPlayerPlatform.instance = MediaKitVideoPlayerPlatform();
-}
-
-class MediaKitVideoPlayerPlatform extends VideoPlayerPlatform {
+class MediaKitVideoPlayerPlatform extends VideoPlayerPlatform
+    implements AdvancedVideoPortProvider {
   MediaKitVideoPlayerPlatform({this.logLevel = MPVLogLevel.error});
 
   final MPVLogLevel logLevel;
@@ -119,6 +115,7 @@ class MediaKitVideoPlayerPlatform extends VideoPlayerPlatform {
   @visibleForTesting
   int get activePlayerCount => _players.length;
 
+  @override
   AdvancedVideoPort? advancedPortFor(int playerId) =>
       _players[playerId]?.advanced;
 

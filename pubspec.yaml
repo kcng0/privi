@@ -47,13 +47,12 @@ dependencies:
   photo_manager: ^3.6.0
   permission_handler: ^11.3.1
 
-  # Playback: built-in mpv/FFmpeg player (software fallback for MediaCodec
-  # NO_EXCEEDS_CAPABILITIES) + optional external VLC hand-off.
+  # Playback facade: Android LibVLC/SurfaceView (Gradle), iOS AVFoundation,
+  # plus optional external VLC hand-off. media_kit remains for legacy probes.
   video_player: ^2.9.2
   video_player_platform_interface: ^6.9.0
   media_kit: ^1.2.6
   media_kit_video: ^2.0.1
-  media_kit_libs_video: ^1.0.7
   chewie: ^1.8.5
   android_intent_plus: ^5.2.0
 
@@ -72,6 +71,9 @@ dependencies:
   share_plus: ^10.0.0
 
 dev_dependencies:
+  # Historical mpv/device probes only; Flutter excludes these native libraries
+  # from release APKs. Android production playback uses the LibVLC Gradle AAR.
+  media_kit_libs_video: ^1.0.7
   flutter_test:
     sdk: flutter
   integration_test:
@@ -103,6 +105,7 @@ flutter:
     enable-swift-package-manager: true
   uses-material-design: true
   assets:
+    - assets/licenses/LGPL-2.1-LibVLC.txt
     - assets/fonts/NotoSansCJKsc-Regular.ttf
     - assets/fonts/OFL-NotoSansCJK.txt
     - assets/branding/app_icon.png

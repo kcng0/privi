@@ -4,9 +4,11 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
+import 'package:video_player_platform_interface/video_player_platform_interface.dart';
 
 import '../../data/services/playback_display_service.dart';
 import '../../domain/models/video_playback_settings.dart';
+import '../../domain/models/video_player_capabilities.dart';
 
 export '../../domain/models/video_playback_settings.dart' show VideoFitMode;
 
@@ -239,6 +241,10 @@ class _VideoViewportState extends State<VideoViewport> {
   late Size _size;
   late int _rotation;
   late Widget _video;
+  NativeVideoPresentationPlatform? get _nativePresentation {
+    final Object platform = VideoPlayerPlatform.instance;
+    return platform is NativeVideoPresentationPlatform ? platform : null;
+  }
 
   void _attach() {
     _size = widget.controller.value.size;
@@ -280,6 +286,21 @@ class _VideoViewportState extends State<VideoViewport> {
   @override
   Widget build(BuildContext context) => LayoutBuilder(
         builder: (context, constraints) {
+          final native = _nativePresentation;
+          if (native != null) {
+            // LibVLC owns placement inside this bounded native viewport,
+            // including SAR/rotation and physical pixels in Original mode.
+            // Applying Flutter's OverflowBox as well would scale twice.
+            return ClipRect(
+              child: SizedBox.expand(
+                child: native.buildNativeViewport(
+                  // ignore: invalid_use_of_visible_for_testing_member
+                  widget.controller.playerId,
+                  widget.fitMode,
+                ),
+              ),
+            );
+          }
           final size = videoViewportSize(
             viewport: constraints.biggest,
             displaySize: widget.displaySize ??

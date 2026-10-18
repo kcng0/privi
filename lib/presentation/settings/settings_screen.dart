@@ -454,20 +454,9 @@ class SettingsScreen extends ConsumerWidget {
   }
 
   void _showLicense(BuildContext context) {
-    showDialog<void>(
+    showLicensePage(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(context.l10n.license),
-        content: const SingleChildScrollView(
-          child: Text(AppInfo.licenseBody),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: Text(context.l10n.close),
-          ),
-        ],
-      ),
+      applicationName: AppInfo.name,
     );
   }
 
