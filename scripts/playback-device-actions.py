@@ -446,7 +446,7 @@ class ReleaseSmoke:
     def matches(root, label):
         return [node for node in root.iter("node")
                 if node.get("enabled") != "false" and any(
-                    value == label or value.startswith(label + "\n")
+                    value == label or label in value.splitlines()
                     for value in (node.get("text", ""), node.get("content-desc", "")))]
 
     def find(self, label, *, timeout=20, scroll=False, resource_id=None, gallery_permission=False):
