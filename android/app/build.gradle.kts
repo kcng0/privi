@@ -49,6 +49,10 @@ android {
     }
 
     buildTypes {
+        getByName("profile") {
+            // Performance runs must never replace the installed private vault.
+            applicationIdSuffix = ".playbackprofile"
+        }
         release {
             // Prefer a permanent release keystore (Play Protect reputation).
             // Falls back to debug only for local `flutter run --release` convenience
