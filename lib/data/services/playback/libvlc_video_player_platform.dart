@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:video_player_platform_interface/video_player_platform_interface.dart';
@@ -254,6 +255,12 @@ String _uriForDataSource(DataSource source) {
   }
 }
 
+typedef _SurfaceRecoveryRequest = ({
+  int viewId,
+  int generation,
+  bool needsFrame,
+});
+
 class _LibVlcPlayer {
   _LibVlcPlayer({
     required this.id,
@@ -267,6 +274,7 @@ class _LibVlcPlayer {
   final MethodChannel channel;
   final bool isNative;
   final _events = StreamController<VideoEvent>.broadcast();
+  final surfaceRecovery = ValueNotifier<_SurfaceRecoveryRequest?>(null);
   late final _LibVlcAdvancedVideoPort advanced;
   StreamSubscription<Object?>? _subscription;
   VideoEvent? _initialized;
@@ -332,6 +340,26 @@ class _LibVlcPlayer {
     if (_error != null) return;
     final VideoEvent videoEvent;
     switch (event['event']) {
+      case 'surfaceRecovery':
+        final needsFrame = event['needsFrame'];
+        if (needsFrame is! bool) {
+          throw const FormatException('Invalid native surface recovery state');
+        }
+        final request = (
+          viewId: _number(event['viewId'], 'surface viewport').toInt(),
+          generation:
+              _number(event['generation'], 'surface generation').toInt(),
+          needsFrame: needsFrame,
+        );
+        final current = surfaceRecovery.value;
+        if (!needsFrame &&
+            current != null &&
+            (current.viewId != request.viewId ||
+                current.generation != request.generation)) {
+          return;
+        }
+        surfaceRecovery.value = request;
+        return;
       case 'advanced':
         try {
           advanced.update(_map(event['state'], 'advanced state'));
@@ -429,6 +457,7 @@ class _LibVlcPlayer {
           )
         : PlatformException(code: 'libvlc_video_player', message: '$error');
     _error = exception;
+    surfaceRecovery.value = null;
     _errorStack = stackTrace;
     advanced.reportError(exception.message!);
     _events.addError(exception, stackTrace);
@@ -437,10 +466,12 @@ class _LibVlcPlayer {
   Future<void> dispose() async {
     if (_disposed) return;
     _disposed = true;
+    surfaceRecovery.value = null;
     try {
       await _subscription?.cancel();
     } finally {
       advanced.dispose();
+      surfaceRecovery.dispose();
       // A paused facade subscription must not hold native decoder cleanup open.
       unawaited(_events.close());
       if (isNative) await channel.invokeMethod<void>('dispose', {'id': id});
@@ -571,11 +602,73 @@ class _LibVlcViewport extends StatefulWidget {
   State<_LibVlcViewport> createState() => _LibVlcViewportState();
 }
 
-class _LibVlcViewportState extends State<_LibVlcViewport> {
+class _LibVlcViewportState extends State<_LibVlcViewport>
+    with SingleTickerProviderStateMixin {
+  // Native expires and diagnoses a request at 5s; guard a missing response too.
+  static const _surfaceRecoveryDeadline = Duration(seconds: 6);
+
   Widget? _platformView;
   int? _viewId;
   bool _created = false;
   VideoFitMode? _requestedFitMode;
+  late final Ticker _surfaceRecoveryTicker;
+  int? _surfaceRecoveryGeneration;
+
+  @override
+  void initState() {
+    super.initState();
+    _surfaceRecoveryTicker = createTicker(_paintSurfaceRecoveryFrame);
+    widget.player.surfaceRecovery.addListener(_onSurfaceRecoveryRequest);
+  }
+
+  void _onSurfaceRecoveryRequest() {
+    final request = widget.player.surfaceRecovery.value;
+    if (!_created ||
+        request == null ||
+        request.viewId != _viewId ||
+        !request.needsFrame ||
+        widget.player.isDisposed) {
+      _surfaceRecoveryTicker.stop();
+      _surfaceRecoveryGeneration = null;
+      return;
+    }
+    if (_surfaceRecoveryGeneration == request.generation) return;
+    _surfaceRecoveryGeneration = request.generation;
+    _surfaceRecoveryTicker.stop();
+    _surfaceRecoveryTicker.start();
+  }
+
+  void _paintSurfaceRecoveryFrame(Duration elapsed) {
+    if (!mounted || widget.player.isDisposed) {
+      _surfaceRecoveryTicker.stop();
+      return;
+    }
+    if (elapsed >= _surfaceRecoveryDeadline) {
+      _surfaceRecoveryTicker.stop();
+      widget.player.reportControlError(
+        PlatformException(
+          code: 'surface_recovery_timeout',
+          message:
+              'Native video surface recovery did not acknowledge completion',
+        ),
+        StackTrace.current,
+        'Recovering video viewport $_viewId',
+      );
+      return;
+    }
+    // Hybrid composition can hide a SurfaceView when its overlay ImageReader
+    // has no image yet. With static controls there may be no next Flutter frame
+    // to consume the image and reveal it. Paint only while native requests
+    // recovery; its surface-ready/revoked event stops this ticker immediately.
+    context.findRenderObject()?.markNeedsPaint();
+  }
+
+  @override
+  void dispose() {
+    widget.player.surfaceRecovery.removeListener(_onSurfaceRecoveryRequest);
+    _surfaceRecoveryTicker.dispose();
+    super.dispose();
+  }
 
   @override
   void didUpdateWidget(_LibVlcViewport oldWidget) {
@@ -617,7 +710,10 @@ class _LibVlcViewportState extends State<_LibVlcViewport> {
         viewType: 'com.privi.app/libvlc/view',
         surfaceFactory: (context, controller) => AndroidViewSurface(
           controller: controller as AndroidViewController,
-          hitTestBehavior: PlatformViewHitTestBehavior.translucent,
+          // Video is display-only. Even an empty native gesture team can win
+          // the tap arena while Flutter waits to disambiguate a double tap.
+          // Keep all input with VideoGestureSurface, including letterboxing.
+          hitTestBehavior: PlatformViewHitTestBehavior.transparent,
           gestureRecognizers: const <Factory<OneSequenceGestureRecognizer>>{},
         ),
         onCreatePlatformView: (params) {
@@ -639,6 +735,7 @@ class _LibVlcViewportState extends State<_LibVlcViewport> {
               params.onPlatformViewCreated(viewId);
               if (!mounted) return;
               _created = true;
+              _onSurfaceRecoveryRequest();
               // A setting may change while native creation is still awaiting
               // layout/channel completion. Apply only this mount's latest mode.
               _updateFitMode();

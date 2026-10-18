@@ -238,6 +238,17 @@ remains solely for those probes; its removal requires retiring the old harness.
 SDK HTTP overrides support User-Agent/Referer; other custom headers produce an
 explicit initialization error. Current product sources are local files/content.
 
+GitHub's universal APK compresses native libraries with
+`android.packaging.jniLibs.useLegacyPackaging=true`. Android extracts the current
+device ABI during installation; installed size includes those native libraries.
+Compression preserves every shipped ABI, codec and subtitle module. This changes
+APK packaging, not the app's update destination, and requires a full new APK.
+
+The native video view is display-only (`PlatformViewHitTestBehavior.transparent`):
+Flutter owns taps, double taps, long press and seeking, including letterboxing.
+A translucent native gesture team can otherwise capture a single tap while
+Flutter waits for a possible second tap.
+
 Timeline preview extraction remains serialized with a bounded session cache;
 Android API 27+ decodes bounded preview frames directly. Preview callbacks belong
 to their controller so a late scrub cannot request frames from the next video.
@@ -263,12 +274,31 @@ background must neither start playback nor advance the playlist. PiP's entry
 deadline includes its first-frame wait, so leaving before that frame revokes
 the grant without waiting for rendering to resume.
 
-The existing `.github/workflows/player-validation.yml` and rate-profile harness
-explicitly install a MediaKit subclass and use mpv-only properties/screenshots.
-Their historical green runs are not LibVLC acceptance. Do not change assertions
-to manufacture a pass. Host-side existing tests remain regression probes for
-controls, playlist ownership and lock/PiP policy; they do not demonstrate native
-SurfaceView composition, subtitles, frame pacing, or device audio output.
+`.github/workflows/player-validation.yml` now runs the production LibVLC
+adapter with the existing synthetic codec/rotation/SAR/ASS fixtures. The device
+action worker captures actual Android SurfaceView screenshots. Its host-side
+image checks use fixture metadata for proportions and compare the video content
+ROI while excluding controls/HUD; a configured rate or moving Flutter overlay
+cannot establish video motion. Blank taps, sustained native DOWN/UP, pause with
+controls/rotation, 100 controller handoffs, and PiP/lock return are covered.
+Artifacts retain PNGs, diagnostics, ffprobe fixture facts and the image verdicts.
+Failures remain failures; no private user media is used.
+
+The old rate-profile harness still explicitly installs a MediaKit subclass and
+uses mpv-only properties. It is manual-only historical diagnostics, never a
+LibVLC acceptance result. Existing host tests remain regression probes for
+controls, playlist ownership and lock/PiP policy.
+
+Hybrid composition may hide the platform view's parent without detaching it.
+The native view observes both ancestor visibility and actual video/subtitle
+surfaces. Vout restoration is distinct from permission and play intent: an
+already paused player can restore its surface without starting playback. An
+internal surface suspension is buffering, not an explicit user pause.
+If hybrid composition is waiting for an overlay image, native requests paint
+from that specific Flutter viewport. A short-lived ticker stops at surface-ready,
+revocation or viewport replacement. Native diagnoses recovery after 5 seconds;
+Dart has a 6-second guard for a missing acknowledgement. This avoids a permanent
+UI animation/repaint loop and never grants playback or creates a preload decoder.
 
 True acceptance must open a video through Privi's built-in player, compare the
 same Samsung A52 clip with VLC at 1×/2×/back to 1× (menu and hold), exercise drag
@@ -276,8 +306,8 @@ release, all fit modes, rotation/SAR, audio/subtitle tracks, ASS/CJK text, A–B
 errors/Retry, then enter PiP, switch it back, lock/screen-off and authenticate.
 Record actual visible output and sound; media-clock progress, decoder counters
 and Flutter frame timings are not display FPS. This checkout has no connected
-Android device or KVM; any missing native true-path evidence must remain marked
-unverified and must not be described as a performance fix proven on A52.
+Android device or KVM; remote emulator evidence and physical A52 evidence must
+be distinguished. Missing true-path evidence remains unverified.
 LibVLC first ships in `v1.1.2+40`; its two-round independent implementation review
 resolved replay/keep-screen-on counterexamples, with physical acceptance pending.
 Primary-source research and the historical diagnostic limitations are recorded in

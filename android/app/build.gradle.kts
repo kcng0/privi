@@ -71,6 +71,15 @@ android {
             )
         }
     }
+
+    packaging {
+        jniLibs {
+            // GitHub distributes one APK containing all supported ABIs. Compress
+            // native libraries for download; Android extracts the device's ABI
+            // during installation instead of loading directly from the APK.
+            useLegacyPackaging = true
+        }
+    }
 }
 
 kotlin {

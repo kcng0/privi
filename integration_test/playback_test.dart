@@ -7,7 +7,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
-import 'package:media_kit/media_kit.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:photo_manager/photo_manager.dart';
 import 'package:privi/app.dart';
@@ -17,7 +16,8 @@ import 'package:privi/application/player/advanced_video_controller.dart';
 import 'package:privi/application/player/picture_in_picture_controller.dart';
 import 'package:privi/application/providers.dart';
 import 'package:privi/data/db/database.dart';
-import 'package:privi/data/services/playback/media_kit_video_player_platform.dart';
+import 'package:privi/data/services/playback/libvlc_video_player_platform.dart';
+import 'package:privi/data/services/playback/vault_video_player.dart';
 import 'package:privi/data/services/playback_orientation_service.dart';
 import 'package:privi/domain/enums.dart';
 import 'package:privi/domain/models/media_item.dart';
@@ -35,25 +35,85 @@ void main() {
   final metrics = <String, dynamic>{};
   final files = <String, File>{};
   late Directory fixtures;
-  Future<void> screenshot(
+  var deviceActionId = 0;
+
+  Future<Map<String, dynamic>> deviceAction(
     WidgetTester tester,
-    VideoPlayerController controller,
-    String name,
+    Map<String, Object?> action,
   ) async {
-    // Capture the real Android surface, including external video textures.
-    debugPrint('PRIVI_TEST_CAPTURE_$name');
-    await tester.pump(const Duration(seconds: 2));
-    final platform =
-        VideoPlayerPlatform.instance as MediaKitVideoPlayerPlatform;
-    final port = platform.advancedPortFor(controller.playerId)
-        as MediaKitAdvancedVideoPort;
-    final frame = await port.player
-        .screenshot(format: 'image/png', includeLibassSubtitles: true)
-        .timeout(const Duration(seconds: 5));
-    expect(frame, isNotNull, reason: 'A decoded frame must be available');
-    (metrics['decoded_frames'] as Map<String, dynamic>? ??
-            (metrics['decoded_frames'] = <String, dynamic>{}))[name] =
-        base64Encode(frame!);
+    final id = 'action-${++deviceActionId}';
+    debugPrint('PRIVI_TEST_DEVICE ${jsonEncode({'id': id, ...action})}');
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 3);
+    final watch = Stopwatch()..start();
+    try {
+      while (watch.elapsed < const Duration(seconds: 20)) {
+        final request = await client.getUrl(
+          Uri.parse('http://10.0.2.2:8766/result/$id'),
+        );
+        final response = await request.close();
+        final body = await utf8.decoder.bind(response).join();
+        if (response.statusCode == 200) {
+          final result = jsonDecode(body) as Map<String, dynamic>;
+          expect(
+            result['ok'],
+            isTrue,
+            reason: 'Real Android action $id: ${result['error']}',
+          );
+          (metrics['device_actions'] as List<dynamic>? ??
+                  (metrics['device_actions'] = <dynamic>[]))
+              .add(result);
+          return {...result, 'id': id};
+        }
+        if (response.statusCode != 404) {
+          throw StateError('Device action server: HTTP ${response.statusCode}');
+        }
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      throw TimeoutException('No real Android acknowledgement for $id');
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  List<double> physicalViewport(WidgetTester tester) {
+    final rect = tester.getRect(find.byType(VideoViewport).first);
+    final scale = tester.view.devicePixelRatio;
+    return [
+      rect.left * scale,
+      rect.top * scale,
+      rect.right * scale,
+      rect.bottom * scale,
+    ];
+  }
+
+  Future<Map<String, dynamic>> screenshot(
+    WidgetTester tester,
+    String name, {
+    double? aspect,
+    List<int>? physicalSize,
+    String? compareTo,
+    bool paused = false,
+  }) =>
+      deviceAction(tester, {
+        'op': 'capture',
+        'name': name,
+        'viewport': physicalViewport(tester),
+        if (aspect != null) 'aspect': aspect,
+        if (physicalSize != null) 'physicalSize': physicalSize,
+        if (compareTo != null) 'compareTo': compareTo,
+        if (paused) 'expect': 'static',
+      });
+
+  Future<void> nativeInput(
+    WidgetTester tester,
+    String operation,
+    Offset point,
+  ) async {
+    final scale = tester.view.devicePixelRatio;
+    await deviceAction(tester, {
+      'op': operation,
+      'point': [point.dx * scale, point.dy * scale],
+    });
   }
 
   setUpAll(() async {
@@ -127,8 +187,7 @@ void main() {
     );
     final watch = Stopwatch()..start();
     while (!completed && watch.elapsed < timeout) {
-      // media_kit_video creates its native output after a Flutter frame.
-      // Live integration tests must explicitly drive frames during creation.
+      // Native platform-view creation needs Flutter frames while awaiting it.
       await tester.pump(const Duration(milliseconds: 100));
     }
     if (!completed) {
@@ -176,6 +235,9 @@ void main() {
       ),
     );
     await tester.pump(const Duration(milliseconds: 300));
+    // This standalone harness owns only this synthetic controller. Production
+    // PlayerScreen below obtains its grant from the real lifecycle owner.
+    await playback.setPresentationAllowed(controller.playerId, true);
   }
 
   testWidgets(
@@ -204,20 +266,45 @@ void main() {
               reason: '${entry.key} must use actual display dimensions',
             );
             await display(tester, controller);
-            final video =
-                tester.getRect(find.byKey(const Key('video-display-rect')));
-            final viewport = tester.getRect(find.byType(VideoViewport));
-            expect(video.width / video.height, closeTo(entry.value, 0.02));
-            expect(video.left, greaterThanOrEqualTo(viewport.left - 1));
-            expect(video.top, greaterThanOrEqualTo(viewport.top - 1));
-            expect(video.right, lessThanOrEqualTo(viewport.right + 1));
-            expect(video.bottom, lessThanOrEqualTo(viewport.bottom + 1));
+            await controller.setLooping(true);
             await controller.play();
-            await tester.pump(const Duration(milliseconds: 400));
+            await tester.pump(const Duration(milliseconds: 800));
             expect(controller.value.hasError, isFalse);
-            if (['portrait.mp4', 'rotated.mp4', 'rotated270.mp4', 'sar.mp4']
-                .contains(entry.key)) {
-              await screenshot(tester, controller, 'best-fit-${entry.key}');
+            // LibVLC's Flutter box is the viewport, not the displayed video.
+            // Measure saturated fixture pixels in the actual Android screenshot.
+            await screenshot(
+              tester,
+              'best-fit-${entry.key}',
+              aspect: entry.value,
+            );
+            if (entry.key == 'portrait.mp4') {
+              for (final mode in [
+                VideoFitMode.fitScreen,
+                VideoFitMode.fill,
+                VideoFitMode.original,
+                VideoFitMode.ratio16x9,
+                VideoFitMode.ratio4x3,
+              ]) {
+                await display(tester, controller, mode: mode);
+                await tester.pump(const Duration(milliseconds: 600));
+                final viewport = physicalViewport(tester);
+                final viewportAspect =
+                    (viewport[2] - viewport[0]) / (viewport[3] - viewport[1]);
+                await screenshot(
+                  tester,
+                  'portrait-${mode.name}',
+                  aspect: switch (mode) {
+                    VideoFitMode.fill ||
+                    VideoFitMode.fitScreen =>
+                      viewportAspect,
+                    VideoFitMode.ratio16x9 => 16 / 9,
+                    VideoFitMode.ratio4x3 => 4 / 3,
+                    _ => 180 / 320,
+                  },
+                  physicalSize:
+                      mode == VideoFitMode.original ? [180, 320] : null,
+                );
+              }
             }
           } finally {
             await tester.pumpWidget(const SizedBox.shrink());
@@ -234,8 +321,7 @@ void main() {
   testWidgets(
     'a native opening failure can dispose and open another video',
     (tester) async {
-      final platform =
-          VideoPlayerPlatform.instance as MediaKitVideoPlayerPlatform;
+      final platform = playback;
       final failed = VideoPlayerController.file(files['corrupt.mp4']!);
       try {
         Object? openingError;
@@ -275,13 +361,13 @@ void main() {
         await advanced.refresh();
         expect(advanced.value.audioTracks.length, greaterThanOrEqualTo(2));
         expect(
-          advanced.value.subtitleTracks.where((track) => track.id != 'no'),
+          advanced.value.subtitleTracks.where((track) => track.id != '-1'),
           isNotEmpty,
         );
         await advanced.selectAudioTrack(advanced.value.audioTracks.last.id);
         await advanced.selectSubtitleTrack(
           advanced.value.subtitleTracks
-              .firstWhere((track) => track.id != 'no')
+              .firstWhere((track) => track.id != '-1')
               .id,
         );
         await advanced.importSubtitle(files['chinese.ass']!.path);
@@ -301,11 +387,13 @@ void main() {
         await controller.setPlaybackSpeed(1);
         await controller.seekTo(const Duration(seconds: 1));
         await controller.play();
-        await tester.pump(const Duration(milliseconds: 400));
-        await screenshot(tester, controller, 'portrait-ass-best-fit');
+        await tester.pump(const Duration(milliseconds: 800));
+        await advanced.refresh();
+        expect(advanced.value.audioTracks.last.isSelected, isTrue);
+        await screenshot(tester, 'portrait-ass-best-fit', aspect: 180 / 320);
         await advanced.setAbLoop(null, null);
         expect(advanced.value.abLoopEnd, isNull);
-        await advanced.selectSubtitleTrack('no');
+        await advanced.selectSubtitleTrack('-1');
         expect(controller.value.hasError, isFalse);
       } finally {
         advanced.dispose();
@@ -319,8 +407,7 @@ void main() {
   testWidgets(
     '100 native controller handoffs release every decoder',
     (tester) async {
-      final platform =
-          VideoPlayerPlatform.instance as MediaKitVideoPlayerPlatform;
+      final platform = playback;
       final switchTimes = <int>[];
       metrics['stress_rss_before_bytes'] = ProcessInfo.currentRss;
       for (var index = 0; index < 100; index++) {
@@ -446,21 +533,8 @@ void main() {
         await controller.seekTo(Duration.zero);
         await controller.play();
         final playerId = controller.playerId;
-        final port =
-            playback.advancedPortFor(playerId) as MediaKitAdvancedVideoPort;
-        final native = port.player.platform as NativePlayer;
-        expect(await native.getProperty('hr-seek-framedrop'), 'yes');
-        Future<void> waitForNativeSpeed(double expected) async {
-          final watch = Stopwatch()..start();
-          String actual;
-          do {
-            actual = await native.getProperty('speed');
-            if (double.tryParse(actual) == expected) return;
-            await Future<void>.delayed(const Duration(milliseconds: 50));
-          } while (watch.elapsed < const Duration(seconds: 12));
-          fail('Native speed did not reach $expected; last value: $actual');
-        }
-
+        final advanced = AdvancedVideoController(controller);
+        addTearDown(advanced.dispose);
         int rates() =>
             playback.rates.where((entry) => entry.$1 == playerId).length;
         int seeks() =>
@@ -470,32 +544,153 @@ void main() {
         final initialRates = rates();
         final initialSeeks = seeks();
         final initialPauses = pauses();
-        final touchPoint =
-            tester.getRect(find.byType(VideoGestureSurface)).centerLeft +
-                const Offset(24, 0);
-        final hold = await tester.startGesture(touchPoint);
-        await waitFor(
-          () => port.player.state.rate == 2 && rates() == initialRates + 1,
-          'Long press must apply one native speed command',
-        );
-        expect(find.text('2x'), findsOneWidget);
-        expect(find.byTooltip('Player settings'), findsNothing);
-        // media_kit updates state.rate before its native property write settles.
-        // Verify the engine, rather than racing that optimistic notification.
-        await waitForNativeSpeed(2);
-        await Future<void>.delayed(const Duration(milliseconds: 500));
-        expect(rates(), initialRates + 1);
-        expect(seeks(), initialSeeks);
-        expect(controller.value.isPlaying, isTrue);
-        await hold.up();
+        Offset blankPoint() {
+          final rect = tester.getRect(find.byType(VideoGestureSurface));
+          return Offset(
+            rect.left + rect.width * .2,
+            rect.top + rect.height * .35,
+          );
+        }
+
+        Future<void> toggleControls(bool visible) async {
+          await nativeInput(tester, 'tap', blankPoint());
+          await waitFor(
+            () =>
+                find.byTooltip('Player settings').evaluate().isNotEmpty ==
+                visible,
+            'Real Android blank tap must ${visible ? 'show' : 'hide'} controls',
+          );
+        }
+
+        Future<Map<String, String>> diagnostics(String label) async {
+          final native = await advanced.readPlaybackDiagnostics();
+          expect(native['engine'], 'libvlc');
+          (metrics['native_diagnostics_probes'] as Map<String, dynamic>? ??
+              (metrics['native_diagnostics_probes'] =
+                  <String, dynamic>{}))[label] = {
+            ...native,
+            'facade-position-ms': controller.value.position.inMilliseconds,
+            'native-position-ms': (await controller.position)?.inMilliseconds,
+            'captured-at': DateTime.now().toUtc().toIso8601String(),
+          };
+          return native;
+        }
+
+        Future<void> movingFrames(String label) async {
+          final first = await screenshot(tester, '$label-first');
+          await Future<void>.delayed(const Duration(milliseconds: 900));
+          await screenshot(
+            tester,
+            '$label-second',
+            compareTo: first['id'] as String,
+          );
+        }
+
+        // The Android SurfaceView must pass the actual blank touch through.
+        await toggleControls(false);
+        await toggleControls(true);
+        await toggleControls(false);
+        final heldAt = DateTime.now();
+        await nativeInput(tester, 'down', blankPoint());
+        try {
+          await waitFor(
+            () =>
+                controller.value.playbackSpeed == 2 &&
+                rates() == initialRates + 1,
+            'Real Android long press must apply 2x',
+          );
+          expect(find.text('2x'), findsOneWidget);
+          expect(find.byTooltip('Player settings'), findsNothing);
+          await diagnostics('hold-2x-start');
+          final first = await screenshot(tester, 'hold-2x-first');
+          await Future<void>.delayed(const Duration(milliseconds: 2100));
+          expect(find.text('2x'), findsOneWidget);
+          await screenshot(
+            tester,
+            'hold-2x-second',
+            compareTo: first['id'] as String,
+          );
+          await diagnostics('hold-2x-end');
+          expect(rates(), initialRates + 1);
+          expect(seeks(), initialSeeks);
+          expect(controller.value.isPlaying, isTrue);
+          metrics['native_hold_duration_ms'] =
+              DateTime.now().difference(heldAt).inMilliseconds;
+        } finally {
+          await nativeInput(tester, 'up', blankPoint());
+        }
         await waitFor(
           () =>
-              port.player.state.rate == originalSpeed &&
+              controller.value.playbackSpeed == originalSpeed &&
               rates() == initialRates + 2,
-          'Releasing long press must restore the previous native speed once',
+          'Android UP must restore the previous speed once',
         );
-        await waitForNativeSpeed(originalSpeed);
-        final swipe = await tester.startGesture(touchPoint);
+        expect(find.text('2x'), findsNothing);
+        await diagnostics('hold-release-1x');
+        await movingFrames('hold-release-1x');
+
+        // Exercise the user-facing settings slider, not a facade speed setter.
+        await toggleControls(true);
+        await tester.tap(find.byTooltip('Player settings'));
+        await tester.pump(const Duration(milliseconds: 300));
+        final speedSlider = find.byWidgetPredicate(
+          (widget) => widget is Slider && widget.min == .25 && widget.max == 4,
+        );
+        await tester.ensureVisible(speedSlider);
+        await tester.pump();
+        final speedRect = tester.getRect(speedSlider);
+        // Material Slider's track has 24 logical pixels of horizontal padding.
+        await tester.tapAt(
+          Offset(
+            speedRect.left +
+                24 +
+                (speedRect.width - 48) * ((2 - .25) / (4 - .25)),
+            speedRect.center.dy,
+          ),
+        );
+        await waitFor(
+          () => controller.value.playbackSpeed == 2,
+          'Settings slider must select 2x',
+        );
+        await tester.ensureVisible(find.byTooltip('Close'));
+        await tester.pump();
+        await tester.tap(find.byTooltip('Close'));
+        await tester.pump(const Duration(milliseconds: 300));
+        if (find.byTooltip('Player settings').evaluate().isNotEmpty) {
+          await toggleControls(false);
+        }
+        await diagnostics('menu-2x');
+        await movingFrames('menu-2x');
+        // Restore via the same real settings control.
+        await toggleControls(true);
+        await tester.tap(find.byTooltip('Player settings'));
+        await tester.pump(const Duration(milliseconds: 300));
+        await tester.ensureVisible(speedSlider);
+        await tester.pump();
+        final restoreRect = tester.getRect(speedSlider);
+        await tester.tapAt(
+          Offset(
+            restoreRect.left +
+                24 +
+                (restoreRect.width - 48) * ((1 - .25) / (4 - .25)),
+            restoreRect.center.dy,
+          ),
+        );
+        await waitFor(
+          () => controller.value.playbackSpeed == 1,
+          'Settings slider must restore 1x',
+        );
+        await tester.ensureVisible(find.byTooltip('Close'));
+        await tester.pump();
+        await tester.tap(find.byTooltip('Close'));
+        await tester.pump(const Duration(milliseconds: 300));
+        if (find.byTooltip('Player settings').evaluate().isNotEmpty) {
+          await toggleControls(false);
+        }
+        await diagnostics('menu-release-1x');
+        await movingFrames('menu-release-1x');
+
+        final swipe = await tester.startGesture(blankPoint());
         await swipe.moveBy(const Offset(-60, 0));
         await Future<void>.delayed(const Duration(milliseconds: 300));
         expect(controller.value.isPlaying, isTrue);
@@ -508,8 +703,8 @@ void main() {
           'Releasing a swipe must submit one final native seek',
         );
         expect(controller.value.isPlaying, isTrue);
-        metrics['interaction_commands'] = {
-          'hold_speed_commands': rates() - initialRates,
+        metrics['interaction_command_probes'] = {
+          'hold_and_menu_speed_commands': rates() - initialRates,
           'hold_and_swipe_seek_commands': seeks() - initialSeeks,
           'hold_and_swipe_pause_commands': pauses() - initialPauses,
         };
@@ -525,7 +720,7 @@ void main() {
           await tester.pump(const Duration(milliseconds: 200));
           // Show the actual screen's controls if the hide timer already fired.
           if (find.byTooltip('Orientation').evaluate().isEmpty) {
-            await tester.tap(find.byType(VideoViewport));
+            await nativeInput(tester, 'tap', blankPoint());
           }
           // The viewport also recognizes double taps; a single tap takes
           // effect only after that gesture's decision timeout.
@@ -533,9 +728,9 @@ void main() {
             () => find.byTooltip('Orientation').evaluate().isNotEmpty,
             'A single tap must reveal the $direction controls',
           );
-          // Capture the real Android surface while fully-live frames continue.
-          debugPrint('PRIVI_TEST_PLAYER_SCREENSHOT_$direction');
-          await Future<void>.delayed(const Duration(seconds: 1));
+          await screenshot(tester, 'player-$direction-controls');
+          await toggleControls(false);
+          await movingFrames('orientation-$direction');
           expect(tester.takeException(), isNull);
         }
         await PlaybackOrientationService.instance.setMode('portrait');
@@ -544,6 +739,39 @@ void main() {
               tester.view.physicalSize.height > tester.view.physicalSize.width,
           'Device must return to portrait before PiP entry',
         );
+        // Surface recreation must restore a paused frame without autoplay.
+        await controller.pause();
+        await Future<void>.delayed(const Duration(milliseconds: 600));
+        await toggleControls(true);
+        await toggleControls(false);
+        await PlaybackOrientationService.instance.setMode('landscape');
+        await waitFor(
+          () =>
+              tester.view.physicalSize.width > tester.view.physicalSize.height,
+          'Paused video must rotate to landscape',
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 800));
+        final pausedFirst = await screenshot(tester, 'paused-rotation-first');
+        await Future<void>.delayed(const Duration(milliseconds: 1100));
+        await screenshot(
+          tester,
+          'paused-rotation-second',
+          compareTo: pausedFirst['id'] as String,
+          paused: true,
+        );
+        expect(controller.value.isPlaying, isFalse);
+        final pausedProbe = await diagnostics('paused-after-surface-restore');
+        expect(pausedProbe['native-is-playing'], 'false');
+        expect(pausedProbe['play-requested'], 'false');
+        await PlaybackOrientationService.instance.setMode('portrait');
+        await waitFor(
+          () =>
+              tester.view.physicalSize.height > tester.view.physicalSize.width,
+          'Paused video must rotate back to portrait',
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 800));
+        await screenshot(tester, 'paused-portrait-restored');
+        expect(controller.value.isPlaying, isFalse);
         for (final action in ['EXPAND', 'SCREEN_OFF']) {
           (container.read(lockControllerProvider.notifier) as _IntegrationLock)
               .unlockForTest();
@@ -572,6 +800,14 @@ void main() {
             LockStatus.locked,
           );
           expect(find.byKey(const ValueKey('pip-video-only')), findsOneWidget);
+          await Future<void>.delayed(const Duration(milliseconds: 800));
+          // PiP moves the Activity window relative to the full display. Keep
+          // its raw composition for the reviewer; the fullscreen content ROI
+          // must not accidentally measure launcher/OS animation as video motion.
+          await deviceAction(tester, {
+            'op': 'screenshot',
+            'name': 'native-pip-${action.toLowerCase()}',
+          });
           if (action == 'SCREEN_OFF') {
             final revoked = Completer<void>();
             void checkRevocation() {
@@ -628,17 +864,35 @@ void main() {
             find.byKey(const Key('native-pip-route'), skipOffstage: false),
             findsOneWidget,
           );
-          debugPrint('PRIVI_TEST_PIP_FULLSCREEN_$action');
-          // Leave the locked native window visible while adb captures its
-          // shield/credential composition for the validation artifact.
-          await Future<void>.delayed(const Duration(seconds: 1));
+          await deviceAction(tester, {
+            'op': 'capture',
+            'name': 'native-fullscreen-${action.toLowerCase()}',
+            'viewport': physicalViewport(tester),
+            'expectNoVideo': true,
+          });
+          (container.read(lockControllerProvider.notifier) as _IntegrationLock)
+              .unlockForTest();
+          await tester.pump(const Duration(milliseconds: 300));
+          await waitFor(
+            () => pip.canPlay(controller: controller, mediaId: item.id),
+            'Unlocked retained route must regain playback ownership',
+          );
+          expect(
+            await pip.playIfAllowed(controller: controller, mediaId: item.id),
+            isTrue,
+          );
+          await Future<void>.delayed(const Duration(milliseconds: 800));
+          if (find.byTooltip('Player settings').evaluate().isNotEmpty) {
+            await toggleControls(false);
+          }
+          await movingFrames('surface-after-${action.toLowerCase()}');
+          await diagnostics('surface-after-${action.toLowerCase()}');
         }
         metrics['pip_expand_and_screen_off'] = 'passed';
       } finally {
         await tester.pumpWidget(const SizedBox.shrink());
         await tester.pump();
-        final platform =
-            VideoPlayerPlatform.instance as MediaKitVideoPlayerPlatform;
+        final platform = playback;
         await waitFor(
           () => platform.activePlayerCount == 0,
           'Leaving PlayerScreen must release every decoder',
@@ -652,7 +906,23 @@ void main() {
 }
 
 /// Counts calls at the real bridge, rather than video_player's optimistic value.
-class _InteractionPlaybackPlatform extends MediaKitVideoPlayerPlatform {
+class _InteractionPlaybackPlatform extends LibVlcVideoPlayerPlatform {
+  final _livePlayers = <int>{};
+  int get activePlayerCount => _livePlayers.length;
+
+  @override
+  Future<int?> createWithOptions(VideoCreationOptions options) async {
+    final id = await super.createWithOptions(options);
+    if (id != null) _livePlayers.add(id);
+    return id;
+  }
+
+  @override
+  Future<void> dispose(int playerId) async {
+    await super.dispose(playerId);
+    _livePlayers.remove(playerId);
+  }
+
   final rates = <(int, double)>[];
   final seeks = <(int, Duration)>[];
   final pauses = <int>[];

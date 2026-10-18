@@ -1,15 +1,8 @@
-name: Android Playback Rate Profile
+name: Legacy mpv Playback Rate Profile
 
 on:
-  pull_request:
-    paths:
-      - 'lib/data/services/playback/**'
-      - 'android/app/build.gradle.kts'
-      - 'android/app/src/main/**'
-      - 'android/app/src/profile/**'
-      - 'integration_test/playback_rate_profile_test.dart'
-      - 'scripts/*playback-rate*'
-      - '.github/workflows/playback-rate-profile.yml'
+  # Historical mpv diagnostics only. Production LibVLC acceptance runs in
+  # player-validation.yml; this experiment must not certify current playback.
   workflow_dispatch:
     inputs:
       hwdec:

@@ -3,6 +3,7 @@ package com.privi.app
 import android.content.Context
 import android.graphics.Color
 import android.graphics.Rect
+import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.View
 import android.view.ViewGroup
@@ -23,13 +24,34 @@ internal class LibVlcVideoView(
         clipToPadding = true
     }
     private var disposed = false
+    private var windowAttached = false
+    private val surfaces = LinkedHashSet<SurfaceView>()
+    private val destroyedHolders = HashSet<SurfaceHolder>()
+    private val surfaceCallback = object : SurfaceHolder.Callback {
+        override fun surfaceCreated(holder: SurfaceHolder) {
+            destroyedHolders.remove(holder)
+            host.viewSurfacesChanged(this@LibVlcVideoView)
+        }
+
+        override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+            host.viewSurfacesChanged(this@LibVlcVideoView)
+        }
+
+        override fun surfaceDestroyed(holder: SurfaceHolder) {
+            // Surface.isValid can remain true until surfaceDestroyed returns.
+            destroyedHolders.add(holder)
+            host.viewSurfacesChanged(this@LibVlcVideoView)
+        }
+    }
     private val root = object : FrameLayout(context) {
         override fun onAttachedToWindow() {
             super.onAttachedToWindow()
+            windowAttached = true
             host.viewAttached(this@LibVlcVideoView)
         }
 
         override fun onDetachedFromWindow() {
+            windowAttached = false
             host.viewDetached(this@LibVlcVideoView)
             super.onDetachedFromWindow()
         }
@@ -38,6 +60,16 @@ internal class LibVlcVideoView(
             super.onSizeChanged(w, h, oldw, oldh)
             clipBounds = Rect(0, 0, w, h)
             host.viewResized(this@LibVlcVideoView)
+        }
+
+        override fun onVisibilityAggregated(isVisible: Boolean) {
+            super.onVisibilityAggregated(isVisible)
+            host.viewVisibilityChanged(this@LibVlcVideoView)
+        }
+
+        override fun onWindowVisibilityChanged(visibility: Int) {
+            super.onWindowVisibilityChanged(visibility)
+            host.viewVisibilityChanged(this@LibVlcVideoView)
         }
     }.apply {
         setBackgroundColor(Color.BLACK)
@@ -50,7 +82,12 @@ internal class LibVlcVideoView(
         ))
     }
 
-    val attached: Boolean get() = !disposed && root.isAttachedToWindow
+    val attached: Boolean get() = !disposed && windowAttached && root.isAttachedToWindow
+    val windowVisible: Boolean get() = attached && root.windowVisibility == View.VISIBLE
+    val presentable: Boolean get() = windowVisible && root.isShown
+    val surfacesAvailable: Boolean get() = surfaces.isNotEmpty() && surfaces.all {
+        it.holder !in destroyedHolders && it.holder.surface.isValid
+    }
 
     override fun getView(): View = root
 
@@ -71,6 +108,9 @@ internal class LibVlcVideoView(
         // subtitles use setZOrderMediaOverlay(true), also below the window.
         // Calling setZOrderOnTop(false) here would reset subtitle ordering.
         clipGroups(layout)
+        visitSurfaces(layout) { surface ->
+            if (surfaces.add(surface)) surface.holder.addCallback(surfaceCallback)
+        }
     }
 
     private fun clipGroups(group: ViewGroup) {
@@ -94,6 +134,9 @@ internal class LibVlcVideoView(
         if (disposed) return
         disposed = true
         root.keepScreenOn = false
+        surfaces.forEach { it.holder.removeCallback(surfaceCallback) }
+        surfaces.clear()
+        destroyedHolders.clear()
         setPresentationVisible(false)
         host.viewDisposed(this)
     }

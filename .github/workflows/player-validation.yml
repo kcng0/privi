@@ -8,7 +8,6 @@ on:
       - 'lib/**'
       - 'android/**'
       - 'assets/fonts/**'
-      - 'third_party/media_kit_video/**'
       - 'integration_test/**'
       - 'test_driver/**'
       - 'scripts/create-playback-fixtures.sh'
@@ -47,6 +46,10 @@ jobs:
           flutter pub get
           flutter gen-l10n
           dart run build_runner build
+      - name: Native screenshot analysis dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install --yes python3-pil ffmpeg
       - name: Serve verified synthetic codec and subtitle fixtures
         run: |
           (cd integration_test/fixtures && sha256sum -c SHA256SUMS)
@@ -59,8 +62,8 @@ jobs:
       - name: Test native playback on Android
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          # Newer goldfish EGL rejects this bundled mpv's zero context flags.
-          # Keep actual frame assertions; see DEVELOPMENT.md for the limitation.
+          # Exercise production LibVLC hybrid composition and actual SurfaceView
+          # screenshots; synthetic motion checks exclude Flutter controls/HUD.
           api-level: 33
           arch: x86_64
           target: google_apis

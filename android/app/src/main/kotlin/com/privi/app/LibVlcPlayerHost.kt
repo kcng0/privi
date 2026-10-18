@@ -48,6 +48,7 @@ class LibVlcPlayerHost(
         const val VIEW_TYPE = "com.privi.app/libvlc/view"
         private const val PARSE_TIMEOUT_MS = 20_000
         private const val OPEN_TIMEOUT_MS = 25_000L
+        private const val SURFACE_FRAME_TIMEOUT_MS = 5_000L
         private const val TAG = "PriviLibVlc"
 
         private val scaleTypes = mapOf(
@@ -103,14 +104,27 @@ class LibVlcPlayerHost(
         var activeView: LibVlcVideoView? = null
         var attachedView: LibVlcVideoView? = null
         @Volatile var surfacesReady = false
+        var voutReady = false
         @Volatile var viewportAttached = false
         @Volatile var surfaceGeneration = 0L
         var queuedPlayGeneration: Long? = null
+        var surfaceSuspended = false
+        var surfaceRecovery: Runnable? = null
+        var surfaceLossCount = 0L
+        var surfaceAttachCount = 0L
+        var rateRequestCount = 0L
+        var frameRequestView: LibVlcVideoView? = null
+        var frameRequestGeneration: Long? = null
+        var lastFrameRequestView: LibVlcVideoView? = null
+        var lastFrameRequestGeneration: Long? = null
+        var frameRequestTimeout: Runnable? = null
+        var frameRequestTimeoutCount = 0L
         @Volatile var disposed = false
         @Volatile var allowed = false
         @Volatile var wantsPlay = false
         var playing = false
         var buffering = false
+        var nativeBuffering = false
         var looping = false
         // Native EndReached must survive facade seekTo(0) until a fresh input is opened.
         @Volatile var nativeEnded = false
@@ -134,15 +148,21 @@ class LibVlcPlayerHost(
         var focusListener: AudioManager.OnAudioFocusChangeListener? = null
         val voutCallback = object : IVLCVout.Callback {
             override fun onSurfacesCreated(vlcVout: IVLCVout) {
-                if (disposed || !viewportAttached) return
-                surfacesReady = true
-                updateAwake(this@Entry)
+                if (disposed) return
+                val view = attachedView ?: return
+                if (view !== activeView) return
+                voutReady = true
+                updateSurfaceReadiness(this@Entry, view)
+                if (!surfacesReady) requestSurfaceFrame(this@Entry, view)
                 maybePlay(this@Entry)
             }
 
             override fun onSurfacesDestroyed(vlcVout: IVLCVout) {
-                surfacesReady = false
-                updateAwake(this@Entry)
+                if (disposed) return
+                voutReady = false
+                val view = attachedView
+                suspendForSurfaceLoss(this@Entry)
+                if (view != null) scheduleSurfaceRecovery(this@Entry, view)
             }
         }
 
@@ -157,6 +177,9 @@ class LibVlcPlayerHost(
             failure?.let { events.error(it.code, it.message, null) }
             emitAdvanced(this)
             emit(this, mapOf("event" to "isPlayingStateUpdate", "isPlaying" to playing))
+            frameRequestView?.let { view ->
+                frameRequestGeneration?.let { generation -> emitSurfaceFrameRequest(this, view, generation, true) }
+            }
         }
 
         override fun onCancel(arguments: Any?) {
@@ -294,6 +317,7 @@ class LibVlcPlayerHost(
                 "setPlaybackSpeed" -> {
                     val speed = requiredDouble(call, "speed")
                     require(speed > 0 && speed.toFloat().isFinite()) { "Playback speed must be finite and positive" }
+                    entry.rateRequestCount++
                     entry.speed = speed
                     nativeCall(entry, result) {
                         entry.player?.let { setRate(it, speed) }
@@ -612,14 +636,15 @@ class LibVlcPlayerHost(
 
     private fun maybePlay(entry: Entry) {
         if (entry.disposed || entry.failure != null || !entry.allowed || !entry.wantsPlay || entry.initialized == null) return
-        val view = entry.activeView?.takeIf { it.attached } ?: return
+        val view = entry.activeView?.takeIf { it.presentable } ?: return
         try {
             ensurePlayer(entry)
             val player = entry.player ?: return
             if (entry.attachedView !== view || !player.vlcVout.areViewsAttached()) {
                 attach(entry, view)
             }
-            if (!entry.surfacesReady || !entry.viewportAttached || entry.playing) return
+            updateSurfaceReadiness(entry, view)
+            if (!entry.surfacesReady || !entry.viewportAttached || !view.surfacesAvailable || entry.playing) return
             val generation = entry.surfaceGeneration
             if (entry.queuedPlayGeneration == generation) return
             check(requestFocus(entry)) { "Audio focus was denied" }
@@ -655,19 +680,24 @@ class LibVlcPlayerHost(
 
     private fun attach(entry: Entry, view: LibVlcVideoView) {
         val player = entry.player ?: return
+        entry.surfaceAttachCount++
         entry.surfaceGeneration++
         entry.viewportAttached = false
+        entry.voutReady = false
         entry.attachedView?.setPresentationVisible(false)
-        if (player.vlcVout.areViewsAttached()) player.detachViews()
+        // AWindow auto-detaches on surfaceDestroyed, but the old VideoHelper
+        // still owns its layout listener until MediaPlayer.detachViews().
+        player.detachViews()
         entry.surfacesReady = false
         entry.attachedView = view
-        entry.viewportAttached = view.attached
+        entry.viewportAttached = view.presentable
         view.setPresentationVisible(entry.allowed)
         player.attachViews(view.layout, null, true, false)
         view.configureSurfaces()
         player.setUseOrientationFromBounds(true)
         player.setVideoScale(scaleTypes.getValue(view.fitMode))
         updateVisibility(entry)
+        updateSurfaceReadiness(entry, view)
     }
 
     private fun setRate(player: MediaPlayer, speed: Double) {
@@ -683,13 +713,16 @@ class LibVlcPlayerHost(
                     pause(entry)
                     return
                 }
-                if (!entry.viewportAttached || !entry.surfacesReady) {
-                    pauseForMissingViewport(entry)
+                if (!entry.viewportAttached || !entry.surfacesReady || entry.activeView?.surfacesAvailable != true) {
+                    suspendForSurfaceLoss(entry, forcePause = true)
+                    entry.activeView?.let { scheduleSurfaceRecovery(entry, it) }
                     return
                 }
                 entry.playerTimeout?.let(main::removeCallbacks)
                 entry.playerTimeout = null
                 entry.playing = true
+                entry.surfaceSuspended = false
+                updateBuffering(entry)
                 entry.nativeEnded = false
                 updateAwake(entry)
                 entry.player?.let { player ->
@@ -716,7 +749,9 @@ class LibVlcPlayerHost(
             MediaPlayer.Event.Paused, MediaPlayer.Event.Stopped -> {
                 entry.playing = false
                 updateAwake(entry)
-                emit(entry, mapOf("event" to "isPlayingStateUpdate", "isPlaying" to false))
+                if (!entry.surfaceSuspended || !entry.allowed || !entry.wantsPlay) {
+                    emit(entry, mapOf("event" to "isPlayingStateUpdate", "isPlaying" to false))
+                }
             }
             MediaPlayer.Event.EncounteredError -> fail(entry, "libvlc_error", "LibVLC encountered a fatal playback error")
             MediaPlayer.Event.EndReached -> {
@@ -735,11 +770,8 @@ class LibVlcPlayerHost(
                 }
             }
             MediaPlayer.Event.Buffering -> {
-                val buffering = event.buffering < 100f
-                if (buffering != entry.buffering) {
-                    entry.buffering = buffering
-                    emit(entry, mapOf("event" to if (buffering) "bufferingStart" else "bufferingEnd"))
-                }
+                entry.nativeBuffering = event.buffering < 100f
+                updateBuffering(entry)
             }
             MediaPlayer.Event.TimeChanged -> {
                 val start = entry.abStart
@@ -831,6 +863,7 @@ class LibVlcPlayerHost(
         entry.views.remove(view)
         entry.views.add(view)
         if (entry.activeView !== view) {
+            finishSurfaceFrameRequest(entry)
             entry.activeView?.setPresentationVisible(false)
             entry.activeView = view
             entry.player?.let { attach(entry, view) }
@@ -843,13 +876,15 @@ class LibVlcPlayerHost(
         val entry = entries[view.playerId] ?: return
         view.setPresentationVisible(false)
         if (entry.activeView !== view) return
+        finishSurfaceFrameRequest(entry)
+        suspendForSurfaceLoss(entry)
         entry.viewportAttached = false
-        entry.surfaceGeneration++
         updateAwake(entry)
         if (entry.attachedView === view) {
             entry.player?.detachViews()
             entry.attachedView = null
             entry.surfacesReady = false
+            entry.voutReady = false
         }
         entry.activeView = entry.views.lastOrNull { it !== view && it.attached }
         val next = entry.activeView
@@ -860,7 +895,8 @@ class LibVlcPlayerHost(
         } else {
             // Route/PiP owners can hand a granted player to a new view on the next
             // frame. Keep the grant and intent, but never play without a surface.
-            pauseForMissingViewport(entry)
+            entry.surfaceRecovery?.let(main::removeCallbacks)
+            entry.surfaceRecovery = null
         }
     }
 
@@ -874,6 +910,115 @@ class LibVlcPlayerHost(
         if (entry.attachedView === view) entry.player?.updateVideoSurfaces()
     }
 
+    internal fun viewVisibilityChanged(view: LibVlcVideoView) {
+        val entry = entries[view.playerId] ?: return
+        if (entry.disposed || entry.activeView !== view) return
+        if (!view.presentable) {
+            suspendForSurfaceLoss(entry)
+        } else {
+            updateSurfaceReadiness(entry, view)
+            scheduleSurfaceRecovery(entry, view)
+        }
+    }
+
+    internal fun viewSurfacesChanged(view: LibVlcVideoView) {
+        val entry = entries[view.playerId] ?: return
+        if (entry.disposed || entry.activeView !== view || entry.attachedView !== view) return
+        if (!view.surfacesAvailable && entry.surfacesReady) suspendForSurfaceLoss(entry)
+        updateSurfaceReadiness(entry, view)
+        scheduleSurfaceRecovery(entry, view)
+    }
+
+    private fun suspendForSurfaceLoss(entry: Entry, forcePause: Boolean = false) {
+        if (entry.disposed) return
+        val hadSurface = entry.surfacesReady || entry.viewportAttached || entry.playing || forcePause
+        entry.surfacesReady = false
+        entry.viewportAttached = false
+        if (hadSurface) {
+            entry.surfaceLossCount++
+            entry.surfaceGeneration++
+            pauseForMissingViewport(entry)
+        }
+        if (entry.allowed && entry.wantsPlay) {
+            entry.surfaceSuspended = true
+            updateBuffering(entry)
+        }
+        updateAwake(entry)
+        entry.activeView?.let { requestSurfaceFrame(entry, it) }
+    }
+
+    private fun updateSurfaceReadiness(entry: Entry, view: LibVlcVideoView) {
+        entry.viewportAttached = entry.activeView === view && entry.attachedView === view && view.presentable
+        entry.surfacesReady = entry.viewportAttached && entry.voutReady && view.surfacesAvailable
+        if (entry.surfacesReady) finishSurfaceFrameRequest(entry)
+        updateAwake(entry)
+    }
+
+    private fun emitSurfaceFrameRequest(entry: Entry, view: LibVlcVideoView, generation: Long, needsFrame: Boolean) {
+        emit(entry, mapOf("event" to "surfaceRecovery", "viewId" to view.platformViewId,
+            "generation" to generation, "needsFrame" to needsFrame))
+    }
+
+    private fun requestSurfaceFrame(entry: Entry, view: LibVlcVideoView) {
+        if (entry.disposed || !entry.allowed || entry.player == null || entry.activeView !== view ||
+            !view.windowVisible || entry.surfacesReady) return
+        if (entry.frameRequestView === view && entry.frameRequestGeneration != null) return
+        if (entry.lastFrameRequestView === view && entry.lastFrameRequestGeneration == entry.surfaceGeneration) return
+        finishSurfaceFrameRequest(entry)
+        val generation = entry.surfaceGeneration
+        entry.frameRequestView = view
+        entry.frameRequestGeneration = generation
+        entry.lastFrameRequestView = view
+        entry.lastFrameRequestGeneration = generation
+        emitSurfaceFrameRequest(entry, view, generation, true)
+        entry.frameRequestTimeout = Runnable {
+            if (entry.disposed || entry.frameRequestView !== view || entry.frameRequestGeneration != generation) return@Runnable
+            entry.frameRequestTimeoutCount++
+            // attach() can advance generation within this same recovery episode.
+            // A timeout must not immediately start another request for that work.
+            entry.lastFrameRequestGeneration = entry.surfaceGeneration
+            finishSurfaceFrameRequest(entry)
+            advancedError(entry, "Video surface recovery timed out; the paused frame or playback picture was not restored")
+        }.also { main.postDelayed(it, SURFACE_FRAME_TIMEOUT_MS) }
+    }
+
+    private fun finishSurfaceFrameRequest(entry: Entry) {
+        entry.frameRequestTimeout?.let(main::removeCallbacks)
+        entry.frameRequestTimeout = null
+        val view = entry.frameRequestView
+        val generation = entry.frameRequestGeneration
+        entry.frameRequestView = null
+        entry.frameRequestGeneration = null
+        if (view != null && generation != null) emitSurfaceFrameRequest(entry, view, generation, false)
+    }
+
+    private fun scheduleSurfaceRecovery(entry: Entry, view: LibVlcVideoView) {
+        if (entry.disposed || !entry.allowed || entry.activeView !== view ||
+            (!entry.wantsPlay && entry.player == null)) return
+        entry.surfaceRecovery?.let(main::removeCallbacks)
+        val generation = entry.surfaceGeneration
+        entry.surfaceRecovery = Runnable {
+            entry.surfaceRecovery = null
+            if (entry.disposed || !entry.allowed || entry.activeView !== view ||
+                (!entry.wantsPlay && entry.player == null) || entry.surfaceGeneration != generation ||
+                !view.presentable) return@Runnable
+            try {
+                entry.viewportAttached = true
+                // A paused, already-open player also owns a frame to present. Rebind
+                // its vout independently of play intent; never create a preload player.
+                entry.player?.let { player ->
+                    if (entry.attachedView !== view || !player.vlcVout.areViewsAttached()) attach(entry, view)
+                }
+                updateSurfaceReadiness(entry, view)
+                // A visible ancestor can precede Surface creation. No timer/polling:
+                // holder callbacks and IVLCVout.Callback complete the handoff.
+                maybePlay(entry)
+            } catch (error: Exception) {
+                fail(entry, "surface_recovery_failed", "LibVLC could not restore video surfaces (${error.javaClass.simpleName})")
+            }
+        }.also(main::post)
+    }
+
     private fun updateVisibility(entry: Entry) {
         entry.views.forEach {
             it.setPresentationVisible(entry.allowed && entry.failure == null && it === entry.activeView)
@@ -884,14 +1029,28 @@ class LibVlcPlayerHost(
     private fun updateAwake(entry: Entry) {
         entry.views.forEach { view ->
             view.setPlaybackAwake(entry.preventsDisplaySleep && entry.allowed && entry.playing &&
-                entry.viewportAttached && entry.surfacesReady && view === entry.activeView && view.attached)
+                entry.viewportAttached && entry.surfacesReady && view === entry.activeView &&
+                view.presentable && view.surfacesAvailable)
         }
     }
 
     private fun pause(entry: Entry) {
         entry.wantsPlay = false
+        entry.surfaceSuspended = false
+        updateBuffering(entry)
+        entry.surfaceRecovery?.let(main::removeCallbacks)
+        entry.surfaceRecovery = null
         pauseForMissingViewport(entry)
         emit(entry, mapOf("event" to "isPlayingStateUpdate", "isPlaying" to false))
+        if (entry.allowed && entry.player != null) entry.activeView?.let { scheduleSurfaceRecovery(entry, it) }
+    }
+
+    private fun updateBuffering(entry: Entry) {
+        val buffering = entry.nativeBuffering || entry.surfaceSuspended
+        if (buffering != entry.buffering) {
+            entry.buffering = buffering
+            emit(entry, mapOf("event" to if (buffering) "bufferingStart" else "bufferingEnd"))
+        }
     }
 
     private fun pauseForMissingViewport(entry: Entry) {
@@ -914,6 +1073,7 @@ class LibVlcPlayerHost(
 
     private fun revoke(entry: Entry) {
         entry.allowed = false
+        finishSurfaceFrameRequest(entry)
         entry.views.forEach { it.setPresentationVisible(false) }
         pause(entry)
     }
@@ -1001,6 +1161,21 @@ class LibVlcPlayerHost(
             "render-surface" to "SurfaceView", "display-width" to entry.width.toString(),
             "display-height" to entry.height.toString(),
             "playback-rate" to (entry.player?.rate?.toString() ?: entry.speed.toString()),
+            // Configured rate and lifecycle counters are probes, not displayed FPS.
+            "playback-rate-requested" to entry.speed.toString(),
+            "rate-request-count" to entry.rateRequestCount.toString(),
+            "native-is-playing" to (entry.player?.isPlaying?.toString() ?: "false"),
+            "native-player-state" to (entry.player?.playerState?.toString() ?: "unopened"),
+            "presentation-allowed" to entry.allowed.toString(),
+            "play-requested" to entry.wantsPlay.toString(),
+            "viewport-presentable" to entry.viewportAttached.toString(),
+            "surface-ready" to entry.surfacesReady.toString(),
+            "surface-suspended" to entry.surfaceSuspended.toString(),
+            "surface-generation" to entry.surfaceGeneration.toString(),
+            "surface-loss-count" to entry.surfaceLossCount.toString(),
+            "surface-attach-count" to entry.surfaceAttachCount.toString(),
+            "surface-frame-request-active" to (entry.frameRequestGeneration != null).toString(),
+            "surface-frame-request-timeouts" to entry.frameRequestTimeoutCount.toString(),
         )
         entry.tracks.filterIsInstance<IMedia.VideoTrack>().firstOrNull()?.let { track ->
             result["video-codec"] = track.codec ?: ""
@@ -1051,11 +1226,13 @@ class LibVlcPlayerHost(
         if (entry.disposed) return
         entry.allowed = false
         entry.wantsPlay = false
+        finishSurfaceFrameRequest(entry)
         entry.viewportAttached = false
         entry.surfaceGeneration++
         entry.views.forEach { it.setPresentationVisible(false) }
         entry.openTimeout?.let(main::removeCallbacks)
         entry.playerTimeout?.let(main::removeCallbacks)
+        entry.surfaceRecovery?.let(main::removeCallbacks)
         abandonFocus(entry)
         entry.disposed = true
         entries.remove(entry.id)
