@@ -197,6 +197,21 @@ def capture(name):
     return path, image
 
 
+def fixture_signature(image, bounds):
+    # The external testsrc2 corpus contains broad vivid colour bands. Sparse
+    # pink/teal lock controls are not video, even when their bounding box is tall.
+    area = image.crop(bounds).convert("HSV").resize((160, 160))
+    hues = [0] * 12
+    coloured = 0
+    for hue, saturation, value in area.getdata():
+        if saturation > 60 and value > 70:
+            coloured += 1
+            hues[min(11, hue * 12 // 256)] += 1
+    total = area.width * area.height
+    return {"vivid_fraction": coloured / total,
+            "vivid_hue_bands": sum(count > total * .01 for count in hues)}
+
+
 def content_bounds(image, viewport):
     # testsrc2 has strongly saturated colour bars throughout its display area.
     # Black letterboxing, white HUD text and the grey navigation bar do not count.
@@ -215,7 +230,11 @@ def content_bounds(image, viewport):
           if mask.crop((0, y, mask.width, y + 1)).histogram()[255] >= max(3, mask.width * .01)]
     if not xs or not ys:
         raise AssertionError("No actual synthetic video pixels in native screenshot")
-    return (box[0] + xs[0], box[1] + ys[0], box[0] + xs[-1] + 1, box[1] + ys[-1] + 1)
+    bounds = (box[0] + xs[0], box[1] + ys[0], box[0] + xs[-1] + 1, box[1] + ys[-1] + 1)
+    signature = fixture_signature(image, bounds)
+    if signature["vivid_fraction"] < .20 or signature["vivid_hue_bands"] < 4:
+        raise AssertionError(f"No actual testsrc video: insufficient broad fixture colours {signature}")
+    return bounds
 
 
 def inspect_capture(request):
@@ -240,7 +259,8 @@ def inspect_capture(request):
     left, top, right, bottom = bounds
     width, height = right - left, bottom - top
     result = {"screenshot": path.name, "screen_size": image.size, "video_bounds": bounds,
-              "video_aspect_ratio": width / height, "captured_monotonic": time.monotonic()}
+              "video_aspect_ratio": width / height, "captured_monotonic": time.monotonic(),
+              "fixture_signature": fixture_signature(image, bounds)}
     if "aspect" in request:
         expected = request["aspect"]
         if abs(width / height - expected) > max(.02, expected * .025):

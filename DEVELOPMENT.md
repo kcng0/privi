@@ -213,6 +213,10 @@ expose tracks, local subtitles, audio/subtitle delays, A–B repeat and diagnost
 LibVLC enables audio time stretching and automatic hardware decoding with its
 software fallback; speed changes update the existing player's native rate.
 The bundled Noto CJK font is made available to native subtitle rendering.
+The first LibVLC initialization builds the system font cache on its background
+queue, before playback. Cache validity and elapsed time are diagnostic values;
+an unwritable cache warns and leaves rendering available, matching the SDK's
+contract. ASS uses `ssa-fontsdir`; other text uses the SDK's platform font family.
 
 Creation returns a disposable id before asynchronous parsing can fail. Parsed
 metadata initializes the facade without opening a decoder. A preloaded item owns
@@ -222,6 +226,17 @@ presentation. Fatal LibVLC player events propagate as video_player errors; SDK
 logs are not treated as fatal events. Failed media can be disposed and retried.
 All stop/release work is serialized; stale surfaces cannot detach a newer PiP
 surface. Each viewport retains its own fit mode during PiP reparenting.
+
+All local-file playback owners use `VaultVideoPlayerController.file`. Position
+queries returning after release are cancelled as null, matching video_player's
+disposed-position contract. Already accepted play/seek commands finish before
+controller disposal so they cannot create a timer or update disposed state.
+New commands are cancelled after release starts; active errors and release
+failures remain observable. Native presentation permission is still owned by
+the root lock/PiP lifecycle, independently of controller cleanup.
+Reopening an ended input already starts at zero; it must not also inject a
+startup seek to zero, including video_player's explicit replay seek. Running
+seeks to zero and nonzero pending seeks/A–B starts remain native seeks.
 
 Presentation is denied by default. The existing root lock/PiP owner grants the
 current controller before play, and hides its native video/subtitle surfaces
@@ -283,6 +298,12 @@ cannot establish video motion. Blank taps, sustained native DOWN/UP, pause with
 controls/rotation, 100 controller handoffs, and PiP/lock return are covered.
 Artifacts retain PNGs, diagnostics, ffprobe fixture facts and the image verdicts.
 Failures remain failures; no private user media is used.
+The integration binding accepts application-requested frames without LiveTest's
+automatic frame loop. Native input/capture waits do not pump Flutter: otherwise
+the harness itself could conceal a platform view waiting for an overlay image.
+Each action converts logical coordinates with the current FlutterView screen
+offset. The AOSP emulator must expose PiP and pass a bounded foreground HOME/UI
+readiness check. ANR/crash dialogs fail with saved evidence; they are not closed.
 
 The old rate-profile harness still explicitly installs a MediaKit subclass and
 uses mpv-only properties. It is manual-only historical diagnostics, never a
@@ -299,6 +320,10 @@ from that specific Flutter viewport. A short-lived ticker stops at surface-ready
 revocation or viewport replacement. Native diagnoses recovery after 5 seconds;
 Dart has a 6-second guard for a missing acknowledgement. This avoids a permanent
 UI animation/repaint loop and never grants playback or creates a preload decoder.
+Initial playback can request that frame before creating its decoder: requiring
+both an already-created player and a visible Surface would deadlock cold hybrid
+composition. An initialized, authorized current view with play intent may wake
+Flutter; an unplayed preload still cannot allocate a decoder.
 
 True acceptance must open a video through Privi's built-in player, compare the
 same Samsung A52 clip with VLC at 1×/2×/back to 1× (menu and hold), exercise drag

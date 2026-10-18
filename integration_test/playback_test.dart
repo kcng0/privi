@@ -21,6 +21,7 @@ import 'package:privi/data/services/playback/vault_video_player.dart';
 import 'package:privi/data/services/playback_orientation_service.dart';
 import 'package:privi/domain/enums.dart';
 import 'package:privi/domain/models/media_item.dart';
+import 'package:privi/presentation/lock/lock_screen.dart';
 import 'package:privi/presentation/player/player_screen.dart';
 import 'package:privi/presentation/player/video_player_surface.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -140,6 +141,7 @@ void main() {
     List<int>? physicalSize,
     String? compareTo,
     bool paused = false,
+    Map<String, Object?>? uiWitness,
   }) async =>
       deviceAction(tester, {
         'op': 'capture',
@@ -149,6 +151,7 @@ void main() {
         if (physicalSize != null) 'physicalSize': physicalSize,
         if (compareTo != null) 'compareTo': compareTo,
         if (paused) 'expect': 'static',
+        if (uiWitness != null) 'ui_witness': uiWitness,
       });
 
   Future<void> nativeInput(
@@ -413,6 +416,102 @@ void main() {
   testWidgets(
     'native audio, ASS subtitles, delays, rate and A-B controls',
     (tester) async {
+      // Isolate steady embedded ASS playback from the later external-subtitle,
+      // seek and A-B scenario. Source pixels (including CJK and burned-in HUD)
+      // remain the visual evidence; clocks below are separate diagnostic probes.
+      final steady = await open(tester, 'tracks.mkv');
+      final steadyAdvanced = AdvancedVideoController(steady);
+      try {
+        await display(tester, steady);
+        await steadyAdvanced.refresh();
+        final subtitle = steadyAdvanced.value.subtitleTracks
+            .firstWhere((track) => track.id != '-1');
+        await steadyAdvanced.selectSubtitleTrack(subtitle.id);
+        expect(steadyAdvanced.value.abLoopStart, isNull);
+        expect(steadyAdvanced.value.abLoopEnd, isNull);
+        await steady.setLooping(true);
+        await steady.play();
+        await Future<void>.delayed(const Duration(milliseconds: 800));
+        Future<void> checkSteadyCue(String label) async {
+          final position = await steady.position;
+          final native = await recordDiagnostics(steady, steadyAdvanced, label);
+          expect(position, isNotNull);
+          expect(
+            position!.inMilliseconds,
+            inInclusiveRange(0, 2999),
+            reason:
+                'The external chinese.ass cue spans 0-3s; steady captures must remain inside it',
+          );
+          expect(
+            native['native-is-playing'],
+            'true',
+            reason:
+                'Steady ASS must capture playback rather than an EOF-stopped input',
+          );
+        }
+
+        await checkSteadyCue('ass-steady-first-before');
+        final firstNative = await steady.position;
+        final firstFacade = steady.value.position;
+        expect(firstNative, isNotNull);
+        await recordDiagnostics(steady, steadyAdvanced, 'ass-steady-first');
+        final first = await screenshot(
+          tester,
+          'portrait-ass-steady-first',
+          aspect: 180 / 320,
+        );
+        await checkSteadyCue('ass-steady-first-after');
+        final watch = Stopwatch()..start();
+        Duration? nextNative;
+        while (watch.elapsed < const Duration(seconds: 3)) {
+          nextNative = await steady.position;
+          if (nextNative != null &&
+              nextNative != firstNative &&
+              steady.value.position != firstFacade) {
+            break;
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+        }
+        expect(nextNative, isNotNull);
+        expect(
+          nextNative,
+          isNot(firstNative),
+          reason:
+              'Steady ASS native position must progress without a seek/A-B request',
+        );
+        expect(
+          steady.value.position,
+          isNot(firstFacade),
+          reason:
+              'Steady ASS facade position must progress without a seek/A-B request',
+        );
+        metrics['ass_steady_position_probes'] = {
+          'first_native_ms': firstNative!.inMilliseconds,
+          'second_native_ms': nextNative!.inMilliseconds,
+          'first_facade_ms': firstFacade.inMilliseconds,
+          'second_facade_ms': steady.value.position.inMilliseconds,
+          'selected_subtitle_id': subtitle.id,
+          'explicit_seek_requests': playback.seeks
+              .where((entry) => entry.$1 == steady.playerId)
+              .length,
+          'ab_loop_configured': steadyAdvanced.value.abLoopEnd != null,
+          'cjk_and_burned_in_hud':
+              'inspect actual native PNGs against chinese.ass fixture',
+        };
+        await checkSteadyCue('ass-steady-second-before');
+        await screenshot(
+          tester,
+          'portrait-ass-steady-second',
+          aspect: 180 / 320,
+          compareTo: first['id'] as String,
+        );
+        await checkSteadyCue('ass-steady-second-after');
+      } finally {
+        steadyAdvanced.dispose();
+        await tester.pumpWidget(const SizedBox.shrink());
+        await steady.dispose();
+      }
+
       final controller = await open(tester, 'tracks.mkv');
       final advanced = AdvancedVideoController(controller);
       try {
@@ -451,6 +550,11 @@ void main() {
         expect(advanced.value.audioTracks.last.isSelected, isTrue);
         await recordDiagnostics(controller, advanced, 'ass-before-capture');
         await screenshot(tester, 'portrait-ass-best-fit', aspect: 180 / 320);
+        // Inspect another actual video frame while the A-B interval remains
+        // inside the fixture's 0-3s cue. This wait never submits a Flutter frame.
+        await Future<void>.delayed(const Duration(seconds: 2));
+        await recordDiagnostics(controller, advanced, 'ass-later-capture');
+        await screenshot(tester, 'portrait-ass-later', aspect: 180 / 320);
         await advanced.setAbLoop(null, null);
         expect(advanced.value.abLoopEnd, isNull);
         await advanced.selectSubtitleTrack('-1');
@@ -513,6 +617,38 @@ void main() {
               .overrideWith((_) async => PermissionState.denied),
         ],
       );
+      final rootTimeline = <Map<String, Object?>>[];
+      metrics['root_lock_timeline'] = rootTimeline;
+      void recordRootEvent(String event, Map<String, Object?> details) {
+        final entry = <String, Object?>{
+          'event': event,
+          'at': DateTime.now().toUtc().toIso8601String(),
+          ...details,
+        };
+        rootTimeline.add(entry);
+        debugPrint('PRIVI_TEST_ROOT ${jsonEncode(entry)}');
+      }
+
+      final lockEvents = container.listen(
+        lockControllerProvider,
+        (previous, next) {
+          recordRootEvent('lock-state', {
+            'from': previous?.status.name,
+            'to': next.status.name,
+          });
+        },
+        fireImmediately: true,
+      );
+      final pipEvents = container
+          .read(pictureInPictureGatewayProvider)
+          .events
+          .listen((event) {
+        recordRootEvent('native-pip', {
+          'type': event.type.name,
+          'session': event.sessionId,
+        });
+      });
+
       final item = MediaItem(
         id: 'synthetic-pip-video',
         privatePath: files['portrait.mp4']!.path,
@@ -622,12 +758,105 @@ void main() {
         Future<Map<String, String>> diagnostics(String label) =>
             recordDiagnostics(controller, advanced, label);
 
+        Map<String, Object?> rootUiWitness() {
+          final lock = container.read(lockControllerProvider);
+          final state = container.read(pictureInPictureControllerProvider);
+          final content = find.byKey(
+            const ValueKey('vault-content-interaction'),
+            skipOffstage: false,
+          );
+          final ignoring = content.evaluate().isEmpty
+              ? null
+              : tester.widget<IgnorePointer>(content).ignoring;
+          return {
+            'lock_status': lock.status.name,
+            'lock_overlay_count': find
+                .byKey(
+                  const ValueKey('vault-lock-overlay'),
+                  skipOffstage: false,
+                )
+                .evaluate()
+                .length,
+            'lock_screen_count':
+                find.byType(LockScreen, skipOffstage: false).evaluate().length,
+            'content_ignoring': ignoring,
+            'retained_route_visible':
+                find.byKey(const Key('native-pip-route')).evaluate().isNotEmpty,
+            'same_provider_container': content.evaluate().isNotEmpty &&
+                identical(
+                  ProviderScope.containerOf(
+                    tester.element(content),
+                    listen: false,
+                  ),
+                  container,
+                ),
+            'pip_active': state.isActive,
+            'pip_grant': state.grantActive,
+            'lifecycle': binding.lifecycleState?.name,
+            'scheduled_frame': binding.hasScheduledFrame,
+          };
+        }
+
+        bool rootIsUnlocked(Map<String, Object?> witness) =>
+            witness['lock_status'] == LockStatus.unlocked.name &&
+            witness['lock_overlay_count'] == 0 &&
+            witness['lock_screen_count'] == 0 &&
+            witness['content_ignoring'] == false &&
+            witness['retained_route_visible'] == true &&
+            witness['same_provider_container'] == true &&
+            witness['pip_active'] == false &&
+            witness['pip_grant'] == false;
+
+        Future<void> awaitUnlockedRoot(String label) async {
+          final watch = Stopwatch()..start();
+          while (!rootIsUnlocked(rootUiWitness()) &&
+              watch.elapsed < const Duration(seconds: 12)) {
+            await Future<void>.delayed(const Duration(milliseconds: 100));
+          }
+          final witness = rootUiWitness();
+          recordRootEvent(label, witness);
+          if (!rootIsUnlocked(witness)) {
+            await diagnostics('$label-blocked');
+            await deviceAction(tester, {
+              'op': 'screenshot',
+              'name': '$label-blocked',
+              'ui_witness': witness,
+            });
+          }
+          expect(
+            rootIsUnlocked(witness),
+            isTrue,
+            reason:
+                'Unlock must remove the real lock UI and restore the retained route: $witness',
+          );
+        }
+
         Future<void> movingFrames(String label) async {
-          final first = await screenshot(tester, '$label-first');
+          final before = rootUiWitness();
+          expect(
+            rootIsUnlocked(before),
+            isTrue,
+            reason: 'Video sampling requires the unlocked root UI: $before',
+          );
+          final first = await screenshot(
+            tester,
+            '$label-first',
+            aspect: 180 / 320,
+            uiWitness: before,
+          );
           await Future<void>.delayed(const Duration(milliseconds: 900));
+          final after = rootUiWitness();
+          expect(
+            rootIsUnlocked(after),
+            isTrue,
+            reason:
+                'The root must remain unlocked during video sampling: $after',
+          );
           await screenshot(
             tester,
             '$label-second',
+            aspect: 180 / 320,
+            uiWitness: after,
             compareTo: first['id'] as String,
           );
         }
@@ -844,7 +1073,7 @@ void main() {
         for (final action in ['EXPAND', 'SCREEN_OFF']) {
           (container.read(lockControllerProvider.notifier) as _IntegrationLock)
               .unlockForTest();
-          await tester.pump(const Duration(milliseconds: 200));
+          await awaitUnlockedRoot('before-${action.toLowerCase()}');
           await waitFor(
             () => pip.canPlay(controller: controller, mediaId: item.id),
             'PiP entry requires a focused foreground Activity',
@@ -919,7 +1148,7 @@ void main() {
             () => binding.lifecycleState == AppLifecycleState.resumed,
             'Fullscreen return must resume the Activity before the next entry',
           );
-          await tester.pump(const Duration(milliseconds: 300));
+          await Future<void>.delayed(const Duration(milliseconds: 300));
           expect(
             container.read(lockControllerProvider).status,
             LockStatus.locked,
@@ -941,7 +1170,7 @@ void main() {
           });
           (container.read(lockControllerProvider.notifier) as _IntegrationLock)
               .unlockForTest();
-          await tester.pump(const Duration(milliseconds: 300));
+          await awaitUnlockedRoot('after-${action.toLowerCase()}');
           await waitFor(
             () => pip.canPlay(controller: controller, mediaId: item.id),
             'Unlocked retained route must regain playback ownership',
@@ -966,11 +1195,13 @@ void main() {
           () => platform.activePlayerCount == 0,
           'Leaving PlayerScreen must release every decoder',
         );
+        lockEvents.close();
+        await pipEvents.cancel();
         container.dispose();
         await database.close();
       }
     },
-    timeout: const Timeout(Duration(minutes: 3)),
+    timeout: const Timeout(Duration(minutes: 4)),
   );
 }
 

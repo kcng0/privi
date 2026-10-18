@@ -165,3 +165,31 @@ Hacker 首轮发现的源位深保护合同反证已用于收窄上述声明；�
 [最终 CI](https://github.com/kcng0/privi/actions/runs/39122616315) 静态分析及 437 项既有测试通过；[正式构建](https://github.com/kcng0/privi/actions/runs/39122686064) 已成功发布 [v1.1.2 (40)](https://github.com/kcng0/privi/releases/tag/v1.1.2)。下载的实际 APK 已核对包名 com.privi.app、非 debug、正式签名与上一版一致；不含 libmpv，ARM64 libvlc.so/libvlcjni.so 与官方 3.7.7 AAR 内容一致。APK 232194147 bytes；SHA-256 `77143bfff97408a351fef1c54857e769d06211e1f00ea0ef1b80037f384d514e`。匿名 `/releases/latest` 已返回 v1.1.2，因此用户可沿“设置 → 检查更新”取得完整安装包。
 
 真实验收入口：Visible/Invisible → 内置视频播放 → 菜单/长按 2×、回 1×、横向拖动释放；高级字幕/音轨/延迟/AB；PiP → 返回/熄屏/解锁。Android 实际画面和声音、字幕层级、Surface 重挂、熄屏及 A52 同片性能仍未验，继续由 issue #59 跟踪；本次交付是可安装对照版本，不能以发布成功宣称卡顿已解决。
+
+### v1.1.3 触控、Surface 恢复与体积修正（原生验收中）
+
+用户回报 v1.1.2 空白区域点击不能显示控件，部分影片长按显示 2× 但画面停住，松手后才恢复；同片通过菜单 2× 可以播放。生产 adapter 的同输入前后对照确认：透明度为 translucent 的原生手势队伍在 Flutter 等待第二次点击期间抢到单击；改为 display-only 的 transparent 后，单击交由既有 Flutter 手势处理。双击、长按与拖动仍由同一个手势 owner 处理。
+
+固定 Flutter engine 的 hybrid composition 可能把仍挂载的 platform-view 父节点设为 GONE，LibVLC 此时会自动解绑 Surface 回调；原桥接只观察 attach/size，存在恢复缺口。修正分别监听祖先可见性及真实 Surface，清理失效 VideoHelper，并区分授权、播放意图和临时 Surface suspension。静止 HUD 也可能没有下一帧来消费 overlay image，因此增加仅在恢复期间请求 Flutter paint 的 view/generation 握手，恢复、撤权、换 view 和超时时停止。暂停恢复不获得播放权限，不自动播放。这是源码支持的修复方向，尚不能直接等同于已证明 A52 原片的完整因果链。[Flutter 手动失效说明](https://docs.flutter.dev/platform-integration/android/platform-views#manual-view-invalidation)
+
+v1.1.2 实际 APK 为 232194147 bytes，其中原生库 217055864 bytes 全部按 stored 打包；没有重复 libmpv。新包采用 AGP 的 `useLegacyPackaging=true` 压缩原生库，保留所有已提供 ABI、codec 和字幕功能。Android 会在安装时解压当前 ABI，安装后占用与下载大小应分开报告；最终体积以正式 APK 实测为准。[AGP JniLibsPackaging](https://developer.android.com/reference/tools/gradle-api/9.0/com/android/build/api/dsl/JniLibsPackaging)
+
+用户明确允许将既有原生验收迁移到 LibVLC 并补充真点击、持触期间视频画面推进及暂停 Surface 恢复，要求完成后再发布。验收保留原合成 codec/rotation/SAR/ASS 素材、100 次切片及 PiP/锁屏边界。独立 Hacker 在第一轮指出测试等待时 pump 和 fullyLive 自动续帧均会掩盖此故障；现已改为只允许应用请求的帧，真实 DOWN→持触截图→UP 不主动 pump。独立引擎探针确认 idle/停止均 0 个多余帧，应用 ticker 与 forced frame 正常。该探针不替代 Android 视频输出。
+
+业务快照 `185a3ca` 的普通 CI 通过。原生运行 [5e81af2](https://github.com/kcng0/privi/actions/runs/39126311123) 与 [52c36ae](https://github.com/kcng0/privi/actions/runs/39126937726) 均失败，不能作为验收通过证据：截图被 Pixel Launcher ANR 弹窗遮挡，未覆盖长按/PiP；约 40 次切片后还实际触发 `video_player` 异步 position 在 dispose 后更新的断言。后者是确定的生产生命周期反例，不能归因为系统弹窗或通过调慢切片掩盖。
+
+已增加统一生产 `VaultVideoPlayerController.file`：release 同步取消迟到 position，等待已接收的 play/seek 收尾后调用原有 dispose，阻止新命令。活跃查询错误、命令错误和释放失败仍传播。Hacker 用锁定依赖独立复现 late seek 的同类断言，并对实际新类复验迟到值/错误、play/seek、重复 dispose 及失败释放；31 项既有切片/返回 widget 探针通过。官方 2.14.1 源码中这几个 await 后仍无 disposed 检查，单纯升级不能替代修正。[官方 2.14.1 源码归档](https://pub.dev/api/archives/video_player-2.14.1.tar.gz)
+
+验收现用官方 AOSP API33 x86_64 镜像，运行时要求真实 PiP feature、稳定 HOME 焦点及可响应 UI hierarchy；任何 Launcher 或 Privi ANR 都保存现场并失败，不点掉弹窗。输入/截图每次读取现有原生 FlutterView screen offset，按 logical×dpr+physical offset 转换，日志记录原始坐标。保留 boot logs 时另用随机日志 fence 排除旧测试动作重放。环境与上述生产修正快照 `3fce837` 已执行 [Android Playback Validation](https://github.com/kcng0/privi/actions/runs/39127936940)，其结果与后续修正记录如下。原生验收不通过时不打发布标签。
+
+`3fce837` 的原生结果仍失败，但 100 次真实 controller 切片已经完成，不再出现 disposed 更新断言。AOSP 没有 Launcher ANR。实际图片及日志又定位两项验收缺口：红色 DEBUG 标识污染视频边界；LiveTest binding 默认把真实设备事件交给 WidgetTester 打印 Finder，而非产品手势。已在 harness 关闭 debug banner 并允许 device pointer 进入应用。独立探针确认真实 device-source tap 能触发产品 GestureDetector，且 idle/停止仍不造帧。
+
+首幅全黑同时暴露新的生产冷启动互锁：该 test 截图前完全没有 decoder 启动记录，首次分配在后续 test；`maybePlay` 要先可见才建 player，恢复帧请求又要求 player 已存在。已改为已初始化、获授权且有播放意图的 active view 可在创建 decoder 前请求帧；未播放预载仍禁止。没有通过延长截图等待绕过此反例。包含该修正的快照 `34ec5ba` 正在运行 [新的原生验收](https://github.com/kcng0/privi/actions/runs/39129035107)，截图等待与外部像素标准保持原值，待真实结果再决定发布。
+
+Hacker 第 1 轮在 `34ec5ba` 的实际原生结果中确认：真实 ADB 点击成功、100 次切片完成，但不能发布。长按首图为 frame55，第二张及松手后两张均为 frame0，视频区域逐像素相同；native position、decoded/displayed 均停止而 Playing/play intent 仍为 true，Surface generation/loss/attach 没有反复变化。这是片尾重开后停帧，不能把两张截图不同解读为持续播放通过。ASS 截图的1.875秒处没有应显示的0–3秒文字，API组绿不代表字幕呈现。首图仍黑，但该次已通过冷启动门控并请求audio focus，后续字体扫描活动意味着不能继续断言同一门控死锁。
+
+作者侧候选 `3a27346` 去掉新 input 重开时多余的 pending seek(0)，保留运行中的用户 seek 与非零 A 点。初次 LibVLC 构造在后台调用官方 `buildFontCache()`，把数秒系统字体扫描放到初始化阶段；false 只说明磁盘缓存无效，官方客户端同样告警后继续，不伪报缓存成功也不使正常渲染失败。[官方 JNI](https://code.videolan.org/videolan/libvlcjni/-/blob/a498cf1fefd93c4a2ec7253ac33cd6dd5b344dde/libvlc/jni/libvlcjni.c)、[官方 Android FontCache](https://github.com/videolan/vlc-android/blob/ba316c9819ee24678ff56fd21600e0cf6259e828/application/vlc-android/src/org/videolan/vlc/util/FontCache.kt#L117)。已移除把字体文件路径传给 Android FreeType font-family 选项的错误覆盖，ASS 继续用 `ssa-fontsdir`。日志曾确认 Noto 文件及 fontconfig provider 已加载，所以没有把 ASS 无字直接归因于字体；新增真实 spuTrack/track IDs 与字幕 Surface 状态，在截图前保存诊断。
+
+该快照的[作者原生运行](https://github.com/kcng0/privi/actions/runs/39130426888) 仍失败，普通 CI 则通过。实际缓存构建成功，耗时 8989ms；首次视频以及 H264、VP9、HEVC、AV1、旋转/SAR、各比例模式的真实画面通过。100 次切片完成。真实长按持续 10.6 秒、跨多次片尾重开，持触/松手/菜单 2×/回 1× 均有视频 ROI 持续变化；横竖屏运动、暂停后控件切换和旋转静帧、恢复 Play 后运动均通过。作者同时补齐已结束输入的显式 replay seek(0)，运行中 seek(0) 不受影响；该边界待下一次原生运行。
+
+剩余两项需要区分源问题与验收呈现：ASS 实际已选 track4，字幕 Surface 有效且可见，但原截图处于首次 seek(1000) 与窄 A–B 的连续 flush 期间，图片 HUD 仍为 frame0，没有中文字，不能据 API 绿宣称字幕通过。PiP 第一次返回并锁定时黑屏保护通过；随后测试解锁后的两张图实际仍是相同的“Draw your pattern”界面，旧多色边界误把锁图标和 Forgot pattern 按钮算成视频。此处没有视频冻结的像素证据；需检查真实锁层撤出及合成结果，并强化素材识别防止假阳性。作者侧关闭这些反例后才提交第 2 轮 Hacker 复验，原生验收未通过前不发布。
