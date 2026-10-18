@@ -107,3 +107,19 @@ iOS 继续单独验证 AVFoundation。Apple 的 `canPlayFastForward == false` �
 ## 当前证据边界
 
 已确认旧默认排除直接硬解，且行业方案会分别处理解码、输出与资源竞争。尚缺 A52 原片准确参数、实际 decoder/输出日志，以及候选版持续实机对照。本文支持修复方向和验证方法，不代表已经消除 A52 的 2×掉帧或回速卡顿。
+
+
+## 本轮执行记录与独立验收
+
+候选提交 `4ca02791858bfeaaaf033c4502cd8cbf62e4b814` 的既有 437 项测试、analyze 和原生回归均通过。这些是探针，不构成 A52 流畅证明。[原生操作产物](https://github.com/kcng0/privi/actions/runs/39108921121)、[两组选路实验](https://github.com/kcng0/privi/actions/runs/39108923119)。
+
+原生流程运行真实 `PlayerScreen`，保留横竖屏控件、旋转/SAR/字幕、PiP 返回和熄屏截图，以及 100 次连续切片的过程记录。独立 `check` Hacker 查看这些产物和真实 Android DOWN/UP；长按截图出现 2×，释放后徽标消失且 native 倍率最终恢复。此前触控漏掉了 FlutterView 相对屏幕的偏移，本轮通过原生读取实际偏移纠正，未硬编码设备值。
+
+选路实验的实际结果分别为 `mediacodec-copy` 和 `mediacodec`，但不可据此比较稳定吞吐或最终视频 FPS：
+
+- override 在初始化后施加，绕过了新增自动策略；不能证明常见 SDR 的生产初始化会选中 direct。
+- copy 组的 baseline、menu 和 hold 采样起点仍在 `seeking=yes`；释放采样还混入了 native 速度从 2 到 1 的变化。固定等待 1.5 秒不保证寻址完成。
+- direct 组采样起点没有寻址，但两组都有 audio underrun / AV desynchronisation。direct 的 2× 窗口媒体时钟每墙钟秒只推进约 0.73–0.90 秒，显示该模拟环境仍明显失步，不能称为顺畅播放。
+- 不同 runner 的单次记录既不是受控实机 A/B，也不能据媒体时钟进度推导屏幕帧率。
+
+真实用户入口为：内置播放影片 → 播放设置 → 高级 →「复制播放诊断信息」；倍速菜单与画面长按分别触发持续和临时倍速。**新增复制入口的真实手机 Clipboard 读回、A52 原片的自动 direct 选择、画质、持续帧率及回速停顿均未验。** 当前服务器没有连接 Android 实机。测试绿色不填补这些证据缺口。
