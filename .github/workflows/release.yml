@@ -386,6 +386,23 @@ jobs:
       actions: read
       contents: write
     steps:
+      - name: Reject conflicting staged publication inputs
+        env:
+          STAGE_ONLY: ${{ inputs.stage_only }}
+          SDK_RUN_ID: ${{ inputs.sdk_run_id }}
+          SDK_URL: ${{ inputs.sdk_url }}
+          SDK_COMMIT: ${{ inputs.sdk_commit }}
+          SDK_SHA256: ${{ inputs.sdk_sha256 }}
+        run: |
+          set -euo pipefail
+          if [[ "$STAGE_ONLY" == true ]]; then
+            echo 'error: stage_only cannot be combined with publish_run_id' >&2
+            exit 2
+          fi
+          if [[ -n "$SDK_RUN_ID$SDK_URL$SDK_COMMIT$SDK_SHA256" ]]; then
+            echo 'error: SDK inputs cannot replace libraries in an already signed staged APK; publish its original SDK assets' >&2
+            exit 2
+          fi
       - uses: actions/checkout@v4
       - name: Verify staged run and resolve version
         id: staged
@@ -393,11 +410,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           SOURCE_RUN_ID: ${{ inputs.publish_run_id }}
           DISPATCH_TAG: ${{ inputs.tag }}
-          STAGE_ONLY: ${{ inputs.stage_only }}
         run: |
           set -euo pipefail
           [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]]
-          [ "$STAGE_ONLY" != true ]
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID" > "$RUNNER_TEMP/staged-run.json"
           jq --exit-status --arg sha "$GITHUB_SHA" --arg repo "$GITHUB_REPOSITORY" '
             .head_sha == $sha and .head_repository.full_name == $repo and

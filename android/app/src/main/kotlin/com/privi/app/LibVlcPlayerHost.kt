@@ -33,6 +33,7 @@ import org.videolan.libvlc.util.VLCUtil
 import java.io.Closeable
 import java.io.File
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -76,6 +77,18 @@ class LibVlcPlayerHost(
     private data class Failure(val code: String, val message: String)
 
     private class PlaybackStart(val generation: Long)
+
+    private class UserSeek(val position: Long) {
+        @Volatile var appliedByReprime = false
+    }
+
+    private class VideoReprime(val inputEpoch: Long, val seekAtLoss: UserSeek?, val pendingAtLoss: Long?) {
+        @Volatile var skipped = false
+        @Volatile var outcome = "required"
+        @Volatile var target: Long? = null
+    }
+
+    private class VideoReprimeException(message: String) : IllegalStateException(message)
 
     private class NativeOperation(val playerId: Int?, @Volatile var stage: String) {
         val startedAt = SystemClock.elapsedRealtime()
@@ -127,7 +140,7 @@ class LibVlcPlayerHost(
         val eventChannel = EventChannel(messenger, "$CHANNEL/events/$id")
         var sink: EventChannel.EventSink? = null
         var source: Source? = null
-        var player: MediaPlayer? = null
+        @Volatile var player: MediaPlayer? = null
         var initialized: Map<String, Any?>? = null
         @Volatile var failure: Failure? = null
         var duration = 0L
@@ -135,13 +148,21 @@ class LibVlcPlayerHost(
         var height = 0.0
         var tracks = emptyList<IMedia.Track>()
         val views = LinkedHashSet<LibVlcVideoView>()
-        var activeView: LibVlcVideoView? = null
-        var attachedView: LibVlcVideoView? = null
+        @Volatile var activeView: LibVlcVideoView? = null
+        @Volatile var attachedView: LibVlcVideoView? = null
         @Volatile var surfacesReady = false
         var voutReady = false
         @Volatile var viewportAttached = false
         @Volatile var surfaceGeneration = 0L
         @Volatile var playbackStart: PlaybackStart? = null
+        @Volatile var nativeInputStarted = false
+        @Volatile var inputEpoch = 0L
+        var everReadySurface = false
+        val videoReprime = AtomicReference<VideoReprime?>()
+        @Volatile var videoReprimeCount = 0L
+        @Volatile var videoReprimeTarget: Long? = null
+        @Volatile var videoReprimeOutcome = "not-required"
+        @Volatile var latestUserSeek: UserSeek? = null
         var mediaOpenPending = false
         var disposal: Disposal? = null
         var cleanupFailure: Failure? = null
@@ -171,7 +192,7 @@ class LibVlcPlayerHost(
         var preventsDisplaySleep = true
         var volume = 1.0
         var speed = 1.0
-        var pendingPosition: Long? = null
+        @Volatile var pendingPosition: Long? = null
         var audioDelay = 0L
         var subtitleDelay = 0L
         var selectedAudioTrack: Int? = null
@@ -197,6 +218,7 @@ class LibVlcPlayerHost(
                 val view = attachedView ?: return
                 if (view !== activeView) return
                 voutReady = true
+                everReadySurface = true
                 updateSurfaceReadiness(this@Entry, view)
                 if (!surfacesReady) requestSurfaceFrame(this@Entry, view)
                 maybePlay(this@Entry)
@@ -204,6 +226,7 @@ class LibVlcPlayerHost(
 
             override fun onSurfacesDestroyed(vlcVout: IVLCVout) {
                 if (disposed) return
+                requireVideoReprime(this@Entry)
                 voutReady = false
                 val view = attachedView
                 suspendForSurfaceLoss(this@Entry)
@@ -413,14 +436,20 @@ class LibVlcPlayerHost(
                 "seekTo" -> {
                     val position = requiredLong(call, "position")
                     require(position >= 0) { "Position must not be negative" }
+                    val seek = UserSeek(position)
+                    entry.latestUserSeek = seek
                     entry.pendingPosition = position
                     nativeCall(entry, result, call.method) {
+                        if (entry.latestUserSeek !== seek || seek.appliedByReprime) return@nativeCall null
                         entry.player?.takeIf { !entry.nativeEnded }?.let {
                             val inputOpen = it.playerState == IMedia.State.Playing || it.playerState == IMedia.State.Paused
                             check(!inputOpen || it.isSeekable) { "LibVLC media is not seekable" }
                             if (!it.isSeekable) return@let
                             check(it.setTime(position) >= 0) { "LibVLC rejected seek" }
-                            main.post { if (!entry.disposed && entry.pendingPosition == position) entry.pendingPosition = null }
+                            main.post {
+                                if (!entry.disposed && entry.latestUserSeek === seek && entry.pendingPosition == position)
+                                    entry.pendingPosition = null
+                            }
                         }
                         null
                     }
@@ -997,6 +1026,93 @@ class LibVlcPlayerHost(
         player.vlcVout.addCallback(entry.voutCallback)
     }
 
+    /** A binding loss retires the SDK decoder, even when owner play intent survives. */
+    private fun requireVideoReprime(entry: Entry) {
+        val inputEpoch = entry.inputEpoch
+        if (entry.disposed || entry.player == null || !entry.nativeInputStarted ||
+            entry.nativeEnded || !entry.everReadySurface || entry.attachedView == null) return
+        entry.videoReprime.set(VideoReprime(inputEpoch, entry.latestUserSeek, entry.pendingPosition))
+        trace(entry, "video-reprime-required")
+    }
+
+    /** Worker-safe state only: never inspect Android Views from the native queue. */
+    private fun isCurrentStart(entry: Entry, player: MediaPlayer, view: LibVlcVideoView, start: PlaybackStart): Boolean =
+        !closed && !entry.disposed && entry.failure == null && entry.player === player &&
+            entry.activeView === view && entry.attachedView === view && entry.playbackStart === start &&
+            entry.allowed && entry.wantsPlay && entry.viewportAttached && entry.surfacesReady &&
+            entry.surfaceGeneration == start.generation
+
+    private fun resumeStartAfterNewSeek(entry: Entry, player: MediaPlayer, view: LibVlcVideoView, start: PlaybackStart) {
+        main.post {
+            if (isCurrentStart(entry, player, view, start)) {
+                // Keep the original startup deadline. This continuation follows
+                // the user's queued seek and does not retry an SDK failure.
+                entry.playbackStart = null
+                maybePlay(entry)
+            }
+        }
+    }
+
+    /** Returns false when a newer owner/seek must settle before this startup can continue. */
+    private fun reprimeVideoBeforePlay(entry: Entry, player: MediaPlayer, view: LibVlcVideoView, start: PlaybackStart): Boolean {
+        val request = entry.videoReprime.get() ?: return true
+        if (request.inputEpoch != entry.inputEpoch) {
+            entry.videoReprime.compareAndSet(request, null)
+            return true
+        }
+        if (request.skipped) return true
+        val seek = entry.latestUserSeek
+        fun current(): Boolean = isCurrentStart(entry, player, view, start) &&
+            entry.inputEpoch == request.inputEpoch && entry.videoReprime.get() === request
+        fun unchanged(): Boolean {
+            if (!current()) return false
+            if (entry.latestUserSeek === seek) return true
+            resumeStartAfterNewSeek(entry, player, view, start)
+            return false
+        }
+        if (!unchanged()) return false
+        nativeStage("video-reprime-query")
+        val seekable = player.isSeekable
+        if (!unchanged()) return false
+        if (!seekable) {
+            // Leave the unsatisfied need visible, but do not keep retrying this
+            // episode or invent a restart for a live/non-seekable input.
+            request.outcome = "not-seekable-at-recovery"
+            request.skipped = true
+            entry.videoReprimeOutcome = request.outcome
+            trace(entry, "video-reprime-no-seek")
+            return current()
+        }
+        val pending = entry.pendingPosition
+        val target = seek?.takeIf { it !== request.seekAtLoss }?.position ?: pending ?:
+            request.pendingAtLoss ?: player.time
+        if (!unchanged()) return false
+        if (target < 0L) throw VideoReprimeException("LibVLC could not obtain a valid position for video recovery")
+        request.target = target
+        request.outcome = "seeking"
+        nativeStage("video-reprime-seek")
+        if (!unchanged()) return false
+        val accepted = player.setTime(target) >= 0L
+        if (accepted) {
+            entry.videoReprimeCount++
+            entry.videoReprimeTarget = target
+        }
+        if (!unchanged()) return false
+        if (!accepted) throw VideoReprimeException("LibVLC rejected video recovery seek")
+        if (seek != null && seek.position == target) seek.appliedByReprime = true
+        // CAS keeps a newer real binding loss, even if its callback interrupts
+        // this worker between the final generation check and completion.
+        if (!entry.videoReprime.compareAndSet(request, null)) return false
+        entry.videoReprimeOutcome = "seek-accepted"
+        main.post {
+            if (!entry.disposed && entry.player === player && entry.inputEpoch == request.inputEpoch &&
+                entry.surfaceGeneration == start.generation && entry.latestUserSeek === seek &&
+                entry.pendingPosition == target) entry.pendingPosition = null
+        }
+        trace(entry, "video-reprime-seek-accepted")
+        return isCurrentStart(entry, player, view, start)
+    }
+
     private fun maybePlay(entry: Entry) {
         if (entry.disposed || entry.failure != null || !entry.allowed || !entry.wantsPlay || entry.initialized == null) return
         val view = entry.activeView ?: return
@@ -1042,9 +1158,15 @@ class LibVlcPlayerHost(
             entry.playbackStart = start
             queueNative(entry.id, "play-start") {
                 try {
-                    if (entry.playbackStart !== start || entry.disposed || !entry.allowed || !entry.wantsPlay || !entry.viewportAttached ||
-                        !entry.surfacesReady || entry.surfaceGeneration != generation) return@queueNative
+                    if (!isCurrentStart(entry, player, view, start)) return@queueNative
                     if (entry.nativeEnded) {
+                        // A replacement input obtains its reference pictures from
+                        // its normal start; never carry a lost old decoder into it.
+                        entry.nativeInputStarted = false
+                        entry.inputEpoch++
+                        entry.videoReprime.set(null)
+                        entry.videoReprimeTarget = null
+                        entry.videoReprimeOutcome = "new-input"
                         nativeStage("play-set-media")
                         player.media = entry.source?.media
                         entry.nativeEnded = false
@@ -1058,15 +1180,22 @@ class LibVlcPlayerHost(
                     // setMedia can block while retiring the old input. A real
                     // pause, revocation, or surface handoff during that work
                     // must still prevent this queued play from starting.
-                    if (entry.playbackStart !== start || entry.disposed || !entry.allowed || !entry.wantsPlay || !entry.viewportAttached ||
-                        !entry.surfacesReady || entry.surfaceGeneration != generation) return@queueNative
+                    if (!isCurrentStart(entry, player, view, start)) return@queueNative
+                    if (!reprimeVideoBeforePlay(entry, player, view, start)) return@queueNative
+                    if (!isCurrentStart(entry, player, view, start)) return@queueNative
                     trace(entry, "native-play")
                     nativeStage("play-native")
+                    entry.nativeInputStarted = true
                     player.play()
                 } catch (error: Exception) {
+                    val stage = activeNativeOperation?.stage ?: "play-start"
+                    val recovering = stage.startsWith("video-reprime-")
                     main.post {
                         if (entry.playbackStart === start)
-                            fail(entry, "playback_failed", "LibVLC could not start playback (${error.javaClass.simpleName})")
+                            fail(entry, if (recovering) "video_recovery_failed" else "playback_failed",
+                                if (error is VideoReprimeException) error.message!!
+                                else if (recovering) "LibVLC video recovery failed at $stage (${error.javaClass.simpleName})"
+                                else "LibVLC could not start playback (${error.javaClass.simpleName})")
                     }
                 }
                 // nativePlay returning only submits startup. Keep the identity
@@ -1079,6 +1208,7 @@ class LibVlcPlayerHost(
 
     private fun attach(entry: Entry, view: LibVlcVideoView) {
         val player = entry.player ?: return
+        if (entry.attachedView != null) requireVideoReprime(entry)
         entry.surfaceAttachCount++
         cancelPlaybackStart(entry)
         entry.surfaceGeneration++
@@ -1134,11 +1264,15 @@ class LibVlcPlayerHost(
                             if (entry.audioDelay != 0L) check(player.setAudioDelay(entry.audioDelay)) { "Audio delay rejected" }
                             if (entry.subtitleDelay != 0L) check(player.setSpuDelay(entry.subtitleDelay)) { "Subtitle delay rejected" }
                             restoreTrackIntent(entry, player)
+                            val seek = entry.latestUserSeek
                             entry.pendingPosition?.let { position ->
                                 if (player.isSeekable) {
                                     trace(entry, "pending-seek-$position")
                                     check(player.setTime(position) >= 0) { "Pending seek rejected" }
-                                    main.post { if (entry.pendingPosition == position) entry.pendingPosition = null }
+                                    main.post {
+                                        if (entry.latestUserSeek === seek && entry.pendingPosition == position)
+                                            entry.pendingPosition = null
+                                    }
                                 }
                             }
                         } catch (error: Exception) {
@@ -1165,6 +1299,7 @@ class LibVlcPlayerHost(
                 entry.playing = false
                 cancelPlaybackStart(entry)
                 entry.nativeEnded = true
+                entry.nativeInputStarted = false
                 updateAwake(entry)
                 val start = entry.abStart
                 if ((entry.looping || (start != null && entry.abEnd != null)) && entry.allowed && entry.wantsPlay) {
@@ -1294,6 +1429,7 @@ class LibVlcPlayerHost(
         entry.viewportAttached = false
         updateAwake(entry)
         if (entry.attachedView === view) {
+            requireVideoReprime(entry)
             entry.player?.detachViews()
             entry.attachedView = null
             entry.surfacesReady = false
@@ -1579,6 +1715,7 @@ class LibVlcPlayerHost(
     private fun diagnostics(entry: Entry): Map<String, String> {
         val now = SystemClock.elapsedRealtime()
         val preparation = enginePreparation
+        val reprime = entry.videoReprime.get()
         val result = linkedMapOf(
             "engine" to "libvlc", "engine-version" to (if (libVlc != null) LibVLC.version() else "unavailable"),
             "render-surface" to "SurfaceView", "display-width" to entry.width.toString(),
@@ -1630,6 +1767,11 @@ class LibVlcPlayerHost(
             "surface-frame-request-active" to (entry.frameRequestGeneration != null).toString(),
             "surface-frame-request-timeouts" to entry.frameRequestTimeoutCount.toString(),
             "play-start-generation" to (entry.playbackStart?.generation?.toString() ?: "none"),
+            "video-reprime-required" to (reprime != null).toString(),
+            "video-reprime-count" to entry.videoReprimeCount.toString(),
+            "video-reprime-target-ms" to ((if (reprime != null) reprime.target else entry.videoReprimeTarget)?.toString() ?: "none"),
+            "video-reprime-outcome" to (reprime?.outcome ?: entry.videoReprimeOutcome),
+            "video-reprime-skip-reason" to (reprime?.takeIf { it.skipped }?.outcome ?: "none"),
         )
         entry.tracks.filterIsInstance<IMedia.VideoTrack>().firstOrNull()?.let { track ->
             result["video-codec"] = track.codec ?: ""
@@ -1745,6 +1887,9 @@ class LibVlcPlayerHost(
         entry.buffering = false
         finishSurfaceFrameRequest(entry)
         entry.viewportAttached = false
+        entry.videoReprime.set(null)
+        entry.nativeInputStarted = false
+        entry.latestUserSeek = null
         cancelPlaybackStart(entry)
         entry.surfaceGeneration++
         entry.views.forEach { it.setPresentationVisible(false) }
