@@ -263,6 +263,21 @@ class LibVlcPlayerHost(
         check(registry.registerViewFactory(VIEW_TYPE, viewFactory)) { "LibVLC view factory already registered" }
     }
 
+    /**
+     * Starts shared engine/font preparation once, without opening any media.
+     * Repeated requests never retry a failed preparation; a later explicit
+     * media create retains its existing retry behavior after cleanup settles.
+     */
+    fun warmUp() {
+        if (Looper.myLooper() !== main.looper) {
+            main.post { warmUp() }
+            return
+        }
+        if (closed || libVlc != null || preparingEngine || enginePreparation != null) return
+        Log.i(TAG, "Engine warm-up requested")
+        prepareEngine()
+    }
+
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         if (closed) {
             result.error("disposed", "LibVLC host has been disposed", null)

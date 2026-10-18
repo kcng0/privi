@@ -1,6 +1,7 @@
 """Drive real Android input and inspect only redistributable fixture pixels.
 
-The app requests actions using log markers and awaits their HTTP acknowledgement.
+The app registers complete actions over HTTP, then emits short logcat IDs.
+Only the fenced logcat owner executes actions and publishes HTTP results.
 A failed capture/assertion is returned to the integration test, never silently skipped.
 """
 import argparse
@@ -22,6 +23,12 @@ from PIL import Image, ImageChops, ImageOps, UnidentifiedImageError
 OUTPUT = pathlib.Path("build/playback-validation")
 SERIAL = os.environ.get("ANDROID_SERIAL", "emulator-5554")
 RESULTS = {}
+ACTION_REQUESTS = {}
+PENDING_REQUESTS = {}
+DISPATCHED_IDS = set()
+REGISTRATION_LOCK = threading.Lock()
+TRANSPORT_ERRORS = []
+MAX_ACTION_REQUEST_BYTES = 1024 * 1024
 RECOVERY = None
 HELD_POINT = None
 OUTPUT.mkdir(parents=True, exist_ok=True)
@@ -182,7 +189,25 @@ def persist():
     temporary.replace(OUTPUT / "device-evidence.json")
 
 
+def valid_action_id(value):
+    return isinstance(value, str) and len(value) <= 64 and re.fullmatch(r"action-[1-9][0-9]*", value)
+
+
+def transport_error(message, identifier=None):
+    with REGISTRATION_LOCK:
+        TRANSPORT_ERRORS.append({"id": identifier, "error": message, "monotonic": time.monotonic()})
+        (OUTPUT / "device-action-transport-errors.json").write_text(json.dumps(TRANSPORT_ERRORS, indent=2))
+
+
 class Handler(BaseHTTPRequestHandler):
+    def reply(self, status, value):
+        body = json.dumps(value).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_GET(self):
         if self.path == "/health":
             value = {"engine": "libvlc", "capture": "adb-screencap"}
@@ -190,10 +215,74 @@ class Handler(BaseHTTPRequestHandler):
             value = RESULTS.get(self.path.removeprefix("/result/"))
         else:
             value = None
-        self.send_response(200 if value is not None else 404)
-        self.send_header("Content-Type", "application/json")
-        self.end_headers()
-        self.wfile.write(json.dumps(value).encode())
+        self.reply(200 if value is not None else 404, value)
+
+    def do_POST(self):
+        # HTTP threads only register bytes. They must never call ADB, inspect a
+        # window or execute an action; dispatch remains on the logcat thread.
+        if self.path != "/action":
+            self.reply(404, {"error": "Unknown registration endpoint"})
+            return
+        identifier = None
+        status = 400
+        try:
+            lengths = self.headers.get_all("Content-Length", [])
+            if not lengths:
+                status = 411
+                raise ValueError("Content-Length is required")
+            if len(lengths) != 1 or not re.fullmatch(r"[0-9]+", lengths[0]):
+                raise ValueError("Invalid Content-Length")
+            size = int(lengths[0])
+            if size > MAX_ACTION_REQUEST_BYTES:
+                status = 413
+                raise ValueError(f"Action request exceeds {MAX_ACTION_REQUEST_BYTES} UTF-8 bytes")
+            if size == 0 or self.headers.get("Transfer-Encoding"):
+                raise ValueError("A nonempty fixed-length UTF-8 JSON body is required")
+            if self.headers.get_content_type() != "application/json":
+                status = 415
+                raise ValueError("Content-Type must be application/json")
+            self.connection.settimeout(3)
+            raw = self.rfile.read(size)
+            if len(raw) != size:
+                raise ValueError("Incomplete action registration body")
+
+            def unique_object(pairs):
+                value = {}
+                for key, item in pairs:
+                    if key in value:
+                        raise ValueError(f"Duplicate JSON key: {key}")
+                    value[key] = item
+                return value
+
+            def invalid_constant(value):
+                raise ValueError(f"Non-finite JSON number: {value}")
+
+            request = json.loads(raw.decode("utf-8"), object_pairs_hook=unique_object,
+                                 parse_constant=invalid_constant)
+            if not isinstance(request, dict) or not valid_action_id(request.get("id")):
+                raise ValueError("Action ID must be action-N with a positive decimal N and at most 64 characters")
+            identifier = request["id"]
+            if request.get("op") not in ("tap", "down", "up", "capture", "screenshot"):
+                raise ValueError("Unknown registered action operation")
+            with REGISTRATION_LOCK:
+                if identifier in ACTION_REQUESTS or identifier in DISPATCHED_IDS:
+                    status = 409
+                    raise ValueError("Action ID is already registered or dispatched")
+                ACTION_REQUESTS[identifier] = request
+                PENDING_REQUESTS[identifier] = request
+                temporary = OUTPUT / "device-action-requests.tmp"
+                temporary.write_text(json.dumps(ACTION_REQUESTS, indent=2))
+                temporary.replace(OUTPUT / "device-action-requests.json")
+        except Exception as error:
+            if isinstance(error, TimeoutError):
+                status = 408
+            elif not isinstance(error, (ValueError, UnicodeError)):
+                status = 500
+            message = f"{type(error).__name__}: {error}"
+            transport_error(message, identifier)
+            self.reply(status, {"id": identifier, "registered": False, "error": message})
+            return
+        self.reply(201, {"id": identifier, "registered": True})
 
     def log_message(self, *_args):
         pass
@@ -353,6 +442,41 @@ def perform(request):
     else:
         raise ValueError(f"Unknown native action {operation}")
     return {"android_input": operation, "physical_point": [x, y], "monotonic": time.monotonic()}
+
+
+def dispatch_action(identifier):
+    """Called only by the fenced logcat owner, never by an HTTP handler."""
+    global HELD_POINT
+    if not valid_action_id(identifier):
+        message = f"Invalid action marker ID: {identifier!r}"
+        transport_error(message)
+        raise ValueError(message)
+    with REGISTRATION_LOCK:
+        request = PENDING_REQUESTS.pop(identifier, None)
+        DISPATCHED_IDS.add(identifier)
+    if request is None:
+        message = "Action marker has no pending registration (missing or already dispatched)"
+        transport_error(message, identifier)
+        value = {"ok": False, "request": {"id": identifier}, "error": message}
+    else:
+        try:
+            window = action_window(request)
+            value = {"ok": True, "request": request, **window, **perform(request)}
+        except Exception as error:
+            value = {"ok": False, "request": request, "error": f"{type(error).__name__}: {error}"}
+            if request["op"] in ("capture", "screenshot") and not request.get("graphicsDiagnostics"):
+                save_graphics_state(identifier + "-failed-capture")
+            if request["op"] == "up" and HELD_POINT is not None:
+                # Release held input after a failed focus/ANR assertion without
+                # dismissing the dialog or turning that failure green.
+                try:
+                    adb("shell", "input", "motionevent", "UP", *(str(v) for v in HELD_POINT))
+                    HELD_POINT = None
+                except Exception as cleanup_error:
+                    value["release_error"] = str(cleanup_error)
+    RESULTS[identifier] = value
+    persist()
+    print(json.dumps({"id": identifier, **value}), flush=True)
 
 
 def stop(*_args):
@@ -849,7 +973,8 @@ def release_smoke(artifact_directory):
 
 def main():
     global RECOVERY, HELD_POINT
-    server = ThreadingHTTPServer(("0.0.0.0", 8766), Handler)
+    # Android Emulator's 10.0.2.2 aliases the host loopback interface.
+    server = ThreadingHTTPServer(("127.0.0.1", 8766), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     log = subprocess.Popen(["adb", "-s", SERIAL, "logcat", "-v", "raw",
                             "flutter:I", "PriviPlaybackValidation:I", "*:S"],
@@ -871,26 +996,7 @@ def main():
             if not armed:
                 continue
             if marker.startswith("PRIVI_TEST_DEVICE "):
-                request = json.loads(marker.removeprefix("PRIVI_TEST_DEVICE "))
-                identifier = request["id"]
-                try:
-                    window = action_window(request)
-                    value = {"ok": True, "request": request, **window, **perform(request)}
-                except Exception as error:
-                    value = {"ok": False, "request": request, "error": f"{type(error).__name__}: {error}"}
-                    if request["op"] in ("capture", "screenshot") and not request.get("graphicsDiagnostics"):
-                        save_graphics_state(identifier + "-failed-capture")
-                    if request["op"] == "up" and HELD_POINT is not None:
-                        # Release our held input even if an ANR/focus assertion
-                        # failed; do not dismiss the dialog or turn failure green.
-                        try:
-                            adb("shell", "input", "motionevent", "UP", *(str(v) for v in HELD_POINT))
-                            HELD_POINT = None
-                        except Exception as cleanup_error:
-                            value["release_error"] = str(cleanup_error)
-                RESULTS[identifier] = value
-                persist()
-                print(json.dumps({"id": identifier, **value}), flush=True)
+                dispatch_action(marker.removeprefix("PRIVI_TEST_DEVICE "))
             elif marker == "PRIVI_TEST_PIP_SCREEN_OFF_REVOKED":
                 if RECOVERY:
                     RECOVERY.cancel()

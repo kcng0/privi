@@ -231,3 +231,7 @@ Hacker 第 1 轮在 `34ec5ba` 的实际原生结果中确认：真实 ADB 点击
 字幕反例仍在：playing内嵌ASS seek后，HUD1.750秒/frame42、delay=0无中文字；paused外挂ASS普通seek到1秒有字，但off/on再seek无字。PixelCopy正alpha与无字PNG来自不同时间，不能当成修复。负delay的静态SDK分支显示跨零时间戳有删除风险，尚不能仅凭分支断言动态根因；禁止夹零、盲重选轨或重启规避。官方[Maven元数据](https://repo1.maven.org/maven2/org/videolan/android/libvlc-all/maven-metadata.xml)中3.x稳定版最高仍为3.7.7，4.0只有EAP，不能假设存在无风险升级修复。
 
 本轮Hacker结论partial，不满足发布前提。用户按两轮上限决定继续修复三项、再开启独立验收。候选build升至42，先分离共享准备与每媒体打开期限；30秒正式包首帧、45秒native初始化外层及全部像素门保持不变。新修复的实际APK、PiP、字幕及A52音画性能尚未验，公开Latest仍为v1.1.2。
+
+候选42的[stage39142860597](https://github.com/kcng0/privi/actions/runs/39142860597)成功：实际APK114,824,323 bytes，SHA-256 `42a1f5a694fd1a2adc2011e906cd58d21a93eff35003ca7a095f37d3f8431f72`，原正式证书及三ABI、SDK载入段与字幕资源核对通过，analyze/既有测试通过。[同hash正式包smoke39143971377](https://github.com/kcng0/privi/actions/runs/39143971377)仍未满足30秒首帧门：本轮字体构建36,944ms、共享准备37,832ms，之后metadata及Playing到达，旧25秒initialization_timeout不再出现。该结果关闭旧超时因果，但不构成首播体验通过；采样在准备完成前已失败，也不能按此认定冷启动合成黑屏。候选43将共享准备提前到Android启动注册完成后后台执行；不创建媒体/decoder、不授权、不持有音频focus，失败不隐藏重试。实际首播仍须使用新签名包验收。
+
+bb22的[原生诊断39142868033](https://github.com/kcng0/privi/actions/runs/39142868033)在持触两图运动19.71%/12区块后停止：大composition JSON超过logcat单行上限，helper解析失败，尚未执行松手截图或PiP。这是harness运输反例，不是新PiP结果。现采用完整UTF-8请求一次HTTP登记、logcat仅短ID、原owner串行执行；不重发不确定请求，完整数据保留，所有原期限和图像门不变。下一轮可选Frida只读trace检查exact x64 SDK的9个公开export，记录cue/clock/flush/libass/SPU/删除元数据，不把插桩吞吐或`captured`当功能通过；无真实trace前Android字幕缓存/负时间戳均仍是待验证候选。

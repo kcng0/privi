@@ -72,8 +72,18 @@ void main() {
     (metrics['native_window_diagnostics'] as Map<String, dynamic>? ??
         (metrics['native_window_diagnostics'] =
             <String, dynamic>{}))[label] = observation;
+    final composition = observation['flutter-composition'];
+    if (composition != null) {
+      if (composition is! Map || composition['snapshot-elapsed-ns'] is! int) {
+        throw FormatException('Invalid composition snapshot reference: $label');
+      }
+    }
     debugPrint(
-      'PRIVI_TEST_WINDOW ${jsonEncode({'label': label, ...observation})}',
+      'PRIVI_TEST_WINDOW ${jsonEncode({
+            'metrics-label': label,
+            if (composition is Map)
+              'snapshot-elapsed-ns': composition['snapshot-elapsed-ns'],
+          })}',
     );
     return observation;
   }
@@ -83,18 +93,59 @@ void main() {
     Map<String, Object?> action,
   ) async {
     final id = 'action-${++deviceActionId}';
-    debugPrint('PRIVI_TEST_DEVICE ${jsonEncode({'id': id, ...action})}');
+    final actionRequest = <String, Object?>{'id': id, ...action};
+    final bytes = utf8.encode(jsonEncode(actionRequest));
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 3);
     final watch = Stopwatch()..start();
+    var phase = 'registration';
+    var receivedResult = false;
+    Duration remaining() {
+      final duration = const Duration(seconds: 20) - watch.elapsed;
+      if (duration <= Duration.zero) {
+        throw TimeoutException('No real Android acknowledgement for $id');
+      }
+      return duration;
+    }
+
     try {
-      while (watch.elapsed < const Duration(seconds: 20)) {
-        final request = await client.getUrl(
-          Uri.parse('http://10.0.2.2:8766/result/$id'),
+      // Register exactly once. An uncertain POST must never emit a marker or
+      // be retried: only the fenced logcat owner may dispatch the saved action.
+      final registration = await client
+          .postUrl(Uri.parse('http://10.0.2.2:8766/action'))
+          .timeout(remaining());
+      registration.followRedirects = false;
+      registration.headers.contentType = ContentType.json;
+      registration.contentLength = bytes.length;
+      registration.add(bytes);
+      final accepted = await registration.close().timeout(remaining());
+      final acknowledgement =
+          await utf8.decoder.bind(accepted).join().timeout(remaining());
+      if (accepted.statusCode != 201 && accepted.statusCode != 202) {
+        throw StateError(
+          'Device action registration $id: HTTP ${accepted.statusCode}: '
+          '$acknowledgement',
         );
-        final response = await request.close();
-        final body = await utf8.decoder.bind(response).join();
+      }
+      final registered = jsonDecode(acknowledgement);
+      if (registered is! Map ||
+          registered['id'] != id ||
+          registered['registered'] != true) {
+        throw FormatException(
+          'Invalid action registration acknowledgement: $id',
+        );
+      }
+      phase = 'result';
+      debugPrint('PRIVI_TEST_DEVICE $id');
+      while (watch.elapsed < const Duration(seconds: 20)) {
+        final request = await client
+            .getUrl(Uri.parse('http://10.0.2.2:8766/result/$id'))
+            .timeout(remaining());
+        final response = await request.close().timeout(remaining());
+        final body =
+            await utf8.decoder.bind(response).join().timeout(remaining());
         if (response.statusCode == 200) {
           final result = jsonDecode(body) as Map<String, dynamic>;
+          receivedResult = true;
           expect(
             result['ok'],
             isTrue,
@@ -113,6 +164,19 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 100));
       }
       throw TimeoutException('No real Android acknowledgement for $id');
+    } catch (error) {
+      if (!receivedResult) {
+        (metrics['device_action_transport_failures'] as List<dynamic>? ??
+                (metrics['device_action_transport_failures'] = <dynamic>[]))
+            .add({
+          'id': id,
+          'phase': phase,
+          'request': actionRequest,
+          'elapsed-ms': watch.elapsedMilliseconds,
+          'error': error.toString(),
+        });
+      }
+      rethrow;
     } finally {
       client.close(force: true);
     }
@@ -1004,9 +1068,6 @@ void main() {
       }
 
       try {
-        await const MethodChannel('com.privi.app/window')
-            .invokeMethod<void>('startCompositionDiagnostics')
-            .timeout(const Duration(seconds: 5));
         await tester.pumpWidget(
           UncontrolledProviderScope(
             container: container,
@@ -1415,6 +1476,9 @@ void main() {
         );
         await toggleControls(false);
         await movingFrames('user-play-after-paused-rotation');
+        await const MethodChannel('com.privi.app/window')
+            .invokeMethod<void>('startCompositionDiagnostics')
+            .timeout(const Duration(seconds: 5));
         for (final action in ['EXPAND', 'SCREEN_OFF']) {
           (container.read(lockControllerProvider.notifier) as _IntegrationLock)
               .unlockForTest();

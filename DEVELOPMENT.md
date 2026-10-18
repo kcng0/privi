@@ -220,8 +220,12 @@ the opt-out when upgrading Flutter: it is deprecated upstream and must not hide
 rendering failures. Native recovery and the final signed APK require real
 screen-off/return acceptance before publishing.
 The bundled Noto CJK font is made available to native subtitle rendering.
-The first LibVLC initialization builds the system font cache on its background
-queue, before playback. Cache validity and elapsed time are diagnostic values;
+The Android host starts shared LibVLC/font preparation on its background queue
+once the engine's channels are configured, so first-run setup and browsing can
+overlap the system font scan. This opens no media, decoder, audio focus or
+presentation grant. Repeated warm-up hints do not silently retry a failed
+preparation; explicit media creation retains the existing retry/error contract.
+Cache validity and elapsed time are diagnostic values;
 an unwritable cache warns and leaves rendering available, matching the SDK's
 contract. ASS uses `ssa-fontsdir`; other text uses the SDK's platform font family.
 Shared engine/font preparation has its own 60-second deadline, starting when
@@ -322,6 +326,11 @@ Failures remain failures; no private user media is used.
 The integration binding accepts application-requested frames without LiveTest's
 automatic frame loop. Native input/capture waits do not pump Flutter: otherwise
 the harness itself could conceal a platform view waiting for an overlay image.
+Full device-action JSON is registered once over the local HTTP connection;
+logcat carries only its short id. The fenced logcat owner still executes every
+ADB action serially. An uncertain registration is never retried, and complete
+window/composition observations remain in the evidence rather than being fitted
+to Android log-line limits.
 Each action converts logical coordinates with the current FlutterView screen
 offset. The AOSP emulator must expose PiP and pass a bounded foreground HOME/UI
 readiness check. ANR/crash dialogs fail with saved evidence; they are not closed.
@@ -351,6 +360,17 @@ The old rate-profile harness still explicitly installs a MediaKit subclass and
 uses mpv-only properties. It is manual-only historical diagnostics, never a
 LibVLC acceptance result. Existing host tests remain regression probes for
 controls, playlist ownership and lock/PiP policy.
+
+For SDK subtitle diagnosis only, the native workflow also accepts optional
+`subtitle_trace=true`, mutually exclusive with an actual release-APK smoke.
+It uses a temporary, version/checksum-pinned Frida client/server on the disposable
+x86_64 emulator. The agent checks the exact LibVLC build/exports before observing
+cue timestamps, flush, libass/SPU region metadata and deletion. It reads no cue
+text, media paths or pixels and changes no playback arguments or state. Records,
+attachment and cleanup are bounded; missing hooks/tool failures remain explicit
+diagnostic failures. `captured` means evidence was collected, not that subtitles
+or performance passed. This instrumented run cannot establish frame-rate or
+resource improvements, and the default validation does not start Frida.
 
 Hybrid composition may hide the platform view's parent without detaching it.
 The native view observes both ancestor visibility and actual video/subtitle

@@ -294,6 +294,9 @@ class MainActivity : FlutterFragmentActivity() {
                     else -> result.notImplemented()
                 }
             }
+        // Prepare shared fonts while the user sets up or browses the app. This
+        // does not open media, allocate a decoder, or grant presentation.
+        libVlcPlayers?.warmUp()
     }
 
     override fun onDestroy() {

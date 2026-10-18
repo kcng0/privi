@@ -7,6 +7,11 @@ on:
         description: 'Optional same-repository release build run ID; install its actual APK for UI smoke'
         required: false
         type: string
+      subtitle_trace:
+        description: 'Optional metadata-only Frida subtitle trace; diagnostic run, not performance validation; incompatible with release_run_id'
+        required: false
+        type: boolean
+        default: false
   push:
     branches: [main, feat/vlc-playback]
     paths:
@@ -17,6 +22,7 @@ on:
       - 'test_driver/**'
       - 'scripts/create-playback-fixtures.sh'
       - 'scripts/run-playback-validation.sh'
+      - 'scripts/trace-libvlc-subtitles.py'
       - 'scripts/playback-device-actions.py'
       - 'pubspec.*'
       - '.github/workflows/player-validation.yml'
@@ -32,8 +38,14 @@ jobs:
     env:
       RELEASE_RUN_ID: ${{ inputs.release_run_id || '' }}
       RELEASE_REPOSITORY: ${{ github.repository }}
+      SUBTITLE_TRACE: ${{ inputs.subtitle_trace && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@v4
+      - name: Validate optional diagnostic mode
+        if: inputs.subtitle_trace && inputs.release_run_id != ''
+        run: |
+          echo '::error::subtitle_trace is incompatible with release_run_id; actual signed APK smoke must run without instrumentation'
+          exit 2
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
