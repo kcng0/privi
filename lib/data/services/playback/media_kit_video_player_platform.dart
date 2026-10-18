@@ -579,7 +579,10 @@ Future<VideoEvent> waitForPlaybackMetadata({
 /// A player-owned port. Mutations are serialized so disposal never races a
 /// property write or the creation of a private subtitle copy.
 class MediaKitAdvancedVideoPort extends ValueNotifier<AdvancedVideoState>
-    implements AdvancedVideoPort, VideoPlaybackDiagnosticsPort {
+    implements
+        AdvancedVideoPort,
+        VideoPlaybackDiagnosticsPort,
+        VideoHardwareDecodingPort {
   MediaKitAdvancedVideoPort(
     this.player, {
     Future<void> Function(String, String)? writeProperty,
@@ -620,6 +623,7 @@ class MediaKitAdvancedVideoPort extends ValueNotifier<AdvancedVideoState>
   bool _closing = false;
   bool _closed = false;
   bool _trackRefreshQueued = false;
+  bool _observedUnspecifiedColor = false;
   String? _selectedAudioId;
   String? _selectedSubtitleId;
   String? _runtimeError;
@@ -699,6 +703,104 @@ class MediaKitAdvancedVideoPort extends ValueNotifier<AdvancedVideoState>
       clearError: false,
     );
     return Map.unmodifiable(snapshot);
+  }
+
+  Future<VideoHardwareDecodingInfo> _readHardwareDecodingInfo() async {
+    final read = _readProperty;
+    if (read == null) {
+      throw UnsupportedError('Hardware decoding control is unavailable');
+    }
+    final requested = await read('hwdec');
+    final current = await read('hwdec-current');
+    final pixels = await read('video-dec-params/pixelformat');
+    final matrix = await read('video-dec-params/colormatrix');
+    final primaries = await read('video-dec-params/primaries');
+    final gamma = await read('video-dec-params/gamma');
+    final unspecified =
+        matrix == 'auto' || primaries == 'auto' || gamma == 'auto';
+    _observedUnspecifiedColor = _observedUnspecifiedColor || unspecified;
+    // This is an explicit session experiment, not the automatic SDR policy.
+    // Unknown source color is retained and disclosed. This describes decoder
+    // output, not source bit depth: MediaCodec can down-convert higher-depth
+    // sources. Missing properties and reported HDR/wide gamut/higher output
+    // depths cannot opt into RGB8 direct; unreported source details stay unknown.
+    final allowedColors = const {'auto', 'bt.709', 'bt.601'}.contains(matrix) &&
+        const {'auto', 'bt.709', 'bt.601-525', 'bt.601-625'}
+            .contains(primaries) &&
+        const {'auto', 'bt.1886', 'srgb'}.contains(gamma);
+    final matchingColors = matrix == 'auto' ||
+        primaries == 'auto' ||
+        (matrix == 'bt.709' && primaries == 'bt.709') ||
+        (matrix == 'bt.601' &&
+            const {'bt.601-525', 'bt.601-625'}.contains(primaries));
+    final eligible =
+        const {'auto-safe', 'mediacodec,auto-safe'}.contains(requested) &&
+            current == 'mediacodec-copy' &&
+            const {'yuv420p', 'yuvj420p', 'nv12', 'nv21'}.contains(pixels) &&
+            allowedColors &&
+            matchingColors;
+    return VideoHardwareDecodingInfo(
+      requestedHwdec: requested,
+      currentHwdec: current,
+      canTryDirect: eligible,
+      hasUnspecifiedColor: _observedUnspecifiedColor,
+    );
+  }
+
+  @override
+  Future<VideoHardwareDecodingInfo> readHardwareDecodingInfo() async {
+    late VideoHardwareDecodingInfo info;
+    await _enqueue(
+      () async {
+        info = await _readHardwareDecodingInfo();
+      },
+    );
+    return info;
+  }
+
+  @override
+  Future<VideoHardwareDecodingInfo> setHardwareDecodingMode(
+    VideoHardwareDecodingMode mode,
+  ) async {
+    late VideoHardwareDecodingInfo info;
+    await _enqueue(
+      () => NativePlayer.lock.synchronized(() async {
+        if (_closing) throw StateError('Video player is disposed');
+        final before = await _readHardwareDecodingInfo();
+        final target = mode == VideoHardwareDecodingMode.direct
+            ? 'mediacodec,auto-safe'
+            : 'auto-safe';
+        if (before.requestedHwdec == target) {
+          info = before;
+          return;
+        }
+        if (mode == VideoHardwareDecodingMode.direct && !before.canTryDirect) {
+          throw UnsupportedError(
+            'Direct decoding requires active copy-back hardware decoding and '
+            '8-bit decoder output without explicit HDR or wide-gamut metadata',
+          );
+        }
+        if (before.mode == null) {
+          throw UnsupportedError(
+            'This decoder configuration is not editable',
+          );
+        }
+        if (_closing) throw StateError('Video player is disposed');
+        // NativePlayer's playback/rate/seek/dispose use this same lock. Its
+        // raw getProperty/setProperty do not reacquire it: pause verification
+        // and this decoder change cannot interleave with a later play request.
+        if (await _readProperty!('pause') != 'yes') {
+          throw StateError(
+            'Pause playback before changing hardware decoding',
+          );
+        }
+        await _writeVerified('hwdec', target);
+        // Readback accepts a preference, not a promise of direct presentation.
+        // Expose actual hwdec-current separately and allow normal fallback.
+        info = await _readHardwareDecodingInfo();
+      }),
+    );
+    return info;
   }
 
   /// Called once during paused Android initialization, after metadata is ready.

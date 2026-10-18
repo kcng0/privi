@@ -1328,6 +1328,42 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get videoPlaybackDiagnosticsCopied => '播放诊断信息已复制';
+
+  @override
+  String get videoHardwareDecoding => '硬件加速';
+
+  @override
+  String get videoHardwareDecodingCompatible => '兼容模式';
+
+  @override
+  String get videoHardwareDecodingDirect => '直接硬解（实验）';
+
+  @override
+  String get videoHardwareDecodingRequested => '请求的解码器';
+
+  @override
+  String get videoHardwareDecodingActual => '实际解码器';
+
+  @override
+  String get videoHardwareDecodingUnknown => '未知';
+
+  @override
+  String get videoHardwareDecodingRefresh => '刷新解码器状态';
+
+  @override
+  String get videoHardwareDecodingSessionHelp =>
+      '仅本次播放有效。切换会暂停，请手动播放。实验模式可能改变色彩或动态范围，且不保证改善流畅度。';
+
+  @override
+  String get videoHardwareDecodingUnspecifiedColor =>
+      '此视频的源色彩信息未标记，无法保证直接硬解后的颜色和亮度一致。';
+
+  @override
+  String get videoHardwareDecodingDirectUnavailable =>
+      '当前报告的解码格式不支持此实验（如 HDR、广色域、高位深或未启用硬解）。';
+
+  @override
+  String get videoHardwareDecodingModeUnavailable => '当前解码器请求不支持在此切换。';
 }
 
 /// The translations for Chinese, as used in China (`zh_CN`).
@@ -2654,6 +2690,42 @@ class AppLocalizationsZhCn extends AppLocalizationsZh {
 
   @override
   String get videoPlaybackDiagnosticsCopied => '播放诊断信息已复制';
+
+  @override
+  String get videoHardwareDecoding => '硬件加速';
+
+  @override
+  String get videoHardwareDecodingCompatible => '兼容模式';
+
+  @override
+  String get videoHardwareDecodingDirect => '直接硬解（实验）';
+
+  @override
+  String get videoHardwareDecodingRequested => '请求的解码器';
+
+  @override
+  String get videoHardwareDecodingActual => '实际解码器';
+
+  @override
+  String get videoHardwareDecodingUnknown => '未知';
+
+  @override
+  String get videoHardwareDecodingRefresh => '刷新解码器状态';
+
+  @override
+  String get videoHardwareDecodingSessionHelp =>
+      '仅本次播放有效。切换会暂停，请手动播放。实验模式可能改变色彩或动态范围，且不保证改善流畅度。';
+
+  @override
+  String get videoHardwareDecodingUnspecifiedColor =>
+      '此视频的源色彩信息未标记，无法保证直接硬解后的颜色和亮度一致。';
+
+  @override
+  String get videoHardwareDecodingDirectUnavailable =>
+      '当前报告的解码格式不支持此实验（如 HDR、广色域、高位深或未启用硬解）。';
+
+  @override
+  String get videoHardwareDecodingModeUnavailable => '当前解码器请求不支持在此切换。';
 }
 
 /// The translations for Chinese, as used in Hong Kong (`zh_HK`).
@@ -3980,4 +4052,40 @@ class AppLocalizationsZhHk extends AppLocalizationsZh {
 
   @override
   String get videoPlaybackDiagnosticsCopied => '播放診斷資訊已複製';
+
+  @override
+  String get videoHardwareDecoding => '硬件加速';
+
+  @override
+  String get videoHardwareDecodingCompatible => '相容模式';
+
+  @override
+  String get videoHardwareDecodingDirect => '直接硬件解碼（實驗）';
+
+  @override
+  String get videoHardwareDecodingRequested => '要求的解碼器';
+
+  @override
+  String get videoHardwareDecodingActual => '實際解碼器';
+
+  @override
+  String get videoHardwareDecodingUnknown => '未知';
+
+  @override
+  String get videoHardwareDecodingRefresh => '重新整理解碼器狀態';
+
+  @override
+  String get videoHardwareDecodingSessionHelp =>
+      '只對本次播放有效。切換會暫停，請手動播放。實驗模式可能改變色彩或動態範圍，且不保證改善流暢度。';
+
+  @override
+  String get videoHardwareDecodingUnspecifiedColor =>
+      '此影片的來源色彩資訊未標記，無法保證直接硬件解碼後的顏色和亮度一致。';
+
+  @override
+  String get videoHardwareDecodingDirectUnavailable =>
+      '目前報告的解碼格式不支援此實驗（例如 HDR、廣色域、高位元深度或未啟用硬件解碼）。';
+
+  @override
+  String get videoHardwareDecodingModeUnavailable => '目前解碼器要求不支援在此切換。';
 }

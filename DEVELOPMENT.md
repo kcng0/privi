@@ -213,13 +213,27 @@ decodes bounded preview frames directly. Preview callbacks belong to their
 controller so a late scrub cannot request frames from the next video.
 
 Android opens paused with the SDK's original hardware policy. After metadata is
-ready, only `auto-safe` / `mediacodec-copy` with confirmed common 8-bit SDR raw
+ready, only `auto-safe` / `mediacodec-copy` with reported 8-bit output and SDR raw
 `video-dec-params` may prefer `mediacodec,auto-safe`. The normalized `video-params`
-include guessed colors and must not authorize this choice. HDR, higher bit depths,
+include guessed colors and must not authorize this choice. Reported HDR, higher output bit depths,
 wide gamut, missing metadata, software fallback and emulator `no` retain their
 existing policy. Changing `hwdec` rebuilds the decoder and queues a seek, so this
 choice happens once during initialization, never during rate changes. Readback
 confirms the requested policy; it does not prove direct output or a ready frame.
+
+The advanced sheet also offers an explicit session-only direct decoding
+experiment. It accepts active MediaCodec copy-back with reported 8-bit output
+and either SDR or explicitly unspecified raw color values; missing properties
+and reported HDR/wide gamut/high-depth output remain ineligible. This does not
+prove source bit depth: Android decoders may convert high-depth sources to NV12.
+Unspecified source details remain unknown, and users see the color/dynamic-range
+risk before selection. The default policy is unchanged. The controller pauses
+through video_player before the port serializes pause verification and hwdec
+mutation with native playback operations. It never resumes automatically,
+changes audio or rate, or persists this choice. Requested hwdec and actual
+hwdec-current are shown separately, including allowed fallback. Users resume
+manually and compare the same clip, including sound; actual frame pacing and
+source quality still require physical-device acceptance.
 
 The advanced playback sheet offers an explicit Copy playback diagnostics action
 on supported backends. It reads an allowlist of technical native properties once,

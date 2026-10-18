@@ -33,6 +33,9 @@ class AdvancedVideoController extends ValueNotifier<AdvancedVideoState>
   bool get supportsPlaybackDiagnostics =>
       !_disposed && _port is VideoPlaybackDiagnosticsPort;
 
+  bool get supportsHardwareDecodingControl =>
+      !_disposed && _port is VideoHardwareDecodingPort;
+
   void _onVideoChanged() {
     if (_disposed) return;
     if (_port == null) {
@@ -91,6 +94,10 @@ class AdvancedVideoController extends ValueNotifier<AdvancedVideoState>
           error: controller.value.errorDescription,
           clearError: controller.value.errorDescription == null,
         );
+      } else if (!_disposed) {
+        // The port remains authoritative, including runtime failures. This also
+        // replaces controller-only errors after a successful explicit Retry.
+        _onPortChanged();
       }
       return result;
     } catch (error) {
@@ -179,6 +186,41 @@ class AdvancedVideoController extends ValueNotifier<AdvancedVideoState>
           throw StateError('Playback diagnostics belong to an inactive player');
         }
         return diagnostics;
+      });
+
+  Future<VideoHardwareDecodingInfo> readHardwareDecodingInfo() =>
+      _run(() async {
+        final Object? port = _port;
+        if (port is! VideoHardwareDecodingPort) {
+          throw UnsupportedError('Hardware decoding control is unavailable');
+        }
+        final info = await port.readHardwareDecodingInfo();
+        if (_disposed || !identical(port, _port)) {
+          throw StateError('Decoder information belongs to an inactive player');
+        }
+        return info;
+      });
+
+  Future<VideoHardwareDecodingInfo> setHardwareDecodingMode(
+    VideoHardwareDecodingMode mode,
+  ) =>
+      _run(() async {
+        final Object? port = _port;
+        if (port is! VideoHardwareDecodingPort) {
+          throw UnsupportedError('Hardware decoding control is unavailable');
+        }
+        // Pause through the facade so playlist/viewer state observes the change.
+        // Resuming is always a later user action, including after panel dismissal
+        // or a lifecycle/lock transition while this operation is pending.
+        await controller.pause();
+        if (_disposed || !identical(port, _port)) {
+          throw StateError('Decoder selection belongs to an inactive player');
+        }
+        final info = await port.setHardwareDecodingMode(mode);
+        if (_disposed || !identical(port, _port)) {
+          throw StateError('Decoder selection belongs to an inactive player');
+        }
+        return info;
       });
 
   @override

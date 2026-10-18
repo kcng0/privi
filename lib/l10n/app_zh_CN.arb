@@ -408,5 +408,16 @@
   "videoClearAb": "清除 A–B",
   "videoAdvancedUnavailable": "当前播放器不支持高级播放功能。",
   "videoCopyPlaybackDiagnostics": "复制播放诊断信息",
-  "videoPlaybackDiagnosticsCopied": "播放诊断信息已复制"
+  "videoPlaybackDiagnosticsCopied": "播放诊断信息已复制",
+  "videoHardwareDecoding": "硬件加速",
+  "videoHardwareDecodingCompatible": "兼容模式",
+  "videoHardwareDecodingDirect": "直接硬解（实验）",
+  "videoHardwareDecodingRequested": "请求的解码器",
+  "videoHardwareDecodingActual": "实际解码器",
+  "videoHardwareDecodingUnknown": "未知",
+  "videoHardwareDecodingRefresh": "刷新解码器状态",
+  "videoHardwareDecodingSessionHelp": "仅本次播放有效。切换会暂停，请手动播放。实验模式可能改变色彩或动态范围，且不保证改善流畅度。",
+  "videoHardwareDecodingUnspecifiedColor": "此视频的源色彩信息未标记，无法保证直接硬解后的颜色和亮度一致。",
+  "videoHardwareDecodingDirectUnavailable": "当前报告的解码格式不支持此实验（如 HDR、广色域、高位深或未启用硬解）。",
+  "videoHardwareDecodingModeUnavailable": "当前解码器请求不支持在此切换。"
 }

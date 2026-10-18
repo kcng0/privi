@@ -125,3 +125,18 @@ iOS 继续单独验证 AVFoundation。Apple 的 `canPlayFastForward == false` �
 真实用户入口为：内置播放影片 → 播放设置 → 高级 →「复制播放诊断信息」；倍速菜单与画面长按分别触发持续和临时倍速。**新增复制入口的真实手机 Clipboard 读回、A52 原片的自动 direct 选择、画质、持续帧率及回速停顿均未验。** 当前服务器没有连接 Android 实机。测试绿色不填补这些证据缺口。
 
 Hacker 本轮结论为部分验收：无已建立的新产品正确性反例，新增功能与 A52 性能仍有上述未验项。本轮部署使用 `1.1.2-rc.1+39` 候选完整 APK，供真实设备核对选路、画质与倍速表现；不标记为已验证流畅的稳定版本。
+
+
+## A52 实机回报与会话级对照（1.1.2+40）
+
+用户安装候选版后确认画面和声音仍一起卡顿，同片在 VLC 倍速顺畅。其真实诊断为 H.264 1920×1080、60fps、speed=2、`hwdec=auto-safe` / `hwdec-current=mediacodec-copy`；raw NV12 的 matrix/primaries/gamma 均为 auto，normalized 为 BT.709/BT.1886。采样时 seeking、cache wait、core-idle 均为 no，累计 VO drop=3054、decoder drop=0、avsync=8.484234 秒，ao=opensles。累计计数没有时间窗口，不能据此计算 FPS；实际音画卡顿和同步偏离说明持续播放仍未满足要求。
+
+这证明上一版没有切换该片的解码路径，不能据其未改善推断 direct 无效。1080p60 的 2× 每秒约处理 120 个源帧，但屏幕无法呈现全部源帧不应被用来解释如此严重的失步。
+
+新增入口为内置播放 → 设置 → 轨道与高级播放 → 硬件加速。用户可明确选择直接硬解实验，暂停后变更当前控制器的 hwdec，再手动播放原片；也可恢复兼容模式。默认策略不变，不持久化、不自动恢复、不同时修改音频或倍率。请求的偏好和实际 hwdec-current 分别显示，配置被接受不等于直接输出成功。开关仅供同片段因果对照，A52 改善仍需实际操作确认。
+
+保护边界需准确表述：实验仅接受当前报告为常见 8-bit 解码输出、没有已报告 HDR/广色域/高位深特征的硬件 copy-back；原始颜色为 auto 可在明确选择后尝试，缺失属性仍拒绝。**NV12 不证明原片本身是 8-bit。** Android 允许高位深解码器输出 8-bit，未知来源因此不能获得无损或 HDR 保护保证。UI 在选项前说明色彩、亮度、动态范围及性能风险，观察到的未标色状态在本控制器内保留；没有把 normalized 猜值当成源信息。[Android 13 CDD §5.1.7](https://source.android.com/docs/compatibility/13/android-13-cdd#517_video_codecs)。
+
+音频方面，本包强制 OpenSL ES；固定 mpv 的实现按默认 250ms 块估算时钟。这是可疑差异，尚非根因证明。也不能直接切 AudioTrack：本包虽包含驱动和 JavaVM 入口，但固定旧版会由一个实例释放另一个实例还在使用的全局 JNI 引用，与 current+preload 冲突，可造成原生进程崩溃。修复晚于当前 bundle，因此本轮不改音频输出。[维护者说明](https://github.com/media-kit/media-kit/issues/1061#issuecomment-2585963757)、[mpv 上游修复 #15213](https://github.com/mpv-player/mpv/pull/15213)。VLC Android 3.6.5 配置默认 AAudio，用户当前 VLC 实际 driver 未取到；不能把 VLC 流畅归因为 AudioTrack。[VLC 配置](https://github.com/videolan/vlc-android/blob/3.6.5/application/resources/src/main/java/org/videolan/resources/VLCOptions.kt#L222)。
+
+Hacker 首轮发现的源位深保护合同反证已用于收窄上述声明；新入口真实 UI、A52 direct 的音画改善与颜色、失败恢复和锁屏竞态仍未验。没有新增入库测试；已有探针仅检查改动和回归，不代替这些实际行为。
