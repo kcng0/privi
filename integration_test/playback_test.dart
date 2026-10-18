@@ -1028,6 +1028,9 @@ class ApplicationFrameIntegrationTestBinding
     extends IntegrationTestWidgetsFlutterBinding {
   ApplicationFrameIntegrationTestBinding() {
     framePolicy = LiveTestWidgetsFlutterBindingFramePolicy.benchmark;
+    // ADB input is a device-source event. WidgetTester's default inspector
+    // consumes it unless real device events explicitly reach the application.
+    shouldPropagateDevicePointerEvents = true;
   }
 
   @override

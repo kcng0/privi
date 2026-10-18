@@ -636,7 +636,13 @@ class LibVlcPlayerHost(
 
     private fun maybePlay(entry: Entry) {
         if (entry.disposed || entry.failure != null || !entry.allowed || !entry.wantsPlay || entry.initialized == null) return
-        val view = entry.activeView?.takeIf { it.presentable } ?: return
+        val view = entry.activeView ?: return
+        if (!view.presentable) {
+            // Cold hybrid composition can hide its parent before any player or
+            // Surface exists. Wake Flutter without opening a hidden decoder.
+            requestSurfaceFrame(entry, view)
+            return
+        }
         try {
             ensurePlayer(entry)
             val player = entry.player ?: return
@@ -960,7 +966,8 @@ class LibVlcPlayerHost(
     }
 
     private fun requestSurfaceFrame(entry: Entry, view: LibVlcVideoView) {
-        if (entry.disposed || !entry.allowed || entry.player == null || entry.activeView !== view ||
+        if (entry.disposed || !entry.allowed || entry.initialized == null ||
+            (!entry.wantsPlay && entry.player == null) || entry.activeView !== view ||
             !view.windowVisible || entry.surfacesReady) return
         if (entry.frameRequestView === view && entry.frameRequestGeneration != null) return
         if (entry.lastFrameRequestView === view && entry.lastFrameRequestGeneration == entry.surfaceGeneration) return
