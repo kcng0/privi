@@ -1,6 +1,7 @@
 import java.util.Properties
 import java.io.FileInputStream
 import java.security.MessageDigest
+import groovy.json.JsonSlurper
 
 plugins {
     id("com.android.application")
@@ -17,17 +18,34 @@ if (hasReleaseKeystore) {
     keystoreProperties.load(FileInputStream(keystorePropertiesFile))
 }
 
-// An SDK selected explicitly by CI/local build must never fall back to Maven.
-// Leave both properties unset to keep the current official SDK until migration.
+// Explicit candidates require both properties. Otherwise select only the
+// distribution manifest's verified local cache; preparation never runs silently.
 val customLibvlcPath = providers.gradleProperty("priviLibvlcAar").orNull
 val customLibvlcSha256 = providers.gradleProperty("priviLibvlcAarSha256").orNull
 require((customLibvlcPath == null) == (customLibvlcSha256 == null)) {
     "Set both priviLibvlcAar and priviLibvlcAarSha256 for a fixed-source LibVLC SDK"
 }
-val customLibvlcAar = customLibvlcPath?.let { path ->
+val selectedLibvlc = if (customLibvlcPath == null) {
+    val selection = providers.exec {
+        workingDir(rootProject.projectDir.parentFile)
+        commandLine("bash", "scripts/select-libvlc-sdk.sh", "--check")
+        isIgnoreExitValue = true
+    }
+    require(selection.result.get().exitValue == 0) {
+        selection.standardError.asText.get().trim() +
+            "\nRun make native-sdk before building Android, or select an explicit AAR/hash pair."
+    }
+    @Suppress("UNCHECKED_CAST")
+    val selected = JsonSlurper().parseText(selection.standardOutput.asText.get()) as Map<String, String>
+    selected["ORG_GRADLE_PROJECT_priviLibvlcAar"]!! to
+        selected["ORG_GRADLE_PROJECT_priviLibvlcAarSha256"]!!
+} else {
+    customLibvlcPath to customLibvlcSha256!!
+}
+val selectedLibvlcAar = selectedLibvlc.let { (path, expectedSha256) ->
     val aar = file(path)
     require(aar.isFile) { "Selected LibVLC SDK AAR is missing: $aar" }
-    require(customLibvlcSha256!!.matches(Regex("[0-9a-f]{64}"))) {
+    require(expectedSha256.matches(Regex("[0-9a-f]{64}"))) {
         "priviLibvlcAarSha256 must be the explicit lowercase SHA-256 of the selected AAR"
     }
     val digest = MessageDigest.getInstance("SHA-256")
@@ -40,8 +58,8 @@ val customLibvlcAar = customLibvlcPath?.let { path ->
         }
     }
     val actual = digest.digest().joinToString("") { "%02x".format(it) }
-    require(actual == customLibvlcSha256) {
-        "Selected LibVLC SDK SHA-256 mismatch: expected $customLibvlcSha256, got $actual"
+    require(actual == expectedSha256) {
+        "Selected LibVLC SDK SHA-256 mismatch: expected $expectedSha256, got $actual"
     }
     aar
 }
@@ -123,13 +141,9 @@ flutter {
 }
 
 dependencies {
-    if (customLibvlcAar == null) {
-        implementation("org.videolan.android:libvlc-all:3.7.7")
-    } else {
-        implementation(files(customLibvlcAar))
-        // Preserve the official 3.7.7 POM's dependencies when using a file AAR.
-        implementation("androidx.annotation:annotation:1.7.1")
-        implementation("androidx.legacy:legacy-support-v4:1.0.0")
-        implementation("org.jetbrains.kotlin:kotlin-stdlib:2.2.10")
-    }
+    implementation(files(selectedLibvlcAar))
+    // Preserve the official 3.7.7 POM's transitive dependencies with a file AAR.
+    implementation("androidx.annotation:annotation:1.7.1")
+    implementation("androidx.legacy:legacy-support-v4:1.0.0")
+    implementation("org.jetbrains.kotlin:kotlin-stdlib:2.2.10")
 }

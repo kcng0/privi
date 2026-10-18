@@ -1,7 +1,7 @@
 # Convenience wrapper. Uses `fvm flutter` if FVM is set up, else plain `flutter`.
 FLUTTER := $(shell command -v fvm >/dev/null 2>&1 && echo "fvm flutter" || echo "flutter")
 
-.PHONY: help bootstrap get gen watch format analyze test run apk clean
+.PHONY: help bootstrap get gen watch format analyze test run native-sdk apk clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -33,7 +33,10 @@ test: ## Run tests
 run: ## Run on a connected device
 	$(FLUTTER) run
 
-apk: ## Build a release APK (sideload)
+native-sdk: ## Fetch and verify the pinned production Android LibVLC SDK
+	bash scripts/select-libvlc-sdk.sh
+
+apk: native-sdk ## Build a release APK (sideload)
 	$(FLUTTER) build apk --release
 
 clean: ## Clean build artifacts

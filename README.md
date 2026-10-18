@@ -157,13 +157,15 @@ cd privi
 # Generate native scaffold (if needed), deps, codegen
 ./scripts/bootstrap.sh
 
-# Run on a connected device
+# Prepare the pinned Android SDK, then run on a connected device
+make native-sdk
 make run
 ```
 
 ### Everyday commands
 
 ```bash
+make native-sdk # prepare the pinned SDK before running Android (not needed for iOS)
 make run       # launch on a connected device
 make test      # unit + widget tests
 make analyze   # static analysis

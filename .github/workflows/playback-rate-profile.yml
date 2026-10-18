@@ -28,6 +28,8 @@ jobs:
         hwdec: ${{ github.event_name == 'pull_request' && fromJSON('["auto-safe","mediacodec,auto-safe"]') || fromJSON(format('["{0}"]', inputs.hwdec)) }}
     steps:
       - uses: actions/checkout@v4
+      - name: Select the pinned production LibVLC SDK
+        run: bash scripts/select-libvlc-sdk.sh
       - uses: actions/setup-java@v4
         with:
           distribution: temurin

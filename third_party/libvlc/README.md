@@ -1,8 +1,10 @@
 # Fixed-source LibVLC SDK
 
-The app currently uses the official Maven SDK unless a build explicitly selects
-a custom AAR and its SHA-256. This directory prepares the native SDK migration;
-adding a patch does not enable or publish it.
+Android builds use the fixed-source SDK pinned in `distribution.json`; there
+is no Maven fallback. Before running Android locally, run `make native-sdk`.
+`make apk` prepares that SDK automatically. iOS does not need this dependency.
+The manifest pins a permanent Release bundle URL, its source commit, whole-bundle
+SHA-256 and AAR SHA-256. A missing manifest or corrupt cache fails explicitly.
 
 `source-lock.json` fixes the upstream commits, official AAR SHA-256, ordered
 custom patches, complete native library/ABI set, compiler flags and container
@@ -110,6 +112,13 @@ needed for that native rebuild.
 
 ## Select, validate, and publish
 
+`scripts/select-libvlc-sdk.sh` downloads the default bundle into a cache keyed
+by its whole-bundle SHA-256. Reuse checks the archive, its authenticated component
+checksums, the AAR, current source lock/patches, provenance and receipt. Gradle
+independently checks the selected AAR and never downloads during configuration.
+Only the selector's own temporary download is cleaned on failure; existing bad
+caches are reported, not silently replaced.
+
 For temporary pre-release validation, set these workflow-dispatch inputs in
 **Android Playback Validation** or **Release APK**:
 
@@ -118,8 +127,7 @@ For temporary pre-release validation, set these workflow-dispatch inputs in
 - `sdk_sha256`: SHA-256 of the **entire SDK bundle**, printed by the SDK workflow.
 
 The downloader verifies the workflow path, repository, success, commit, bundle
-hash, current source lock, all component checksums and native provenance. It
-then sets `ORG_GRADLE_PROJECT_priviLibvlcAar` and
+hash, current source lock, all component checksums and native provenance. The selector then sets `ORG_GRADLE_PROJECT_priviLibvlcAar` and
 `ORG_GRADLE_PROJECT_priviLibvlcAarSha256`; Gradle independently verifies the AAR
 and preserves the official POM's transitive dependencies. Invalid explicit
 inputs fail; they never fall back to the old Maven SDK. An already signed
@@ -132,6 +140,11 @@ APK without these assets. Future builds can use the permanent public Release
 asset URL as `sdk_url` (instead of `sdk_run_id`), keeping `sdk_commit` and the
 bundle `sdk_sha256` fixed. The same paths are available locally through
 `fetch-run` and `fetch-release`; their output prints the explicit Gradle inputs.
+For a local candidate, export both printed `ORG_GRADLE_PROJECT_*` values before
+invoking Flutter/Gradle; a child selector process cannot export into its parent
+shell. Default `make native-sdk` followed by Android `make run` uses the pinned
+cache without manual exports. Shorebird patch builds prepare that same SDK;
+a patch against an older base with different native bytes remains rejected.
 
 Building the SDK is not playback acceptance. Inspect the final APK's actual
 native bytes/ABIs and signature, then run the existing real playback paths and

@@ -41,6 +41,7 @@ on:
       - 'scripts/trace-libvlc-subtitles.py'
       - 'scripts/playback-device-actions.py'
       - 'scripts/build-libvlc-sdk.sh'
+      - 'scripts/select-libvlc-sdk.sh'
       - 'third_party/libvlc/**'
       - 'pubspec.*'
       - '.github/workflows/player-validation.yml'
@@ -59,7 +60,7 @@ jobs:
       SUBTITLE_TRACE: ${{ inputs.subtitle_trace && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@v4
-      - name: Select an explicit fixed-source LibVLC SDK
+      - name: Select the pinned or explicit fixed-source LibVLC SDK
         env:
           GH_TOKEN: ${{ github.token }}
           SDK_RUN_ID: ${{ inputs.sdk_run_id }}
@@ -68,15 +69,13 @@ jobs:
           SDK_SHA256: ${{ inputs.sdk_sha256 }}
         run: |
           set -euo pipefail
-          if [[ -n "$SDK_RUN_ID$SDK_URL" ]]; then
-            [[ -z "$RELEASE_RUN_ID" ]] || { echo 'error: SDK inputs cannot replace libraries in an already signed release APK' >&2; exit 2; }
-            [[ -z "$SDK_RUN_ID" || -z "$SDK_URL" ]] || { echo 'error: choose sdk_run_id or sdk_url' >&2; exit 2; }
-            if [[ -n "$SDK_RUN_ID" ]]; then SOURCE=(fetch-run --run-id "$SDK_RUN_ID"); else SOURCE=(fetch-release --url "$SDK_URL"); fi
-            bash scripts/build-libvlc-sdk.sh "${SOURCE[@]}" --commit "$SDK_COMMIT" \
-              --sha256 "$SDK_SHA256" --output-dir build/libvlc-sdk-input
-          elif [[ -n "$SDK_COMMIT$SDK_SHA256" ]]; then
-            echo 'error: sdk_commit/sdk_sha256 require sdk_run_id or sdk_url' >&2
-            exit 2
+          if [[ -n "$RELEASE_RUN_ID" ]]; then
+            if [[ -n "$SDK_RUN_ID$SDK_URL$SDK_COMMIT$SDK_SHA256" ]]; then
+              echo 'error: SDK inputs cannot replace libraries in an already signed release APK' >&2
+              exit 2
+            fi
+          else
+            bash scripts/select-libvlc-sdk.sh
           fi
       - name: Validate optional diagnostic mode
         if: inputs.subtitle_trace && inputs.release_run_id != ''

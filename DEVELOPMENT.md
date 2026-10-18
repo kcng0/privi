@@ -22,6 +22,7 @@ On a fresh Ubuntu/WSL2 machine:
 ./scripts/install-toolchain.sh   # Flutter + Android SDK + licenses + PATH
 source ~/.bashrc                 # pick up PATH
 ./scripts/bootstrap.sh           # native scaffold + deps + codegen
+make native-sdk                 # verified fixed-source Android playback SDK
 make run
 ```
 
@@ -91,6 +92,7 @@ What it does:
 ## 4. Everyday commands
 
 ```bash
+make native-sdk # prepare the pinned SDK before running Android (not needed for iOS)
 make run       # launch on a connected device
 make test      # run tests
 make analyze   # static analysis (flutter_lints + riverpod_lint)
@@ -204,7 +206,7 @@ the bridge reports corrected display dimensions with rotationCorrection zero.
 Unknown dimensions never initialize as an invented 16:9 image. Native layout uses
 the actual view bounds, independently of the Activity's requested orientation.
 
-Android production playback uses `org.videolan.android:libvlc-all:3.7.7` with
+Android production playback uses the fixed-source LibVLC 3.7.7 SDK with
 `MediaPlayer.attachViews(..., subtitles=true, textureView=false)`. Flutter hybrid
 composition embeds the actual video/subtitle SurfaceViews; neither mpv copy-back
 nor a Flutter video Texture is on this production path. iOS keeps AVFoundation.
@@ -218,8 +220,13 @@ rebuilds core, all modules and JNI for all three ABIs; explicit SDK inputs selec
 the checked AAR instead of Maven. See `third_party/libvlc/README.md` for the
 temporary build-run and permanent release-asset paths. An explicit invalid SDK
 fails the build. Native patches require the complete new APK and corresponding
-SDK/source bundle; a Dart-only update cannot deliver them. The default Maven
-selection has not yet been cut over to a validated permanent SDK artifact.
+SDK/source bundle; a Dart-only update cannot deliver them. The production `distribution.json` pins a permanent SDK bundle/commit and
+independent bundle/AAR hashes. `make native-sdk` prepares its verified cache;
+`make apk` does this automatically. Android `make run` needs that one-time step,
+while iOS is unchanged. Gradle uses the verified manifest cache or an explicit
+AAR/hash pair, never Maven; release and Dart-patch workflows prepare the SDK
+before Android configuration. A patch against different native bytes is still
+rejected. Missing metadata or corrupt cache is an explicit build error.
 A real video Surface binding loss marks its current native input for recovery.
 Before resuming, the host submits one seek at the current SDK position or the
 newest pending user target; a new input/owner/surface generation invalidates old
