@@ -5,6 +5,7 @@ Only the fenced logcat owner executes actions and publishes HTTP results.
 A failed capture/assertion is returned to the integration test, never silently skipped.
 """
 import argparse
+import base64
 import hashlib
 import json
 import os
@@ -12,10 +13,12 @@ import pathlib
 import re
 import signal
 import subprocess
+import tempfile
 import threading
 import time
 import uuid
 import xml.etree.ElementTree as ET
+import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from PIL import Image, ImageChops, ImageOps, UnidentifiedImageError
@@ -29,6 +32,99 @@ DISPATCHED_IDS = set()
 REGISTRATION_LOCK = threading.Lock()
 TRANSPORT_ERRORS = []
 MAX_ACTION_REQUEST_BYTES = 1024 * 1024
+FAST_UI_SOURCE = r'''
+package com.privi.validation;
+
+import android.app.Activity;
+import android.app.Instrumentation;
+import android.app.UiAutomation;
+import android.graphics.Rect;
+import android.os.Bundle;
+import android.os.SystemClock;
+import android.util.Base64;
+import android.util.Xml;
+import android.view.accessibility.AccessibilityNodeInfo;
+import java.io.StringWriter;
+import org.xmlpull.v1.XmlSerializer;
+
+/** Temporary instrumentation targets only its own package, never Privi. */
+public final class PriviSnapshotInstrumentation extends Instrumentation {
+    @Override public void onCreate(Bundle arguments) {
+        super.onCreate(arguments);
+        start();
+    }
+
+    private static String text(CharSequence value) {
+        return value == null ? "" : value.toString();
+    }
+
+    private static void node(XmlSerializer xml, AccessibilityNodeInfo value, int index)
+            throws Exception {
+        // API33's legacy Dumper clips with Display.getSize(). Keep the public
+        // AccessibilityNodeInfo bounds unchanged, including cutout/navigation areas.
+        Rect bounds = new Rect();
+        value.getBoundsInScreen(bounds);
+        xml.startTag("", "node");
+        xml.attribute("", "index", Integer.toString(index));
+        xml.attribute("", "text", text(value.getText()));
+        xml.attribute("", "content-desc", text(value.getContentDescription()));
+        xml.attribute("", "resource-id", text(value.getViewIdResourceName()));
+        xml.attribute("", "class", text(value.getClassName()));
+        xml.attribute("", "package", text(value.getPackageName()));
+        xml.attribute("", "enabled", Boolean.toString(value.isEnabled()));
+        xml.attribute("", "clickable", Boolean.toString(value.isClickable()));
+        xml.attribute("", "scrollable", Boolean.toString(value.isScrollable()));
+        xml.attribute("", "bounds", bounds.toShortString());
+        for (int i = 0; i < value.getChildCount(); i++) {
+            AccessibilityNodeInfo child = value.getChild(i);
+            if (child == null) continue;
+            try {
+                if (child.isVisibleToUser()) node(xml, child, i);
+            } finally {
+                child.recycle();
+            }
+        }
+        xml.endTag("", "node");
+    }
+
+    @Override public void onStart() {
+        Bundle result = new Bundle();
+        int code = Activity.RESULT_CANCELED;
+        AccessibilityNodeInfo root = null;
+        result.putLong("started_elapsed_ns", SystemClock.elapsedRealtimeNanos());
+        try {
+            UiAutomation automation = getUiAutomation();
+            if (automation == null) throw new IllegalStateException("UiAutomation unavailable");
+            root = automation.getRootInActiveWindow();
+            if (root == null) {
+                result.putString("status", "root-unavailable");
+            } else {
+                StringWriter writer = new StringWriter();
+                XmlSerializer xml = Xml.newSerializer();
+                xml.setOutput(writer);
+                xml.startDocument("UTF-8", true);
+                xml.startTag("", "hierarchy");
+                node(xml, root, 0);
+                xml.endTag("", "hierarchy");
+                xml.endDocument();
+                result.putString("xml_base64", Base64.encodeToString(
+                    writer.toString().getBytes("UTF-8"), Base64.NO_WRAP));
+                result.putString("status", "snapshot");
+            }
+            code = Activity.RESULT_OK;
+        } catch (Exception error) {
+            result.putString("status", "error");
+            result.putString("error", error.getClass().getName() + ": " + error.getMessage());
+        } finally {
+            if (root != null) root.recycle();
+            result.putLong("finished_elapsed_ns", SystemClock.elapsedRealtimeNanos());
+            // API33 Instrumentation.finish disconnects UiAutomation before
+            // finishInstrumentation returns these results to the shell.
+            finish(code, result);
+        }
+    }
+}
+'''
 RECOVERY = None
 HELD_POINT = None
 OUTPUT.mkdir(parents=True, exist_ok=True)
@@ -492,11 +588,183 @@ class ReleaseSmoke:
         self.last_video = None
         self.screenshots_required = False
         self.gallery_permission_granted = False
+        self.fast_ui_temp = None
+        self.fast_ui_package = None
 
     def note(self, event, **values):
         self.events.append({"event": event, "monotonic": time.monotonic(), **values})
         (OUTPUT / "release-smoke-events.json").write_text(json.dumps(self.events, indent=2))
         print(json.dumps(self.events[-1]), flush=True)
+
+    def prepare_fast_ui(self):
+        sdk = pathlib.Path(os.environ.get("ANDROID_SDK_ROOT") or os.environ.get("ANDROID_HOME")
+                           or "/usr/local/lib/android/sdk")
+        platform = sdk / "platforms/android-33"
+        android = platform / "android.jar"
+        tools = sorted((sdk / "build-tools").glob("*/d8"),
+                       key=lambda path: tuple(int(v) for v in re.findall(r"\d+", path.parent.name)))
+        if not android.is_file() or not tools:
+            raise RuntimeError("API33 snapshot helper SDK/build-tools are unavailable")
+        build_tools = tools[-1].parent
+        if not all((build_tools / name).is_file() for name in ("aapt2", "zipalign", "apksigner")):
+            raise RuntimeError("Snapshot helper APK packaging tools are unavailable")
+        if shell_text("getprop", "ro.build.version.sdk") != "33":
+            raise RuntimeError("The snapshot helper requires the declared API33 validation device")
+        self.fast_ui_temp = tempfile.TemporaryDirectory(prefix="privi-ui-snapshot-")
+        directory = pathlib.Path(self.fast_ui_temp.name)
+        source = directory / "PriviSnapshotInstrumentation.java"
+        source.write_text(FAST_UI_SOURCE)
+        classes, dex = directory / "classes", directory / "dex"
+        classes.mkdir()
+        dex.mkdir()
+        package = "com.privi.validation.snapshot.p" + uuid.uuid4().hex
+        manifest = directory / "AndroidManifest.xml"
+        manifest.write_text(f'''<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="{package}">
+  <uses-sdk android:minSdkVersion="33" android:targetSdkVersion="33" />
+  <application android:testOnly="true" android:hasCode="true" android:label="Temporary UI snapshot" />
+  <instrumentation android:name="com.privi.validation.PriviSnapshotInstrumentation" android:targetPackage="{package}" />
+</manifest>''')
+        unsigned, aligned, apk = (directory / name for name in ("unsigned.apk", "aligned.apk", "snapshot.apk"))
+        keystore = directory / "snapshot.p12"
+        environment = {**os.environ, "PRIVI_UI_KEY_PASS": uuid.uuid4().hex}
+        commands = [
+            ["javac", "--release", "8", "-classpath", str(android),
+             "-d", str(classes), str(source)],
+            [str(tools[-1]), "--min-api", "33", "--lib", str(android), "--output", str(dex),
+             str(classes / "com/privi/validation/PriviSnapshotInstrumentation.class")],
+            [str(build_tools / "aapt2"), "link", "-I", str(android), "--manifest", str(manifest),
+             "-o", str(unsigned)],
+        ]
+        log = OUTPUT / "release-ui-helper-setup.log"
+
+        def run(command):
+            with log.open("a") as stream:
+                stream.write(json.dumps(command) + "\n")
+            try:
+                result = subprocess.run(command, env=environment, capture_output=True, text=True, timeout=45)
+            except Exception as error:
+                with log.open("a") as stream:
+                    stream.write(f"{type(error).__name__}: {error}\n")
+                raise
+            with log.open("a") as stream:
+                stream.write(result.stdout + result.stderr)
+            result.check_returncode()
+
+        for command in commands:
+            run(command)
+        with zipfile.ZipFile(unsigned, "a") as archive:
+            archive.write(dex / "classes.dex", "classes.dex")
+        run([str(build_tools / "zipalign"), "-f", "4", str(unsigned), str(aligned)])
+        run(["keytool", "-genkeypair", "-keystore", str(keystore), "-storetype", "PKCS12",
+             "-storepass:env", "PRIVI_UI_KEY_PASS", "-keypass:env", "PRIVI_UI_KEY_PASS", "-alias", "snapshot",
+             "-dname", "CN=Temporary Privi UI snapshot", "-keyalg", "RSA", "-keysize", "2048", "-validity", "1"])
+        run([str(build_tools / "apksigner"), "sign", "--ks", str(keystore), "--ks-key-alias", "snapshot",
+             "--ks-pass", "env:PRIVI_UI_KEY_PASS", "--key-pass", "env:PRIVI_UI_KEY_PASS",
+             "--out", str(apk), str(aligned)])
+        run([str(build_tools / "apksigner"), "verify", "--verbose", str(apk)])
+        if f"package:{package}" in shell_text("pm", "list", "packages", package).splitlines():
+            raise RuntimeError("Temporary snapshot package already exists; refusing to replace it")
+        self.fast_ui_package = package
+        installed = adb("install", "-t", "--no-streaming", str(apk), capture_output=True, text=True, timeout=60)
+        with log.open("a") as stream:
+            stream.write(installed.stdout + installed.stderr)
+        if f"package:{package}" not in shell_text("pm", "list", "packages", package).splitlines():
+            raise RuntimeError("Temporary snapshot helper installation was not confirmed")
+        self.note("fast-ui-helper-ready", api=33, package=package, d8=str(tools[-1]),
+                  source_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),
+                  apk_sha256=hashlib.sha256(apk.read_bytes()).hexdigest())
+
+    def close_fast_ui(self):
+        try:
+            if self.fast_ui_package:
+                package = self.fast_ui_package
+                if f"package:{package}" in shell_text("pm", "list", "packages", package).splitlines():
+                    adb("uninstall", package, capture_output=True, text=True)
+                if f"package:{package}" in shell_text("pm", "list", "packages", package).splitlines():
+                    raise RuntimeError("Temporary snapshot helper package cleanup failed")
+        finally:
+            if self.fast_ui_temp:
+                self.fast_ui_temp.cleanup()
+
+    def fast_ui(self, label, *, deadline=None):
+        if not self.fast_ui_package:
+            raise RuntimeError("No prepared API33 snapshot helper; slow dump fallback is forbidden")
+        self.sequence += 1
+        prefix = f"release-ui-{self.sequence:03d}-{label}"
+        started = time.monotonic()
+        timeout = min(10, deadline - started) if deadline is not None else 10
+        if timeout <= 0:
+            raise TimeoutError("Transient controls snapshot deadline expired")
+        try:
+            result = adb("shell", "am", "instrument", "-w", "-r",
+                         self.fast_ui_package + "/com.privi.validation.PriviSnapshotInstrumentation",
+                         capture_output=True, text=True, timeout=timeout)
+        except Exception as error:
+            self.note("fast-ui-snapshot-failed", label=label, started_monotonic=started,
+                      finished_monotonic=time.monotonic(), error=f"{type(error).__name__}: {error}")
+            raise
+        finished = time.monotonic()
+        (OUTPUT / f"{prefix}-runner.txt").write_text(result.stdout + result.stderr)
+        record = {}
+        for line in result.stdout.splitlines():
+            if line.startswith("INSTRUMENTATION_RESULT: "):
+                key, separator, value = line.removeprefix("INSTRUMENTATION_RESULT: ").partition("=")
+                if separator:
+                    if key in record:
+                        raise RuntimeError(f"Duplicate snapshot result key: {key}")
+                    record[key] = value
+        if not re.search(r"(?m)^INSTRUMENTATION_CODE: -1\s*$", result.stdout):
+            raise RuntimeError(f"API33 snapshot helper failed: {prefix}-runner.txt")
+        self.note("fast-ui-snapshot", label=label,
+                  xml=f"{prefix}.xml" if record["status"] == "snapshot" else None,
+                  started_monotonic=started, finished_monotonic=finished,
+                  guest_started_elapsed_ns=int(record["started_elapsed_ns"]),
+                  guest_finished_elapsed_ns=int(record["finished_elapsed_ns"]), status=record["status"])
+        if record["status"] == "root-unavailable":
+            return None
+        if record["status"] != "snapshot":
+            raise RuntimeError(f"Snapshot helper returned {record['status']}: {prefix}-runner.txt")
+        xml = base64.b64decode(record["xml_base64"], validate=True).decode("utf-8")
+        (OUTPUT / f"{prefix}.xml").write_text(xml)
+        root = ET.fromstring(xml)
+        frame = root.find("node")
+        if frame is None or frame.get("package") != "com.privi.app":
+            raise RuntimeError(f"Transient snapshot is not the Privi foreground window: {prefix}.xml")
+        return root
+
+    def immediate_png(self, label, tap_started, tap_finished, *, deadline=None):
+        self.sequence += 1
+        prefix = f"release-ui-{self.sequence:03d}-{label}"
+        started = time.monotonic()
+        timeout = min(15, deadline - started) if deadline is not None else 15
+        if timeout <= 0:
+            raise TimeoutError("Immediate control PNG deadline expired")
+        try:
+            path, _ = capture(prefix, timeout=timeout)
+        except Exception as error:
+            self.note("transient-tap-png-failed", tap_started_monotonic=tap_started,
+                      tap_finished_monotonic=tap_finished, png_started_monotonic=started,
+                      png_finished_monotonic=time.monotonic(), error=f"{type(error).__name__}: {error}")
+            raise
+        self.note("transient-tap-png", screenshot=path.name,
+                  tap_started_monotonic=tap_started, tap_finished_monotonic=tap_finished,
+                  png_started_monotonic=started, png_finished_monotonic=time.monotonic())
+
+    def tap_snapshot(self, root, label):
+        matches = self.matches(root, label)
+        clickable = [node for node in matches if node.get("clickable") == "true"]
+        bounds = {self.bounds(node) for node in clickable or matches}
+        if len(bounds) != 1:
+            raise RuntimeError(f"Transient UI label is missing or ambiguous: {label!r}: {bounds}")
+        left, top, right, bottom = next(iter(bounds))
+        if right <= left or bottom <= top:
+            raise RuntimeError(f"Transient UI label has no actual clickable area: {label!r}")
+        started = time.monotonic()
+        adb("shell", "input", "tap", str((left + right) // 2), str((top + bottom) // 2))
+        finished = time.monotonic()
+        self.immediate_png("tap-" + re.sub(r"[^A-Za-z0-9_.-]+", "-", label), started, finished)
+        self.note("snapshot-node-tap", label=label, bounds=[left, top, right, bottom],
+                  tap_started_monotonic=started, tap_finished_monotonic=finished)
 
     def ui(self, label):
         self.sequence += 1
@@ -561,7 +829,7 @@ class ReleaseSmoke:
 
     @staticmethod
     def bounds(node):
-        values = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", node.get("bounds", ""))
+        values = re.fullmatch(r"\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]", node.get("bounds", ""))
         if values is None:
             raise RuntimeError(f"UI node has no physical bounds: {node.attrib}")
         return tuple(int(value) for value in values.groups())
@@ -752,16 +1020,30 @@ class ReleaseSmoke:
         return round((left + right) / 2), round(top + (bottom - top) * .45)
 
     def controls(self, visible):
-        root = self.ui("controls-before")
+        deadline = time.monotonic() + 8
+        root = self.fast_ui("controls-before", deadline=deadline)
+        while root is None:
+            if time.monotonic() >= deadline:
+                raise TimeoutError("No actual accessibility root within the controls deadline")
+            time.sleep(min(.1, max(0, deadline - time.monotonic())))
+            root = self.fast_ui("controls-before", deadline=deadline)
         if bool(self.matches(root, "Player settings")) != visible:
             x, y = self.blank()
-            adb("shell", "input", "tap", str(x), str(y))
-        deadline = time.monotonic() + 8
-        while bool(self.matches(self.ui("controls-after"), "Player settings")) != visible:
+            started = time.monotonic()
+            if started >= deadline:
+                raise TimeoutError("Blank tap controls deadline expired before input")
+            adb("shell", "input", "tap", str(x), str(y), timeout=deadline - started)
+            finished = time.monotonic()
+            self.immediate_png("controls-tap", started, finished, deadline=deadline)
+            root = None
+        while root is None or bool(self.matches(root, "Player settings")) != visible:
             if time.monotonic() >= deadline:
                 raise AssertionError(f"Real blank tap did not make controls visible={visible}")
-            time.sleep(.2)
+            root = self.fast_ui("controls-after", deadline=deadline)
+            if root is None or bool(self.matches(root, "Player settings")) != visible:
+                time.sleep(min(.2, max(0, deadline - time.monotonic())))
         self.note("blank-tap-controls", visible=visible)
+        return root
 
     def motion(self, label):
         first = self.sample(label + "-first")
@@ -815,8 +1097,8 @@ class ReleaseSmoke:
             time.sleep(.2)
 
     def pip_return(self, label, screen_off):
-        self.controls(True)
-        self.tap("Picture in picture")
+        root = self.controls(True)
+        self.tap_snapshot(root, "Picture in picture")
         deadline = time.monotonic() + 10
         while True:
             activities = shell_text("dumpsys", "activity", "activities")
@@ -840,8 +1122,8 @@ class ReleaseSmoke:
         save_graphics_state(label + "-locked-fullscreen")
         self.sample(label + "-locked-fullscreen", hidden=True)
         self.pattern("Draw your pattern")
-        self.controls(True)
-        self.tap("Play")
+        root = self.controls(True)
+        self.tap_snapshot(root, "Play")
         self.controls(False)
         save_graphics_state(label + "-unlocked")
         self.motion(label + "-restored")
@@ -871,6 +1153,7 @@ def release_smoke(artifact_directory):
         (OUTPUT / "release-installed-package.txt").write_text(package)
         if re.search(r"(?:pkgFlags|flags)=\[[^\]]*\bDEBUGGABLE\b", package):
             raise AssertionError("Selected APK is debuggable rather than an actual release APK")
+        smoke.prepare_fast_ui()
         # Extend the verified 3s source by stream copying, so real setup/PiP UI
         # cannot reach EOF while the smoke is still navigating. Geometry and
         # motion expectations remain those of the external 180x320 source.
@@ -966,9 +1249,19 @@ def release_smoke(artifact_directory):
             report["ui_diagnostic_error"] = str(diagnostic_error)
         raise
     finally:
+        cleanup_error = None
+        try:
+            smoke.close_fast_ui()
+        except Exception as error:
+            report["helper_cleanup_error"] = f"{type(error).__name__}: {error}"
+            if report["passed"]:
+                cleanup_error = error
+            report["passed"] = False
         (OUTPUT / "release-smoke-result.json").write_text(json.dumps(report, indent=2))
         save_device_state("release-smoke-final")
         save_graphics_state("release-smoke-final")
+        if cleanup_error:
+            raise cleanup_error
 
 
 def main():

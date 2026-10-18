@@ -2,7 +2,7 @@
 
 日期：2026-10-18。来源：官方文档与固定版本源码。范围：Android 本地视频、倍速、seek、预览、输出与测量；iOS 单独验证。
 
-最新状态：`1.1.3+41` 已完成签名候选构建，但实际 APK 的首次播放失败，尚未公开发布。第2轮独立验收保留冷启动、PiP 恢复和字幕反例；用户已明确要求继续修复并重新独立验收，通过后再发布。下方保留各快照记录，历史流程绿不表示当前验收通过。
+最新状态（2026-10-19 SGT）：`1.1.3+43` 已完成签名候选构建，实际同hash正式包已通过首画面和持触/释放运动观察，随后控件显示检查失败；只读原生诊断在插桩连接时崩溃，工具修复与不插桩流程已复现PiP和字幕反例，正在按完整原生证据定位，尚未公开发布。41/42的首次播放、PiP恢复和字幕反例尚需按各自真路径关闭；用户已明确要求继续修复并重新独立验收，通过后再发布，新一轮独立Hacker尚未开始。下方保留各快照记录，历史流程绿不表示当前验收通过。
 
 目前应优先处理真实解码和视频输出路径。用户已确认 Samsung A52 上的 1080p 视频在菜单 2× 和长按 2× 都严重掉帧，松手恢复也会停顿。上一轮减少手势回调、重建和预览开销，没有消除这个实际症状。不能再用调用次数正确或一次播放成功来证明流畅。
 
@@ -235,3 +235,30 @@ Hacker 第 1 轮在 `34ec5ba` 的实际原生结果中确认：真实 ADB 点击
 候选42的[stage39142860597](https://github.com/kcng0/privi/actions/runs/39142860597)成功：实际APK114,824,323 bytes，SHA-256 `42a1f5a694fd1a2adc2011e906cd58d21a93eff35003ca7a095f37d3f8431f72`，原正式证书及三ABI、SDK载入段与字幕资源核对通过，analyze/既有测试通过。[同hash正式包smoke39143971377](https://github.com/kcng0/privi/actions/runs/39143971377)仍未满足30秒首帧门：本轮字体构建36,944ms、共享准备37,832ms，之后metadata及Playing到达，旧25秒initialization_timeout不再出现。该结果关闭旧超时因果，但不构成首播体验通过；采样在准备完成前已失败，也不能按此认定冷启动合成黑屏。候选43将共享准备提前到Android启动注册完成后后台执行；不创建媒体/decoder、不授权、不持有音频focus，失败不隐藏重试。实际首播仍须使用新签名包验收。
 
 bb22的[原生诊断39142868033](https://github.com/kcng0/privi/actions/runs/39142868033)在持触两图运动19.71%/12区块后停止：大composition JSON超过logcat单行上限，helper解析失败，尚未执行松手截图或PiP。这是harness运输反例，不是新PiP结果。现采用完整UTF-8请求一次HTTP登记、logcat仅短ID、原owner串行执行；不重发不确定请求，完整数据保留，所有原期限和图像门不变。下一轮可选Frida只读trace检查exact x64 SDK的9个公开export，记录cue/clock/flush/libass/SPU/删除元数据，不把插桩吞吐或`captured`当功能通过；无真实trace前Android字幕缓存/负时间戳均仍是待验证候选。
+
+
+候选43 `d2a4bfc` 的[stage39144907226](https://github.com/kcng0/privi/actions/runs/39144907226)已成功，未公开发布。实际下载APK114,824,403 bytes，SHA-256 `c09dc2da0e49a3b67650f94adb0730c32b9198619cf437211054e52f3a9f0441`，较旧232,194,147 bytes减少50.55%。核对全部侧车SHA-256/SHA-512、正式证书、非debug生产包名、1.1.3/43、min26/target36、extractNativeLibs=true及Skia配置；三ABI/24原生库、旧包6个VLC库、官方SDK所有映射载入段、Noto字体和许可证均保留，64位原生库载入段至少16KiB对齐。不能把这些身份/打包核对当作首帧或性能通过。
+
+[同hash签名43 smoke39145783441](https://github.com/kcng0/privi/actions/runs/39145783441)与[可选只读原生诊断39144913331](https://github.com/kcng0/privi/actions/runs/39144913331)进行中。前者无Frida，验证实际首次入口、持触/释放及PiP/熄屏；后者用于定位字幕/clock/SPU与Flutter合成，不证明吞吐。普通[CI39144891835](https://github.com/kcng0/privi/actions/runs/39144891835) analyze/437项既有测试通过。当前没有新独立Hacker结论，实际画面与字幕反例未闭环前不发布。
+
+
+签名43的实际[smoke39145783441](https://github.com/kcng0/privi/actions/runs/39145783441)已完成，结论仍失败：实际pattern/授权/Hide/Invisible/In order后3.9089秒出现testsrc，满足原30秒门。共享准备已在首启时完成（font9,495ms，engine9,609ms），播放前准备就绪；不能把不同runner的字体耗时差当作性能A/B。root实际查看持触两张PNG，均有2×且HUD frame62→52跨素材片尾、画面内容变化；持触ROI26.68%/13区块、松手后26.96%/13区块，释放徽标消失。该证据确认此模拟器真实画面推进，不证明A52输出FPS或声音。
+
+流程随后在`controls(True)`失败，尚未进入PiP。故障截图和accessibility均无控件，但helper在点击后先运行会等待idle的`uiautomator dump`，再取PNG；产品既有自动隐藏为3秒，慢采样可能错过短暂控件。当前仅为运输/观察候选，不能据此认定真实tap已成功，也不改产品计时来迎合脚本。下一次需无idle的原生accessibility快照和点击后即时PNG，再判定是否产品触控故障；全部原像素门及同APK身份保持。
+
+
+SDK源码取证（只读，未修改/重建SDK）：官方`libvlc-3.7.7`标签`7a7c8f14be6759f9bb1b9a934fd086259473e20e`的[compile.sh](https://code.videolan.org/videolan/vlc-android/-/raw/libvlc-3.7.7/buildsystem/compile.sh)固定JNI `0b8dc65efb203c86a0476bc337ddd99ecf1c0ef6`；其[get-vlc.sh](https://code.videolan.org/videolan/libvlcjni/-/raw/0b8dc65efb203c86a0476bc337ddd99ecf1c0ef6/buildsystem/get-vlc.sh)固定VLC `84177b2273abc5c4300234e6e18b55a4d2dd5a03`再应用20个官方patch。临时源码已实际成功应用全部patch。AAR不同ABI的`3.0.24-35-g…`哈希包含git-am产生的本地commit，单独上游hash不可解析不等于源码不可得；当前确认内容重建路径，不声称字节级可复现。
+
+后续若真实trace确认为SDK缺陷，可在该固定源码和官方patch队列后维护小范围修复。20个patch不改Android字幕显示缓存与core decoder路径；patch0008只改libass字体附件释放，不能泛称libass完全未改。静态cache/order、NULL清除及lock失败候选仍需动态证据。官方固定[CI recipe](https://code.videolan.org/videolan/vlc-android/-/raw/libvlc-3.7.7/buildsystem/gitlab/.gitlab-ci.yml)为64位NDK29、armv7 NDK21e；三ABI需配套JNI/C++runtime/codec/font。对应预构建contrib目前404，完整源码构建和耗时未验，不据此承诺升级或省略兼容ABI。
+
+
+只读诊断39144913331结束失败，不能作为字幕/HTTP/合成结论：server handshake正常，但只有15条trace，hooks_ready=false、无cue、无agent正常停止；drive最终1200秒超时，没有第一action或业务PNG。真实tombstone在build-accepted同毫秒显示bionic linker `Load CHECK did_read_ failed`，栈为do_dlopen→frida-agent，随后Android自动重启进程、drive仍等旧VM。固定Frida17.24.2源码确认find_export_by_name→lazy module handle→`__loader_dlopen(RTLD_NOLOAD)`；同步module-observer加载回调内首次findExport是匹配现场的重入点。工具修复将发现与安装分开，回调返回后再核module身份并采用不获取handle的ELF导出枚举；未ready之前不宣称调用覆盖，不重启/重试掩盖。未修改官方SDK。
+
+root另行启动[不插桩原生39146944141](https://github.com/kcng0/privi/actions/runs/39146944141)，使用相同d2a4bfc业务快照，先获取完整HTTP传输、PiP/composition及字幕真实画面。签名控件观察也确认固定AOSP13 `UiDevice.dumpWindowHierarchy`会使用`Display.getSize`，Dumper把每节点屏幕坐标裁到应用可用尺寸；这可制造底部零bounds，故不能用旧XML认定产品布局坏。瞬时观察工具采用独立临时instrumentation目标自身，经public UiAutomation读取原始getBoundsInScreen；不target/修改Privi、不跨持触窗口保留连接、不改自动隐藏计时或真实ADB输入。实际Android快照与点击尚待验。
+
+
+[普通原生39146944141](https://github.com/kcng0/privi/actions/runs/39146944141)已完成失败，但70个完整HTTP action、metrics及PNG均到达，关闭了原logcat截断阻碍。首次初始化、持触/释放、100次切片、比例/旋转/SAR/codec、暂停与用户Play路径均执行；action70仍为EXPAND解锁后的pattern旧图，SCREEN_OFF未进入。新的窗口/reader事件显示解锁后root新图像到达、overlay移除和window commit；SurfaceFlinger现场有解锁前旧root SurfaceView buffer及解锁后window透明视频洞，而当前video/subtitle层无activeBuffer。因此不能继续仅凭旧pattern判定FlutterImageView未消费，应优先定位native buffer/绑定与各层真实身份；具体像素来源仍待独立对应。
+
+本次ASS paused对照更强：ordinary seek@HUD1.000有中文字，off/on再seek@相同1.000无字；native position1000、reopen0、surface generation1保持。当前subtitleSurface在两条暂停路径前后PixelCopy均31412非透明像素、同bbox与CRC31e114fd，采样跨2.35秒仍稳定。这不支持直接把无字归为缓存清空/时间错位；需定位其buffer与屏幕layer的关系。root实际看过两张暂停图及playing seek图（HUD2.833无字），保持字幕反例开放。
+
+诊断工具修复`5bca013`已推送；新的[可选Frida39147687212](https://github.com/kcng0/privi/actions/runs/39147687212)进行中，普通业务APK仍43。修复的临时真实Frida17 API与进程组隔离探针通过，Android hook/runtime尚未验。瞬时UI helper亦已通过API33 javac/D8/封包/签名探针；真实Android安装、连接耗时和3秒内控件采样须继续用同签名43验证，不以运输桩或编译成功判产品通过。

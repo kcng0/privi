@@ -340,6 +340,15 @@ the In order tap: metadata and controls do not prove a decoded frame. Waiting
 never connects UIAutomator or repeats playback commands; the first real fixture
 frame must meet the unchanged geometry rules. Later hold/recovery checks do not
 reuse this startup allowance.
+Transient release controls use a temporary testOnly instrumentation APK targeting
+only its own random package. Public UiAutomation reads actual accessibility
+nodes without an idle wait or Display.getSize clipping; Privi is neither changed
+nor an instrumentation target. A single real blank tap is followed immediately
+by a strict PNG capture. PiP/Play reuse that snapshot's original screen bounds,
+within the existing controls deadline. Helper build/install/runtime errors,
+missing or zero-area controls and cleanup failures fail explicitly. Its
+connection ends before returning; startup-picture waits and held DOWN-to-UP
+windows never query it. The APK, keystore and owned package are temporary.
 For subtitle diagnosis, debug builds expose an explicit
 `debugReadSubtitleSurfacePixels{id}` call on the existing LibVLC channel. It uses
 PixelCopy only to return buffer status, dimensions, nontransparent bounds/count
@@ -364,8 +373,13 @@ controls, playlist ownership and lock/PiP policy.
 For SDK subtitle diagnosis only, the native workflow also accepts optional
 `subtitle_trace=true`, mutually exclusive with an actual release-APK smoke.
 It uses a temporary, version/checksum-pinned Frida client/server on the disposable
-x86_64 emulator. The agent checks the exact LibVLC build/exports before observing
-cue timestamps, flush, libass/SPU region metadata and deletion. It reads no cue
+x86_64 emulator. Module discovery returns before hook installation: deferred
+installation rechecks identity/build ID and enumerates ELF exports without a
+lazy dlopen from the loader callback. Calls before hooks-ready are explicitly
+outside coverage. An observed module without ready hooks after 30 seconds or a
+session detach fails the tool; only this instrumented invocation's owned drive
+is stopped, without restarting the app. The exact LibVLC build/exports are
+checked before observing cue timestamps, flush, libass/SPU region metadata and deletion. It reads no cue
 text, media paths or pixels and changes no playback arguments or state. Records,
 attachment and cleanup are bounded; missing hooks/tool failures remain explicit
 diagnostic failures. `captured` means evidence was collected, not that subtitles

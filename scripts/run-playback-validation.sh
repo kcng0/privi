@@ -215,6 +215,15 @@ test "$(adb -s "$ANDROID_SERIAL" shell settings --user current get secure immers
 # Keep boot logs; never silence app errors or dismiss a system error dialog.
 timeout 150s python3 scripts/playback-device-actions.py --preflight > build/playback-validation/preflight-runner.txt 2>&1
 if [[ -n "${RELEASE_RUN_ID:-}" ]]; then
+  # Compile the temporary no-idle snapshot helper against the actual API33
+  # public SDK. Missing tooling is a setup failure, never a slow-dump fallback.
+  snapshot_sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+  snapshot_platform="$snapshot_sdk/platforms/android-33"
+  if [[ ! -f "$snapshot_platform/android.jar" ]]; then
+    timeout 180s "$snapshot_sdk/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-33' \
+      > build/playback-validation/release-ui-sdk-setup.log 2>&1
+  fi
+  test -f "$snapshot_platform/android.jar"
   timeout 900s python3 scripts/playback-device-actions.py --release-smoke build/release-under-test > build/playback-validation/release-smoke-runner.txt 2>&1
   exit
 fi
