@@ -77,15 +77,40 @@ void main() {
     }
   }
 
-  List<double> physicalViewport(WidgetTester tester) {
-    final rect = tester.getRect(find.byType(VideoViewport).first);
+  Future<_ScreenCoordinates> screenCoordinates(WidgetTester tester) async {
+    // A FlutterView can be inset from the Android display by system bars,
+    // cutouts or window placement. The offset is already in physical pixels.
+    // Re-read for every action/capture; rotation and PiP can change it.
+    final offset = await const MethodChannel('com.privi.app/window')
+        .invokeListMethod<int>('getFlutterViewScreenOffset')
+        .timeout(const Duration(seconds: 5));
+    if (offset == null || offset.length != 2) {
+      throw StateError(
+        'getFlutterViewScreenOffset must return two physical coordinates: $offset',
+      );
+    }
     final scale = tester.view.devicePixelRatio;
-    return [
-      rect.left * scale,
-      rect.top * scale,
-      rect.right * scale,
-      rect.bottom * scale,
-    ];
+    if (!scale.isFinite || scale <= 0) {
+      throw StateError('Invalid FlutterView devicePixelRatio: $scale');
+    }
+    return _ScreenCoordinates(
+      scale,
+      Offset(offset[0].toDouble(), offset[1].toDouble()),
+    );
+  }
+
+  Future<Map<String, Object>> physicalViewport(WidgetTester tester) async {
+    final coordinates = await screenCoordinates(tester);
+    final rect = tester.getRect(find.byType(VideoViewport).first);
+    final topLeft = coordinates.toScreen(rect.topLeft);
+    final bottomRight = coordinates.toScreen(rect.bottomRight);
+    return {
+      'viewport': [topLeft.dx, topLeft.dy, bottomRight.dx, bottomRight.dy],
+      'coordinates': {
+        ...coordinates.evidence,
+        'viewport_logical': [rect.left, rect.top, rect.right, rect.bottom],
+      },
+    };
   }
 
   Future<Map<String, dynamic>> screenshot(
@@ -95,11 +120,11 @@ void main() {
     List<int>? physicalSize,
     String? compareTo,
     bool paused = false,
-  }) =>
+  }) async =>
       deviceAction(tester, {
         'op': 'capture',
         'name': name,
-        'viewport': physicalViewport(tester),
+        ...await physicalViewport(tester),
         if (aspect != null) 'aspect': aspect,
         if (physicalSize != null) 'physicalSize': physicalSize,
         if (compareTo != null) 'compareTo': compareTo,
@@ -111,10 +136,15 @@ void main() {
     String operation,
     Offset point,
   ) async {
-    final scale = tester.view.devicePixelRatio;
+    final coordinates = await screenCoordinates(tester);
+    final physicalPoint = coordinates.toScreen(point);
     await deviceAction(tester, {
       'op': operation,
-      'point': [point.dx * scale, point.dy * scale],
+      'point': [physicalPoint.dx, physicalPoint.dy],
+      'coordinates': {
+        ...coordinates.evidence,
+        'point_logical': [point.dx, point.dy],
+      },
     });
   }
 
@@ -289,7 +319,8 @@ void main() {
               ]) {
                 await display(tester, controller, mode: mode);
                 await tester.pump(const Duration(milliseconds: 600));
-                final viewport = physicalViewport(tester);
+                final viewport = (await physicalViewport(tester))['viewport']!
+                    as List<double>;
                 final viewportAspect =
                     (viewport[2] - viewport[0]) / (viewport[3] - viewport[1]);
                 await screenshot(
@@ -889,7 +920,7 @@ void main() {
           await deviceAction(tester, {
             'op': 'capture',
             'name': 'native-fullscreen-${action.toLowerCase()}',
-            'viewport': physicalViewport(tester),
+            ...await physicalViewport(tester),
             'expectNoVideo': true,
           });
           (container.read(lockControllerProvider.notifier) as _IntegrationLock)
@@ -1017,4 +1048,19 @@ class ApplicationFrameIntegrationTestBinding
       framePolicy = previous;
     }
   }
+}
+
+/// Converts FlutterView logical coordinates to Android display physical pixels.
+class _ScreenCoordinates {
+  const _ScreenCoordinates(this.devicePixelRatio, this.screenOffset);
+
+  final double devicePixelRatio;
+  final Offset screenOffset;
+
+  Offset toScreen(Offset logical) => logical * devicePixelRatio + screenOffset;
+
+  Map<String, Object> get evidence => {
+        'device_pixel_ratio': devicePixelRatio,
+        'flutter_view_screen_offset_px': [screenOffset.dx, screenOffset.dy],
+      };
 }
