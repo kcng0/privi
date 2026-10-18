@@ -75,6 +75,20 @@ class LibVlcPlayerHost(
 
     private data class Failure(val code: String, val message: String)
 
+    private class PlaybackStart(val generation: Long)
+
+    private class NativeOperation(val playerId: Int?, @Volatile var stage: String) {
+        val startedAt = SystemClock.elapsedRealtime()
+    }
+
+    private class Disposal {
+        val results = mutableListOf<MethodChannel.Result>()
+        var releaseFinished = false
+        var failure: Failure? = null
+    }
+
+    private class SourceCleanupException(val stage: String, cause: Exception) : Exception(cause)
+
     private data class MediaRequest(val uri: String, val packageName: String?, val headers: Map<*, *>?)
 
     private class EnginePreparation {
@@ -91,18 +105,21 @@ class LibVlcPlayerHost(
         val descriptor: Closeable? = null,
         val temporaryFile: File? = null,
     ) {
-        fun release() {
-            try {
-                media.release()
-            } finally {
-                try {
-                    descriptor?.close()
-                } finally {
-                    temporaryFile?.let {
-                        if (it.exists() && !it.delete()) Log.w(TAG, "Temporary asset cleanup failed")
-                    }
+        fun release(stage: (String) -> Unit) {
+            var failure: Exception? = null
+            fun attempt(name: String, action: () -> Unit) {
+                stage(name)
+                try { action() } catch (error: Exception) {
+                    val cleanupError = SourceCleanupException(name, error)
+                    if (failure == null) failure = cleanupError else failure.addSuppressed(cleanupError)
                 }
             }
+            attempt("release-media") { media.release() }
+            attempt("release-descriptor") { descriptor?.close() }
+            attempt("release-temporary-asset") {
+                temporaryFile?.let { check(!it.exists() || it.delete()) { "Temporary asset cleanup failed" } }
+            }
+            failure?.let { throw it }
         }
     }
 
@@ -124,7 +141,10 @@ class LibVlcPlayerHost(
         var voutReady = false
         @Volatile var viewportAttached = false
         @Volatile var surfaceGeneration = 0L
-        var queuedPlayGeneration: Long? = null
+        @Volatile var playbackStart: PlaybackStart? = null
+        var mediaOpenPending = false
+        var disposal: Disposal? = null
+        var cleanupFailure: Failure? = null
         var surfaceSuspended = false
         var surfaceRecovery: Runnable? = null
         var surfaceLossCount = 0L
@@ -218,6 +238,9 @@ class LibVlcPlayerHost(
     }
     private val channel = MethodChannel(messenger, CHANNEL)
     private val entries = LinkedHashMap<Int, Entry>()
+    private val pendingDisposals = LinkedHashMap<Int, Entry>()
+    private val disposalFailures = LinkedHashMap<Int, Failure>()
+    @Volatile private var activeNativeOperation: NativeOperation? = null
     private var nextId = 1
     private var pendingCreations = 0
     private val engineWaiters = LinkedHashMap<Entry, MediaRequest>()
@@ -263,6 +286,52 @@ class LibVlcPlayerHost(
         check(registry.registerViewFactory(VIEW_TYPE, viewFactory)) { "LibVLC view factory already registered" }
     }
 
+    /** One observable operation owns the serial worker until its SDK call returns. */
+    private fun queueNative(playerId: Int?, stage: String, action: () -> Unit) {
+        nativeQueue.execute {
+            val operation = NativeOperation(playerId, stage)
+            activeNativeOperation = operation
+            val release = stage.startsWith("release-") &&
+                activity.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+            if (release) Log.d(TAG, "Native release start id=${playerId ?: "engine"} stage=$stage")
+            try {
+                action()
+            } finally {
+                if (release) Log.d(TAG, "Native release end id=${playerId ?: "engine"} " +
+                    "stage=${operation.stage} elapsedMs=${SystemClock.elapsedRealtime() - operation.startedAt}")
+                if (activeNativeOperation === operation) activeNativeOperation = null
+            }
+        }
+    }
+
+    private fun nativeStage(stage: String) {
+        activeNativeOperation?.stage = stage
+    }
+
+    private fun nativeQueueDiagnostics(): Map<String, String> {
+        val operation = activeNativeOperation
+        return mapOf(
+            "native-queue-active-player-id" to (operation?.playerId?.toString() ?: "none"),
+            "native-queue-active-stage" to (operation?.stage ?: "idle"),
+            "native-queue-active-start-elapsed-ms" to (operation?.startedAt?.toString() ?: "none"),
+            "native-queue-active-elapsed-ms" to (operation?.let {
+                (SystemClock.elapsedRealtime() - it.startedAt).coerceAtLeast(0L).toString()
+            } ?: "0"),
+        )
+    }
+
+    private fun queueTimeoutMessage(message: String): String {
+        val operation = activeNativeOperation ?: return "$message (native queue idle)"
+        return "$message (active player=${operation.playerId ?: "engine"}, stage=${operation.stage}, " +
+            "elapsedMs=${SystemClock.elapsedRealtime() - operation.startedAt})"
+    }
+
+    private fun cancelPlaybackStart(entry: Entry) {
+        entry.playbackStart = null
+        entry.playerTimeout?.let(main::removeCallbacks)
+        entry.playerTimeout = null
+    }
+
     /**
      * Starts shared engine/font preparation once, without opening any media.
      * Repeated requests never retry a failed preparation; a later explicit
@@ -290,7 +359,7 @@ class LibVlcPlayerHost(
         }
         try {
             if (call.method == "init") {
-                entries.values.toList().forEach(::disposeEntry)
+                entries.values.toList().forEach { disposeEntry(it) }
                 result.success(null)
                 return
             }
@@ -302,14 +371,17 @@ class LibVlcPlayerHost(
                 ?: throw IllegalArgumentException("Missing player id")
             val entry = entries[id]
             if (entry == null) {
-                if (call.method == "dispose") result.success(null)
+                if (call.method == "dispose") {
+                    val pending = pendingDisposals[id]
+                    if (pending != null) disposeEntry(pending, result)
+                    else replyDisposed(result, disposalFailures[id])
+                }
                 else result.error("unknown_player", "LibVLC player $id is unavailable", null)
                 return
             }
             when (call.method) {
                 "dispose" -> {
-                    disposeEntry(entry)
-                    result.success(null)
+                    disposeEntry(entry, result)
                 }
                 "setPresentationAllowed" -> {
                     val allowed = call.argument<Boolean>("allowed")
@@ -335,14 +407,14 @@ class LibVlcPlayerHost(
                     pause(entry)
                     result.success(null)
                 }
-                "getPosition" -> nativeCall(entry, result) {
+                "getPosition" -> nativeCall(entry, result, call.method) {
                     entry.pendingPosition ?: entry.player?.time?.coerceAtLeast(0L) ?: 0L
                 }
                 "seekTo" -> {
                     val position = requiredLong(call, "position")
                     require(position >= 0) { "Position must not be negative" }
                     entry.pendingPosition = position
-                    nativeCall(entry, result) {
+                    nativeCall(entry, result, call.method) {
                         entry.player?.takeIf { !entry.nativeEnded }?.let {
                             val inputOpen = it.playerState == IMedia.State.Playing || it.playerState == IMedia.State.Paused
                             check(!inputOpen || it.isSeekable) { "LibVLC media is not seekable" }
@@ -362,7 +434,7 @@ class LibVlcPlayerHost(
                     val volume = requiredDouble(call, "volume")
                     require(volume in 0.0..1.0) { "Volume must be between zero and one" }
                     entry.volume = volume
-                    nativeCall(entry, result) {
+                    nativeCall(entry, result, call.method) {
                         entry.player?.let { check(it.setVolume((volume * 100).roundToInt()) == 0) { "LibVLC rejected volume" } }
                         null
                     }
@@ -372,7 +444,7 @@ class LibVlcPlayerHost(
                     require(speed > 0 && speed.toFloat().isFinite()) { "Playback speed must be finite and positive" }
                     entry.rateRequestCount++
                     entry.speed = speed
-                    nativeCall(entry, result) {
+                    nativeCall(entry, result, call.method) {
                         entry.player?.let { setRate(it, speed) }
                         null
                     }
@@ -408,7 +480,7 @@ class LibVlcPlayerHost(
                         result.success(null)
                         return
                     }
-                    nativeCall(entry, result) {
+                    nativeCall(entry, result, call.method) {
                         val ok = if (audio) player.setAudioTrack(trackId)
                         else player.setSpuTrack(trackId)
                         check(ok) { "LibVLC rejected track selection" }
@@ -428,7 +500,7 @@ class LibVlcPlayerHost(
                     // Import explicitly selects the new subtitle, overriding a prior disable/selection intent.
                     val previousTrack = entry.selectedSubtitleTrack
                     entry.selectedSubtitleTrack = null
-                    nativeCall(entry, result) {
+                    nativeCall(entry, result, call.method) {
                         try {
                             val readableUri = subtitleUri(entry, uri)
                             val encoded = VLCUtil.encodeVLCUri(readableUri)
@@ -451,7 +523,7 @@ class LibVlcPlayerHost(
                 "setAudioDelay", "setSubtitleDelay" -> {
                     val delay = requiredLong(call, "delay")
                     val audio = call.method == "setAudioDelay"
-                    nativeCall(entry, result) {
+                    nativeCall(entry, result, call.method) {
                         entry.player?.let {
                             if (it.playerState == IMedia.State.Playing || it.playerState == IMedia.State.Paused) {
                                 check(if (audio) it.setAudioDelay(delay) else it.setSpuDelay(delay)) { "LibVLC rejected track delay" }
@@ -485,7 +557,7 @@ class LibVlcPlayerHost(
                     // Keep its stage and deadline observable even if a blocking
                     // SDK preparation call currently occupies nativeQueue.
                     if (entry.source == null && entry.player == null) result.success(diagnostics(entry) + subtitleSurface)
-                    else nativeCall(entry, result) { diagnostics(entry) + subtitleSurface }
+                    else nativeCall(entry, result, call.method) { diagnostics(entry) + subtitleSurface }
                 }
                 "debugReadSubtitleSurfacePixels" -> debugReadSubtitleSurfacePixels(entry, result)
                 "setFitMode" -> {
@@ -578,19 +650,19 @@ class LibVlcPlayerHost(
         enginePreparationStage = "queued"
         preparation.queueTimeout = Runnable {
             if (enginePreparation === preparation && preparation.startedAt == null && !preparation.cancelled) {
-                failEnginePreparation(preparation, "engine_queue_timeout", "LibVLC engine preparation could not start on the native queue")
+                failEnginePreparation(preparation, "engine_queue_timeout", queueTimeoutMessage("LibVLC engine preparation could not start on the native queue"))
             }
         }.also { main.postDelayed(it, INITIALIZATION_QUEUE_TIMEOUT_MS) }
-        nativeQueue.execute {
+        queueNative(null, "engine-prepare") {
             var prepared: LibVLC? = null
             var fonts: File? = null
             var failure: Failure? = null
             try {
-                if (closed || preparation.cancelled) return@execute
+                if (closed || preparation.cancelled) return@queueNative
                 val startedAt = SystemClock.elapsedRealtime()
                 if (startedAt - preparation.queuedAt >= INITIALIZATION_QUEUE_TIMEOUT_MS) {
-                    failure = Failure("engine_queue_timeout", "LibVLC engine preparation could not start on the native queue")
-                    return@execute
+                    failure = Failure("engine_queue_timeout", queueTimeoutMessage("LibVLC engine preparation could not start on the native queue"))
+                    return@queueNative
                 }
                 preparation.startedAt = startedAt
                 main.post {
@@ -607,12 +679,13 @@ class LibVlcPlayerHost(
                         main.postDelayed(it, remaining.coerceAtLeast(0L))
                     }
                 }
+                nativeStage("engine-construct")
                 prepared = LibVLC(activity.applicationContext, arrayListOf(
                     "--audio-time-stretch", "--no-video-title-show", "--stats", "--android-display-chroma=RV32",
                 ).apply {
                     if (activity.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) add("--verbose=2")
                 })
-                if (closed || preparation.cancelled) return@execute
+                if (closed || preparation.cancelled) return@queueNative
                 main.post {
                     if (enginePreparation === preparation && !preparation.cancelled && !closed)
                         enginePreparationStage = "building-font-cache"
@@ -621,6 +694,7 @@ class LibVlcPlayerHost(
                 // deadline cancels delivery; release waits for the call to return.
                 val started = SystemClock.elapsedRealtime()
                 try {
+                    nativeStage("engine-font-cache")
                     fontCacheValid = prepared.buildFontCache()
                 } catch (error: Exception) {
                     fontCacheValid = false
@@ -630,11 +704,12 @@ class LibVlcPlayerHost(
                 }
                 if (fontCacheValid == true) Log.i(TAG, "Font cache valid after ${fontCacheBuildMs}ms")
                 else Log.w(TAG, "Font cache not valid on disk after ${fontCacheBuildMs}ms")
-                if (closed || preparation.cancelled) return@execute
+                if (closed || preparation.cancelled) return@queueNative
                 main.post {
                     if (enginePreparation === preparation && !preparation.cancelled && !closed)
                         enginePreparationStage = "installing-subtitle-fonts"
                 }
+                nativeStage("engine-font-install")
                 fonts = prepareSubtitleFonts()
             } catch (error: Exception) {
                 failure = Failure("engine_preparation_failed", "LibVLC engine preparation failed (${error.javaClass.simpleName})")
@@ -701,7 +776,7 @@ class LibVlcPlayerHost(
         }
         // A cancelled/failed preparation never publishes a usable engine, even
         // if a blocking native operation completed after its owner was gone.
-        if (engine != null) nativeQueue.execute {
+        if (engine != null) queueNative(null, "release-prepared-engine") {
             try { engine.release() } catch (error: Exception) {
                 Log.e(TAG, "Prepared engine cleanup failed (${error.javaClass.simpleName})")
             }
@@ -710,22 +785,23 @@ class LibVlcPlayerHost(
     }
 
     private fun queueMediaOpen(entry: Entry, request: MediaRequest) {
+        entry.mediaOpenPending = true
         entry.initializationStage = "queued"
         entry.initializationQueuedAt = SystemClock.elapsedRealtime()
         entry.queueTimeout = Runnable {
             if (!entry.disposed && entry.failure == null && entry.initializationStartedAt == null)
-                fail(entry, "media_queue_timeout", "LibVLC media opening could not start on the native queue")
+                fail(entry, "media_queue_timeout", queueTimeoutMessage("LibVLC media opening could not start on the native queue"))
         }.also { main.postDelayed(it, INITIALIZATION_QUEUE_TIMEOUT_MS) }
         pendingCreations++
-        nativeQueue.execute {
+        queueNative(entry.id, "media-open") {
             var source: Source? = null
             var failure: Failure? = null
             try {
-                if (entry.disposed || entry.failure != null || closed) return@execute
+                if (entry.disposed || entry.failure != null || closed) return@queueNative
                 val startedAt = SystemClock.elapsedRealtime()
                 if (startedAt - entry.initializationQueuedAt!! >= INITIALIZATION_QUEUE_TIMEOUT_MS) {
-                    failure = Failure("media_queue_timeout", "LibVLC media opening could not start on the native queue")
-                    return@execute
+                    failure = Failure("media_queue_timeout", queueTimeoutMessage("LibVLC media opening could not start on the native queue"))
+                    return@queueNative
                 }
                 entry.initializationStartedAt = startedAt
                 main.post {
@@ -755,13 +831,20 @@ class LibVlcPlayerHost(
                 val opened = source
                 val error = failure
                 main.post {
-                    if (opened != null) {
-                        if (entry.disposed || entry.failure != null || closed || error != null) releaseSource(opened)
-                        else {
+                    if (opened != null && (entry.disposed || entry.failure != null || closed || error != null)) {
+                        releaseSource(opened, entry.id) { cleanupFailure ->
+                            entry.cleanupFailure = entry.cleanupFailure ?: cleanupFailure
+                            entry.mediaOpenPending = false
+                            completeDisposal(entry)
+                        }
+                    } else {
+                        entry.mediaOpenPending = false
+                        if (opened != null) {
                             entry.source = opened
                             entry.initializationStage = "parsing"
                             parse(entry)
                         }
+                        completeDisposal(entry)
                     }
                     if (error != null) fail(entry, error.code, error.message)
                     pendingCreations--
@@ -932,7 +1015,7 @@ class LibVlcPlayerHost(
             updateSurfaceReadiness(entry, view)
             if (!entry.surfacesReady || !entry.viewportAttached || !view.surfacesAvailable || entry.playing) return
             val generation = entry.surfaceGeneration
-            if (entry.queuedPlayGeneration == generation) return
+            if (entry.playbackStart?.generation == generation) return
             check(requestFocus(entry)) { "Audio focus was denied" }
             if (entry.nativeEnded && entry.pendingPosition == 0L) {
                 // video_player seeks to zero before replaying an ended item.
@@ -951,36 +1034,43 @@ class LibVlcPlayerHost(
             }
             if (entry.playerTimeout == null) {
                 entry.playerTimeout = Runnable {
-                    if (!entry.playing && entry.wantsPlay) fail(entry, "playback_timeout", "LibVLC did not start playback in time")
+                    if (!entry.playing && entry.wantsPlay) fail(entry, "playback_timeout",
+                        queueTimeoutMessage("LibVLC did not start playback in time"))
                 }.also { main.postDelayed(it, OPEN_TIMEOUT_MS) }
             }
-            entry.queuedPlayGeneration = generation
-            nativeQueue.execute {
+            val start = PlaybackStart(generation)
+            entry.playbackStart = start
+            queueNative(entry.id, "play-start") {
                 try {
-                    if (entry.disposed || !entry.allowed || !entry.wantsPlay || !entry.viewportAttached ||
-                        !entry.surfacesReady || entry.surfaceGeneration != generation) return@execute
+                    if (entry.playbackStart !== start || entry.disposed || !entry.allowed || !entry.wantsPlay || !entry.viewportAttached ||
+                        !entry.surfacesReady || entry.surfaceGeneration != generation) return@queueNative
                     if (entry.nativeEnded) {
+                        nativeStage("play-set-media")
                         player.media = entry.source?.media
                         entry.nativeEnded = false
                         entry.inputReopenCount++
                         trace(entry, "input-reopened")
                     }
+                    nativeStage("play-set-volume")
                     check(player.setVolume((entry.volume * 100).roundToInt()) == 0) { "LibVLC rejected volume" }
+                    nativeStage("play-set-rate")
                     setRate(player, entry.speed)
                     // setMedia can block while retiring the old input. A real
                     // pause, revocation, or surface handoff during that work
                     // must still prevent this queued play from starting.
-                    if (entry.disposed || !entry.allowed || !entry.wantsPlay || !entry.viewportAttached ||
-                        !entry.surfacesReady || entry.surfaceGeneration != generation) return@execute
+                    if (entry.playbackStart !== start || entry.disposed || !entry.allowed || !entry.wantsPlay || !entry.viewportAttached ||
+                        !entry.surfacesReady || entry.surfaceGeneration != generation) return@queueNative
                     trace(entry, "native-play")
+                    nativeStage("play-native")
                     player.play()
                 } catch (error: Exception) {
-                    main.post { fail(entry, "playback_failed", "LibVLC could not start playback (${error.javaClass.simpleName})") }
-                } finally {
                     main.post {
-                        if (entry.queuedPlayGeneration == generation) entry.queuedPlayGeneration = null
+                        if (entry.playbackStart === start)
+                            fail(entry, "playback_failed", "LibVLC could not start playback (${error.javaClass.simpleName})")
                     }
                 }
+                // nativePlay returning only submits startup. Keep the identity
+                // until Playing or an explicit cancellation, not worker return.
             }
         } catch (error: Exception) {
             fail(entry, "playback_failed", "LibVLC could not attach playback (${error.javaClass.simpleName})")
@@ -990,6 +1080,7 @@ class LibVlcPlayerHost(
     private fun attach(entry: Entry, view: LibVlcVideoView) {
         val player = entry.player ?: return
         entry.surfaceAttachCount++
+        cancelPlaybackStart(entry)
         entry.surfaceGeneration++
         entry.viewportAttached = false
         entry.voutReady = false
@@ -1029,8 +1120,7 @@ class LibVlcPlayerHost(
                     entry.activeView?.let { scheduleSurfaceRecovery(entry, it) }
                     return
                 }
-                entry.playerTimeout?.let(main::removeCallbacks)
-                entry.playerTimeout = null
+                cancelPlaybackStart(entry)
                 entry.playing = true
                 entry.inputRestarting = false
                 entry.surfaceSuspended = false
@@ -1038,8 +1128,8 @@ class LibVlcPlayerHost(
                 entry.nativeEnded = false
                 updateAwake(entry)
                 entry.player?.let { player ->
-                    nativeQueue.execute {
-                        if (entry.disposed) return@execute
+                    queueNative(entry.id, "apply-playback-settings") {
+                        if (entry.disposed) return@queueNative
                         try {
                             if (entry.audioDelay != 0L) check(player.setAudioDelay(entry.audioDelay)) { "Audio delay rejected" }
                             if (entry.subtitleDelay != 0L) check(player.setSpuDelay(entry.subtitleDelay)) { "Subtitle delay rejected" }
@@ -1073,6 +1163,7 @@ class LibVlcPlayerHost(
             MediaPlayer.Event.EndReached -> {
                 trace(entry, "event-ended")
                 entry.playing = false
+                cancelPlaybackStart(entry)
                 entry.nativeEnded = true
                 updateAwake(entry)
                 val start = entry.abStart
@@ -1100,9 +1191,9 @@ class LibVlcPlayerHost(
                     else if (!entry.abSeeking) {
                         entry.abSeeking = true
                         val player = entry.player ?: return
-                        nativeQueue.execute {
-                            if (entry.disposed || !entry.allowed || !entry.wantsPlay) return@execute
-                            if (entry.nativeEnded || player.playerState == IMedia.State.Ended) return@execute
+                        queueNative(entry.id, "ab-seek") {
+                            if (entry.disposed || !entry.allowed || !entry.wantsPlay) return@queueNative
+                            if (entry.nativeEnded || player.playerState == IMedia.State.Ended) return@queueNative
                             if (!player.isSeekable || player.setTime(start) < 0) {
                                 main.post {
                                     entry.abStart = null
@@ -1123,7 +1214,7 @@ class LibVlcPlayerHost(
             }
             MediaPlayer.Event.ESAdded -> {
                 val player = entry.player
-                if (player != null) nativeQueue.execute {
+                if (player != null) queueNative(entry.id, "restore-track-intent") {
                     if (!entry.disposed) {
                         try { restoreTrackIntent(entry, player) } catch (error: Exception) {
                             main.post { advancedError(entry, "LibVLC could not restore track selection") }
@@ -1168,8 +1259,8 @@ class LibVlcPlayerHost(
         }
     }
 
-    private fun nativeCall(entry: Entry, result: MethodChannel.Result, action: () -> Any?) {
-        nativeQueue.execute {
+    private fun nativeCall(entry: Entry, result: MethodChannel.Result, stage: String, action: () -> Any?) {
+        queueNative(entry.id, stage) {
             try {
                 check(!entry.disposed) { "Player has been disposed" }
                 val value = action()
@@ -1258,6 +1349,7 @@ class LibVlcPlayerHost(
         entry.viewportAttached = false
         if (hadSurface) {
             entry.surfaceLossCount++
+            cancelPlaybackStart(entry)
             entry.surfaceGeneration++
             pauseForMissingViewport(entry)
             trace(entry, "surface-suspended")
@@ -1383,13 +1475,12 @@ class LibVlcPlayerHost(
     }
 
     private fun pauseForMissingViewport(entry: Entry) {
+        cancelPlaybackStart(entry)
         entry.playing = false
         updateAwake(entry)
-        entry.playerTimeout?.let(main::removeCallbacks)
-        entry.playerTimeout = null
         abandonFocus(entry)
         val player = entry.player
-        if (player != null) nativeQueue.execute {
+        if (player != null) queueNative(entry.id, "pause") {
             if (!entry.disposed) {
                 try {
                     if (player.isPlaying) player.pause()
@@ -1538,6 +1629,7 @@ class LibVlcPlayerHost(
             "surface-attach-count" to entry.surfaceAttachCount.toString(),
             "surface-frame-request-active" to (entry.frameRequestGeneration != null).toString(),
             "surface-frame-request-timeouts" to entry.frameRequestTimeoutCount.toString(),
+            "play-start-generation" to (entry.playbackStart?.generation?.toString() ?: "none"),
         )
         entry.tracks.filterIsInstance<IMedia.VideoTrack>().firstOrNull()?.let { track ->
             result["video-codec"] = track.codec ?: ""
@@ -1557,7 +1649,7 @@ class LibVlcPlayerHost(
             result["input-bitrate"] = stats.inputBitrate.toString()
             result["demux-bitrate"] = stats.demuxBitrate.toString()
         }
-        return result
+        return result + nativeQueueDiagnostics()
     }
 
     /** Lifecycle boundaries only: no file names, URIs, or per-frame logging. */
@@ -1568,7 +1660,7 @@ class LibVlcPlayerHost(
             "created=${entry.player != null} shown=${view?.presentable} window=${view?.windowVisible} " +
             "ready=${entry.surfacesReady} generation=${entry.surfaceGeneration} " +
             "reopen=${entry.inputReopenCount} restarting=${entry.inputRestarting} pending=${entry.pendingPosition} " +
-            "request=${entry.frameRequestGeneration}")
+            "request=${entry.frameRequestGeneration} starting=${entry.playbackStart?.generation}")
     }
 
     private fun emit(entry: Entry, event: Map<String, Any?>) {
@@ -1577,6 +1669,7 @@ class LibVlcPlayerHost(
 
     private fun fail(entry: Entry, code: String, message: String) {
         if (entry.disposed || entry.failure != null) return
+        Log.e(TAG, queueTimeoutMessage("$code id=${entry.id}"))
         entry.failure = Failure(code, message)
         engineWaiters.remove(entry)
         entry.queueTimeout?.let(main::removeCallbacks)
@@ -1592,18 +1685,52 @@ class LibVlcPlayerHost(
         emitAdvanced(entry)
     }
 
-    private fun releaseSource(source: Source) {
-        nativeQueue.execute { safelyRelease(source) }
-    }
-
-    private fun safelyRelease(source: Source) {
-        try { source.release() } catch (error: Exception) {
-            Log.e(TAG, "Media release failed (${error.javaClass.simpleName})")
+    private fun releaseSource(source: Source, playerId: Int?, onReleased: (Failure?) -> Unit) {
+        queueNative(playerId, "release-late-source") {
+            val failure = safelyRelease(source)
+            main.post { onReleased(failure) }
         }
     }
 
-    private fun disposeEntry(entry: Entry) {
-        if (entry.disposed) return
+    private fun safelyRelease(source: Source): Failure? {
+        return try {
+            source.release(::nativeStage)
+            null
+        } catch (error: Exception) {
+            val stage = (error as? SourceCleanupException)?.stage ?: "release-source"
+            val type = error.cause?.javaClass?.simpleName ?: error.javaClass.simpleName
+            Log.e(TAG, "Media release failed stage=$stage ($type)")
+            Failure("dispose_failed", "LibVLC source cleanup failed at $stage ($type)")
+        }
+    }
+
+    private fun replyDisposed(result: MethodChannel.Result, failure: Failure?) {
+        if (failure == null) result.success(null)
+        else result.error(failure.code, failure.message, null)
+    }
+
+    private fun completeDisposal(entry: Entry) {
+        val disposal = entry.disposal ?: return
+        if (!disposal.releaseFinished || entry.mediaOpenPending) return
+        disposal.failure = disposal.failure ?: entry.cleanupFailure
+        pendingDisposals.remove(entry.id)
+        disposal.failure?.let { disposalFailures[entry.id] = it }
+        val results = disposal.results.toList()
+        disposal.results.clear()
+        results.forEach { replyDisposed(it, disposal.failure) }
+    }
+
+    private fun disposeEntry(entry: Entry, result: MethodChannel.Result? = null) {
+        val existing = entry.disposal
+        if (existing != null) {
+            result?.let(existing.results::add)
+            completeDisposal(entry)
+            return
+        }
+        val disposal = Disposal()
+        result?.let(disposal.results::add)
+        entry.disposal = disposal
+        pendingDisposals[entry.id] = entry
         engineWaiters.remove(entry)
         entry.queueTimeout?.let(main::removeCallbacks)
         entry.queueTimeout = null
@@ -1618,6 +1745,7 @@ class LibVlcPlayerHost(
         entry.buffering = false
         finishSurfaceFrameRequest(entry)
         entry.viewportAttached = false
+        cancelPlaybackStart(entry)
         entry.surfaceGeneration++
         entry.views.forEach { it.setPresentationVisible(false) }
         entry.openTimeout?.let(main::removeCallbacks)
@@ -1629,28 +1757,58 @@ class LibVlcPlayerHost(
         entry.eventChannel.setStreamHandler(null)
         entry.sink = null
         val player = entry.player
-        player?.setEventListener(null)
-        player?.vlcVout?.removeCallback(entry.voutCallback)
+        fun detach(action: () -> Unit) {
+            try { action() } catch (error: Exception) {
+                Log.e(TAG, "Player detachment failed (${error.javaClass.simpleName})")
+                disposal.failure = disposal.failure ?: Failure("dispose_failed",
+                    "LibVLC player detachment failed (${error.javaClass.simpleName})")
+            }
+        }
+        detach { player?.setEventListener(null) }
+        detach { player?.vlcVout?.removeCallback(entry.voutCallback) }
         // detachViews must run before native release, while Android views are on main.
-        player?.detachViews()
-        entry.source?.media?.setEventListener(null)
+        detach { player?.detachViews() }
+        detach { entry.source?.media?.setEventListener(null) }
         val source = entry.source
         entry.views.clear()
         entry.activeView = null
         entry.attachedView = null
         entry.player = null
         entry.source = null
-        nativeQueue.execute {
+        if (player == null && source == null) {
+            // No source has been published, so subtitle import could not own
+            // files either. A still-running open remains a separate barrier;
+            // an entry merely waiting for shared fonts owns nothing to release.
+            disposal.releaseFinished = true
+            completeDisposal(entry)
+            return
+        }
+        queueNative(entry.id, "release-player") {
+            var failure: Failure? = null
             try {
                 player?.release()
             } catch (error: Exception) {
                 Log.e(TAG, "Player release failed (${error.javaClass.simpleName})")
+                failure = Failure("dispose_failed", "LibVLC player release failed (${error.javaClass.simpleName})")
             } finally {
-                source?.let(::safelyRelease)
+                val sourceFailure = source?.let(::safelyRelease)
+                failure = failure ?: sourceFailure
+                nativeStage("release-subtitle-files")
                 entry.subtitleFiles.forEach { file ->
-                    if (file.exists() && !file.delete()) Log.w(TAG, "Temporary subtitle cleanup failed")
+                    try {
+                        check(!file.exists() || file.delete()) { "Temporary subtitle cleanup failed" }
+                    } catch (error: Exception) {
+                        Log.e(TAG, "Temporary subtitle cleanup failed (${error.javaClass.simpleName})")
+                        failure = failure ?: Failure("dispose_failed", "Temporary subtitle cleanup failed (${error.javaClass.simpleName})")
+                    }
                 }
                 entry.subtitleFiles.clear()
+                val cleanupFailure = failure
+                main.post {
+                    disposal.failure = disposal.failure ?: cleanupFailure
+                    disposal.releaseFinished = true
+                    completeDisposal(entry)
+                }
             }
         }
     }
@@ -1671,7 +1829,7 @@ class LibVlcPlayerHost(
         }
         channel.setMethodCallHandler(null)
         activity.unregisterReceiver(screenOffReceiver)
-        entries.values.toList().forEach(::disposeEntry)
+        entries.values.toList().forEach { disposeEntry(it) }
         maybeShutdownQueue()
     }
 
@@ -1680,7 +1838,7 @@ class LibVlcPlayerHost(
         // handoff must enqueue cleanup before the final engine release and queue shutdown.
         if (!closed || preparingEngine || pendingCreations != 0 || queueShutdown) return
         queueShutdown = true
-        nativeQueue.execute {
+        queueNative(null, "release-engine") {
             try { libVlc?.release() } catch (error: Exception) {
                 Log.e(TAG, "Engine release failed (${error.javaClass.simpleName})")
             }

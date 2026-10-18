@@ -48,6 +48,135 @@ stop_trace_drive() {
   trace_drive_pid=''
 }
 
+collect_failed_drive_backtrace() {
+  local diagnostic_status=0
+  # API33 debuggerd -b requires root and has no internal timeout. Limit the
+  # whole preparation/identity-check/dump sequence, never the tested app.
+  if timeout --signal=KILL 15s python3 - "$ANDROID_SERIAL" "$trace_drive_status" <<'NATIVE_BACKTRACE'
+import json
+from pathlib import Path
+import re
+import subprocess
+import sys
+import time
+
+serial, drive_status = sys.argv[1:]
+output = Path("build/playback-validation")
+prefix = "native-failure-backtrace"
+report = {"drive_exit_code": int(drive_status), "status": "collecting",
+          "started_monotonic": time.monotonic(), "package": "com.privi.app"}
+deadline = report["started_monotonic"] + 14.5
+
+def save():
+    (output / (prefix + ".json")).write_text(json.dumps(report, indent=2) + "\n")
+
+def remaining():
+    seconds = deadline - time.monotonic()
+    if seconds <= 0:
+        raise TimeoutError("Native backtrace diagnostic deadline expired")
+    return seconds
+
+def text(stage, *arguments):
+    report["stage"] = stage
+    save()
+    result = subprocess.run(["adb", "-s", serial, *arguments], check=False,
+                            capture_output=True, text=True, timeout=remaining())
+    with (output / (prefix + "-setup.txt")).open("a") as log:
+        log.write(json.dumps({"stage": stage, "arguments": arguments,
+                              "exit_code": result.returncode}) + "\n")
+        log.write(result.stdout + result.stderr + "\n")
+    result.check_returncode()
+    return result.stdout
+
+def unique_pid(stage):
+    values = text(stage, "shell", "pidof", "com.privi.app").split()
+    if len(values) != 1 or not values[0].isdigit() or int(values[0]) <= 0:
+        raise RuntimeError(f"Expected one current Privi PID, got {values}")
+    return values[0]
+
+def start_time(pid, stage):
+    raw = text(stage, "shell", "cat", f"/proc/{pid}/stat")
+    value = raw.rsplit(") ", 1)[1].split()[19]
+    if not value.isdigit():
+        raise RuntimeError("Privi process start time is unavailable")
+    return value
+
+try:
+    properties = dict(re.findall(r"^\[([^\]]+)\]: \[(.*)\]$",
+                                text("emulator-properties", "shell", "getprop"), re.M))
+    report["emulator"] = {key: properties.get(key) for key in
+                          ("ro.build.version.sdk", "ro.build.type", "ro.debuggable", "ro.kernel.qemu")}
+    if (properties.get("ro.build.version.sdk") != "33" or properties.get("ro.kernel.qemu") != "1"
+            or properties.get("ro.debuggable") != "1"
+            or properties.get("ro.build.type") not in ("eng", "userdebug")):
+        raise RuntimeError("Native backtrace requires the declared debug API33 emulator")
+    # Fixed AOSP33 prints usage with zero arguments; -h is not supported.
+    report["stage"] = "debuggerd-help"
+    save()
+    help_result = subprocess.run(["adb", "-s", serial, "shell", "debuggerd"], check=False,
+                                 capture_output=True, text=True, timeout=remaining())
+    help_text = help_result.stdout + help_result.stderr
+    (output / (prefix + "-help.txt")).write_text(help_text)
+    if help_result.returncode != 0 or "-b, --backtrace" not in help_text:
+        raise RuntimeError("The actual emulator debuggerd does not expose AOSP native-backtrace usage")
+    if text("root-check", "shell", "id", "-u").strip() != "0":
+        text("adb-root", "root")
+        text("wait-after-adb-root", "wait-for-device")
+    if text("root-confirmed", "shell", "id", "-u").strip() != "0":
+        raise RuntimeError("Emulator root is unavailable for debuggerd -b")
+    pid = unique_pid("current-package-pid")
+    name = text("package-command-line", "shell", "cat", f"/proc/{pid}/cmdline").split("\0", 1)[0]
+    if name != "com.privi.app":
+        raise RuntimeError("Current PID does not identify the tested Privi process")
+    process_start = start_time(pid, "package-start-time")
+    report.update({"pid": int(pid), "process_start_ticks": process_start,
+                   "stage": "native-backtrace", "backtrace_started_monotonic": time.monotonic()})
+    save()
+    # Recheck uniqueness/name/start time immediately in the remote shell that
+    # execs debuggerd. No cached pre-drive PID, signals, or foreign /proc reads.
+    guard = r'''
+set -eu
+expected_pid=$1
+expected_start=$2
+current_pid=$(pidof com.privi.app)
+[ "$current_pid" = "$expected_pid" ] || { printf 'Privi PID changed or is not unique\n' >&2; exit 71; }
+IFS= read -r process_name < "/proc/$expected_pid/comm"
+[ "$process_name" = com.privi.app ] || { printf 'Privi PID identity changed\n' >&2; exit 72; }
+process_stat=$(cat "/proc/$expected_pid/stat")
+process_fields=${process_stat##*) }
+set -- $process_fields
+[ "$#" -ge 20 ] || exit 73
+shift 19
+[ "$1" = "$expected_start" ] || { printf 'Privi PID was reused\n' >&2; exit 74; }
+exec debuggerd -b "$expected_pid"
+'''
+    stack = output / (prefix + ".txt")
+    with stack.open("wb") as stdout, (output / (prefix + "-stderr.txt")).open("wb") as stderr:
+        result = subprocess.run(["adb", "-s", serial, "shell", "sh", "-s", "--", pid, process_start],
+                                input=guard.encode(), stdout=stdout, stderr=stderr, timeout=remaining())
+    report["backtrace_finished_monotonic"] = time.monotonic()
+    report["debuggerd_exit_code"] = result.returncode
+    result.check_returncode()
+    if stack.stat().st_size == 0:
+        raise RuntimeError("debuggerd returned no native thread stack output")
+    if unique_pid("post-dump-package-pid") != pid or start_time(pid, "post-dump-start-time") != process_start:
+        raise RuntimeError("Privi process identity changed during the native backtrace")
+    report["status"] = "captured"
+except Exception as error:
+    report.update({"status": "diagnostic-failed", "error": f"{type(error).__name__}: {error}"})
+    raise SystemExit(1)
+finally:
+    report["finished_monotonic"] = time.monotonic()
+    save()
+NATIVE_BACKTRACE
+  then diagnostic_status=0; else diagnostic_status=$?; fi
+  printf '%s\n' "$diagnostic_status" > build/playback-validation/native-failure-backtrace-exit-code.txt
+  if [[ "$diagnostic_status" -ne 0 ]]; then
+    echo "Native backtrace diagnostic failed (exit $diagnostic_status); retaining drive exit $trace_drive_status" >&2
+  fi
+  return 0
+}
+
 # Keep the original drive/smoke failure. Diagnostic failure only changes an
 # otherwise successful exit, and cleanup touches this invocation's resources.
 cleanup() {
@@ -55,6 +184,9 @@ cleanup() {
   trap - EXIT INT TERM
   set +e
   stop_trace_drive
+  if [[ -n "$trace_drive_status" && "$trace_drive_status" -ne 0 ]]; then
+    collect_failed_drive_backtrace
+  fi
   if [[ -n "$trace_runner_pid" ]]; then
     kill -TERM "$trace_runner_pid" 2>/dev/null
     # GNU timeout forwards TERM and kills its own group after ten seconds.
@@ -278,7 +410,8 @@ if [[ "$subtitle_trace" == true ]]; then
   trace_drive_pid=''
   exit "$trace_drive_status"
 else
-  timeout 1200s flutter drive --no-pub -d "$ANDROID_SERIAL" \
+  if timeout 1200s flutter drive --no-pub -d "$ANDROID_SERIAL" \
     --driver=test_driver/playback_driver.dart \
-    --target=integration_test/playback_test.dart
+    --target=integration_test/playback_test.dart; then trace_drive_status=0; else trace_drive_status=$?; fi
+  exit "$trace_drive_status"
 fi

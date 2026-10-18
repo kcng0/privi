@@ -710,6 +710,7 @@ class ReleaseSmoke:
         self.gallery_permission_granted = False
         self.fast_ui_temp = None
         self.fast_ui_package = None
+        self.transient_snapshot = None
 
     def note(self, event, **values):
         self.events.append({"event": event, "monotonic": time.monotonic(), **values})
@@ -867,6 +868,11 @@ class ReleaseSmoke:
         frame = root.find("node")
         if frame is None or frame.get("package") != "com.privi.app":
             raise RuntimeError(f"Transient snapshot is not the Privi foreground window: {prefix}.xml")
+        self.transient_snapshot = {
+            "root": root, "xml": f"{prefix}.xml",
+            "snapshot_started_monotonic": started, "snapshot_finished_monotonic": finished,
+            "valid_until_monotonic": started + 3,
+        }
         return root
 
     def immediate_png(self, label, tap_started, tap_finished, *, deadline=None):
@@ -888,6 +894,10 @@ class ReleaseSmoke:
                   png_started_monotonic=started, png_finished_monotonic=time.monotonic())
 
     def tap_snapshot(self, root, label):
+        snapshot = self.transient_snapshot
+        if snapshot is None or snapshot["root"] is not root:
+            self.note("transient-snapshot-rejected", label=label, reason="untracked-snapshot", input_sent=False)
+            raise RuntimeError("Transient snapshot has no timing evidence; no input sent")
         matches = self.matches(root, label)
         clickable = [node for node in matches if node.get("clickable") == "true"]
         bounds = {self.bounds(node) for node in clickable or matches}
@@ -897,11 +907,16 @@ class ReleaseSmoke:
         if right <= left or bottom <= top:
             raise RuntimeError(f"Transient UI label has no actual clickable area: {label!r}")
         started = time.monotonic()
+        timing = {key: value for key, value in snapshot.items() if key != "root"}
+        if started >= snapshot["valid_until_monotonic"]:
+            self.note("transient-snapshot-rejected", label=label, reason="expired", input_sent=False,
+                      attempted_monotonic=started, **timing)
+            raise TimeoutError("Transient control snapshot exceeded its 3s freshness window; no input sent")
         adb("shell", "input", "tap", str((left + right) // 2), str((top + bottom) // 2))
         finished = time.monotonic()
         self.immediate_png("tap-" + re.sub(r"[^A-Za-z0-9_.-]+", "-", label), started, finished)
         self.note("snapshot-node-tap", label=label, bounds=[left, top, right, bottom],
-                  tap_started_monotonic=started, tap_finished_monotonic=finished)
+                  tap_started_monotonic=started, tap_finished_monotonic=finished, **timing)
 
     def ui(self, label):
         self.sequence += 1
@@ -1158,6 +1173,7 @@ class ReleaseSmoke:
 
     def controls(self, visible):
         deadline = time.monotonic() + 8
+        shown_by_tap = None
         root = self.fast_ui("controls-before", deadline=deadline)
         while root is None:
             if time.monotonic() >= deadline:
@@ -1171,6 +1187,8 @@ class ReleaseSmoke:
                 raise TimeoutError("Blank tap controls deadline expired before input")
             adb("shell", "input", "tap", str(x), str(y), timeout=deadline - started)
             finished = time.monotonic()
+            if visible:
+                shown_by_tap = started
             self.immediate_png("controls-tap", started, finished, deadline=deadline)
             root = None
         while root is None or bool(self.matches(root, "Player settings")) != visible:
@@ -1179,7 +1197,14 @@ class ReleaseSmoke:
             root = self.fast_ui("controls-after", deadline=deadline)
             if root is None or bool(self.matches(root, "Player settings")) != visible:
                 time.sleep(min(.2, max(0, deadline - time.monotonic())))
-        self.note("blank-tap-controls", visible=visible)
+        if visible and shown_by_tap is not None:
+            # A later tree can describe controls from before their automatic
+            # hide. Do not turn a slow PNG/tree round trip into a stale tap.
+            self.transient_snapshot["show_input_started_monotonic"] = shown_by_tap
+            self.transient_snapshot["valid_until_monotonic"] = min(
+                self.transient_snapshot["valid_until_monotonic"], shown_by_tap + 3)
+        self.note("blank-tap-controls", visible=visible,
+                  evidence="accessibility only; actual PNG presentation requires review")
         return root
 
     def motion(self, label):
