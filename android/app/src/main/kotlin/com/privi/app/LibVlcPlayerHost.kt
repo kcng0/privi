@@ -5,6 +5,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.ApplicationInfo
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
@@ -482,7 +483,9 @@ class LibVlcPlayerHost(
                     ?: throw IllegalArgumentException("Missing media URI")
                 val lib = libVlc ?: LibVLC(activity.applicationContext, arrayListOf(
                     "--audio-time-stretch", "--no-video-title-show", "--stats", "--android-display-chroma=RV32",
-                )).also {
+                ).apply {
+                    if (activity.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) add("--verbose=2")
+                }).also {
                     libVlc = it
                     // The SDK's first text renderer otherwise scans system fonts
                     // during playback. This blocking work belongs to initialization

@@ -19,6 +19,13 @@
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:requestLegacyExternalStorage="true">
+        <!-- Flutter 3.44.6 Impeller GLES can retain a merged-thread context
+             when a PiP ImageReader is abandoned on screen-off. Use the stable
+             UI renderer; LibVLC video/subtitles still use native SurfaceViews.
+             Re-evaluate after the upstream context-release fix ships stable. -->
+        <meta-data
+            android:name="io.flutter.embedding.android.EnableImpeller"
+            android:value="false" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

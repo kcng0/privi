@@ -212,6 +212,13 @@ nor a Flutter video Texture is on this production path. iOS keeps AVFoundation.
 expose tracks, local subtitles, audio/subtitle delays, A–B repeat and diagnostics.
 LibVLC enables audio time stretching and automatic hardware decoding with its
 software fallback; speed changes update the existing player's native rate.
+Android explicitly uses the fixed Flutter version's supported Skia UI renderer.
+Its Impeller GLES teardown can leave a context current on the former merged
+thread after a PiP ImageReader is abandoned on screen-off. This is a UI renderer
+compatibility choice; video and subtitles remain native SurfaceViews. Reassess
+the opt-out when upgrading Flutter: it is deprecated upstream and must not hide
+rendering failures. Native recovery and the final signed APK require real
+screen-off/return acceptance before publishing.
 The bundled Noto CJK font is made available to native subtitle rendering.
 The first LibVLC initialization builds the system font cache on its background
 queue, before playback. Cache validity and elapsed time are diagnostic values;
@@ -415,6 +422,18 @@ git push origin main --tags
 Or **Actions → Release APK → Run workflow** and enter a tag name. The tag must
 match the `pubspec.yaml` version name (`1.0.5+6` uses tag `v1.0.5`), which keeps
 the GitHub release and About version aligned.
+
+When native changes need acceptance of the signed APK, use the manual workflow
+with `stage_only=true` first, without pushing a version tag. It registers/builds
+the Shorebird base and uploads `privi-<version>-release` as an Actions artifact,
+but creates no GitHub tag or public release. The native validation workflow can
+install that artifact using its `release_run_id` input. After real APK acceptance,
+run the release workflow at the same commit with `publish_run_id` set to the
+successful staged run, `stage_only=false`, and optional `release_notes`. This
+checks the source workflow/repository/commit and checksums, then publishes the
+same APK without rebuilding. Keep the verified source ref fixed; if app code
+changes after a Shorebird base has been registered, increment the build number
+and validate the new base rather than overwriting it.
 
 ### Shorebird hot updates
 
