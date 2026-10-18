@@ -28,7 +28,7 @@ import 'package:video_player/video_player.dart';
 import 'package:video_player_platform_interface/video_player_platform_interface.dart';
 
 void main() {
-  final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+  final binding = ApplicationFrameIntegrationTestBinding();
   installVaultVideoPlayer();
   final playback = _InteractionPlaybackPlatform();
   VideoPlayerPlatform.instance = playback;
@@ -67,7 +67,9 @@ void main() {
         if (response.statusCode != 404) {
           throw StateError('Device action server: HTTP ${response.statusCode}');
         }
-        await tester.pump(const Duration(milliseconds: 100));
+        // Capturing/input acknowledgement must never create a Flutter frame.
+        // Only application requests may drive native SurfaceView composition.
+        await Future<void>.delayed(const Duration(milliseconds: 100));
       }
       throw TimeoutException('No real Android acknowledgement for $id');
     } finally {
@@ -437,9 +439,6 @@ void main() {
   testWidgets(
     'native PiP returns through the root lock and revokes on screen off',
     (tester) async {
-      final previousFramePolicy = binding.framePolicy;
-      binding.framePolicy = LiveTestWidgetsFlutterBindingFramePolicy.fullyLive;
-      addTearDown(() => binding.framePolicy = previousFramePolicy);
       SharedPreferences.setMockInitialValues({
         'player_external': false,
         'flag_secure': false,
@@ -471,8 +470,8 @@ void main() {
         const timeout = Duration(seconds: 12);
         final watch = Stopwatch()..start();
         while (!condition() && watch.elapsed < timeout) {
-          // Native lifecycle transitions can stop Flutter frames. Fully-live
-          // rendering drives normal UI updates without blocking this wait.
+          // Native lifecycle transitions can stop Flutter frames. Await real
+          // time and let only the application's own requests drive rendering.
           await Future<void>.delayed(const Duration(milliseconds: 100));
         }
         expect(condition(), isTrue, reason: message);
@@ -739,9 +738,20 @@ void main() {
               tester.view.physicalSize.height > tester.view.physicalSize.width,
           'Device must return to portrait before PiP entry',
         );
-        // Surface recreation must restore a paused frame without autoplay.
-        await controller.pause();
+        // User Pause updates both playlist intent and the native facade. Surface
+        // recreation must restore that paused picture without changing intent.
+        await toggleControls(true);
+        await nativeInput(
+          tester,
+          'tap',
+          tester.getCenter(find.byTooltip('Pause')),
+        );
+        await waitFor(
+          () => !controller.value.isPlaying,
+          'The actual Pause button must pause playback',
+        );
         await Future<void>.delayed(const Duration(milliseconds: 600));
+        await toggleControls(false);
         await toggleControls(true);
         await toggleControls(false);
         await PlaybackOrientationService.instance.setMode('landscape');
@@ -772,6 +782,18 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 800));
         await screenshot(tester, 'paused-portrait-restored');
         expect(controller.value.isPlaying, isFalse);
+        await toggleControls(true);
+        await nativeInput(
+          tester,
+          'tap',
+          tester.getCenter(find.byTooltip('Play')),
+        );
+        await waitFor(
+          () => controller.value.isPlaying,
+          'The actual Play button must resume the retained video',
+        );
+        await toggleControls(false);
+        await movingFrames('user-play-after-paused-rotation');
         for (final action in ['EXPAND', 'SCREEN_OFF']) {
           (container.read(lockControllerProvider.notifier) as _IntegrationLock)
               .unlockForTest();
@@ -960,4 +982,39 @@ class _IntegrationLock extends LockController {
     AppLifecycleState lifecycle, {
     bool externalPlayerReturnedCleanly = false,
   }) {}
+}
+
+/// LiveTest's fullyLive policy schedules another engine frame after every draw,
+/// even when the application is idle. That masks a SurfaceView which only
+/// advances while Flutter submits frames. Benchmark disables that extra loop;
+/// the synchronous scheduling overrides still run SchedulerBinding's real
+/// application-request path, including hasScheduledFrame/lifecycle bookkeeping.
+/// Explicit tester.pump is reserved for setup and other deliberate test actions.
+class ApplicationFrameIntegrationTestBinding
+    extends IntegrationTestWidgetsFlutterBinding {
+  ApplicationFrameIntegrationTestBinding() {
+    framePolicy = LiveTestWidgetsFlutterBindingFramePolicy.benchmark;
+  }
+
+  @override
+  void scheduleFrame() {
+    final previous = framePolicy;
+    framePolicy = LiveTestWidgetsFlutterBindingFramePolicy.fullyLive;
+    try {
+      super.scheduleFrame();
+    } finally {
+      framePolicy = previous;
+    }
+  }
+
+  @override
+  void scheduleForcedFrame() {
+    final previous = framePolicy;
+    framePolicy = LiveTestWidgetsFlutterBindingFramePolicy.fullyLive;
+    try {
+      super.scheduleForcedFrame();
+    } finally {
+      framePolicy = previous;
+    }
+  }
 }
