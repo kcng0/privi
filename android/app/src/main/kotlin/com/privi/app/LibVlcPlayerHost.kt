@@ -268,7 +268,8 @@ class LibVlcPlayerHost(
                     entry.pendingPosition = position
                     nativeCall(entry, result) {
                         entry.player?.takeIf { !entry.nativeEnded }?.let {
-                            check(!entry.playing || it.isSeekable) { "LibVLC media is not seekable" }
+                            val inputOpen = it.playerState == IMedia.State.Playing || it.playerState == IMedia.State.Paused
+                            check(!inputOpen || it.isSeekable) { "LibVLC media is not seekable" }
                             if (!it.isSeekable) return@let
                             check(it.setTime(position) >= 0) { "LibVLC rejected seek" }
                             main.post { if (!entry.disposed && entry.pendingPosition == position) entry.pendingPosition = null }
@@ -375,7 +376,9 @@ class LibVlcPlayerHost(
                     val audio = call.method == "setAudioDelay"
                     nativeCall(entry, result) {
                         entry.player?.let {
-                            check(if (audio) it.setAudioDelay(delay) else it.setSpuDelay(delay)) { "LibVLC rejected track delay" }
+                            if (it.playerState == IMedia.State.Playing || it.playerState == IMedia.State.Paused) {
+                                check(if (audio) it.setAudioDelay(delay) else it.setSpuDelay(delay)) { "LibVLC rejected track delay" }
+                            }
                         }
                         main.post {
                             if (audio) entry.audioDelay = delay else entry.subtitleDelay = delay
@@ -748,6 +751,7 @@ class LibVlcPlayerHost(
                         val player = entry.player ?: return
                         nativeQueue.execute {
                             if (entry.disposed || !entry.allowed || !entry.wantsPlay) return@execute
+                            if (entry.nativeEnded || player.playerState == IMedia.State.Ended) return@execute
                             if (!player.isSeekable || player.setTime(start) < 0) {
                                 main.post {
                                     entry.abStart = null
@@ -977,8 +981,8 @@ class LibVlcPlayerHost(
         "supportsAudioTracks" to true, "supportsSubtitles" to true,
         "supportsExternalSubtitles" to true, "supportsAudioDelay" to true,
         "supportsSubtitleDelay" to true, "supportsAbLoop" to true,
-        "audioDelay" to (entry.player?.audioDelay ?: entry.audioDelay),
-        "subtitleDelay" to (entry.player?.spuDelay ?: entry.subtitleDelay),
+        "audioDelay" to entry.audioDelay,
+        "subtitleDelay" to entry.subtitleDelay,
         "abLoopStart" to entry.abStart, "abLoopEnd" to entry.abEnd,
         "error" to entry.failure?.message,
     )
