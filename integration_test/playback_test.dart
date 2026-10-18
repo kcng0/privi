@@ -29,6 +29,9 @@ import 'package:video_player_platform_interface/video_player_platform_interface.
 
 void main() {
   final binding = ApplicationFrameIntegrationTestBinding();
+  // Android screenshots inspect saturated fixture pixels. A red DEBUG banner
+  // would be unrelated video content, especially in Original-size mode.
+  WidgetsApp.debugAllowBannerOverride = false;
   installVaultVideoPlayer();
   final playback = _InteractionPlaybackPlatform();
   VideoPlayerPlatform.instance = playback;
