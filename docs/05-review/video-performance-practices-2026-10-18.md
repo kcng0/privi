@@ -282,3 +282,12 @@ root另行启动[不插桩原生39146944141](https://github.com/kcng0/privi/acti
 [signed43即时root-poll39149914381](https://github.com/kcng0/privi/actions/runs/39149914381)首画面4.156秒、持触/松手画面继续推进。038原PNG在显示tap后1.75秒内已保存却无top/center/bottom chrome，039 XML有控件；PiP点击已距显示tap3.72秒，不能区分过期输入与native拒绝。该PNG是真实呈现反例，不能用XML visible=true替代。`a9d3259`将三条视频入口的chrome归一组，仅出现时180ms自然淡入，隐藏即时卸载；没有退出fade、常驻ticker或重建native viewport，既有4项即时隐藏反例已按较小实现关闭而未改测试。原生HC效果仍待图像验收。正式smoke将A原始blank tap→PNG与B新的fresh reveal→普通单击分开，保留3s/8s期限与过期拒绝；等待PNG的button DOWN方案因Tooltip长按抢arena而明确否决。
 
 用户授权的新独立验收周期第1轮已启动SDK模块对抗审查；Host的Surface恢复及最终native/签名APK尚未完成，公开v1.1.3仍未发布，build43仅为旧SDK暂存包，最终native行为需build44或更高。A52实际FPS、声音、温度与功耗仍未验。
+
+
+2026-10-19 固定源码字幕实现已推进到 `4a79757`，不是仅诊断：0001 改为明确的私有 clock result enum，修正首轮三 ABI 均发现的未定义 `VLC_EINVAL`；保留原 SPU decoder preroll 过滤。0003 统一 slave seek/barrier 时间域，恢复 active overlap/latest unknown group，并跳过 seek cutoff 前已过期历史；SPU known packet end 用 delayed domain 判断 preroll，unknown/zero duration 不新增过期判断。新检查到的时间溢出经专用 input query 进入优先 TIMING_ERROR，不被 slave EOF 吞掉。0004 修正 JNI `nativeSetTime` 的 void/Java long 不匹配；返回当前查询位置，Host 不再把它当 seek 接受或完成确认。
+
+新周期第1轮 Hacker 在真实函数边界复验关闭正 delay、overlap、100 expired queue及release publish输入忽略反例。独立218组Control/Demux、作者20k cue+40k算术、root70k clock与70k preroll+20k AV对照均只是探针。fresh official20patch→4patch准备完成，14个VLC文件和1个JNI文件与owner副本一致，VLC tree `99ae209afc7d29e476eff33bf03b95eac337bb58`、JNI tree `3063bf30974cb795b13076bb5ae142c6d02f5c30`。新的[三ABI SDK构建39155522179](https://github.com/kcng0/privi/actions/runs/39155522179)已进入真实编译，尚无新SDK字幕呈现通过结论。
+
+[普通原生39154250229](https://github.com/kcng0/privi/actions/runs/39154250229)使用 `f4c3775`、旧官方SDK。实际100handoff完成、held23.70%/10块、released24.43%/14块；本轮paused baseline/seek/reselect三图均有中文字，但不能替代此前同路径无字反例的新SDK验收。action40 menu2×两PNG均为HUD2.958/frame71，motion0/16，原门严格失败。真实action markers08.640与13.751分别落在input14/16 reopen后、first-picture前，存在短clip循环末帧采样别名候选；中间只有decode/vout活动记录、没有中间上屏帧证据，不能据reopen或时钟认定流畅，也不直接认定持续freeze。PiP/SCREEN_OFF尚未进入。本轮公开版本仍40，签名新native候选需build44以上。
+
+现有原生字幕用例在原3分钟期限内增加三张独立输入PNG：正delay seek、overlap、长A/100expired/B。保留旧素材及所有旧路径；实际图中文字与独立cue区间才作为通过依据，native paused/position/reopen/gen/PixelCopy仅为诊断。新SDK编译、三图、PiP/锁屏、实际签名APK均尚未验，当前不发布。

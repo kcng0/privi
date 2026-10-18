@@ -973,6 +973,202 @@ void main() {
         await tester.pumpWidget(const SizedBox.shrink());
         await controller.dispose();
       }
+
+      // These external inputs independently define which cues a positive delay
+      // must preserve across paused seeks. The PNGs, not track/alpha metadata,
+      // decide whether the expected labels were actually presented.
+      final originalAss = await files['chinese.ass']!.readAsString();
+      final firstDialogue = originalAss.indexOf('Dialogue:');
+      if (firstDialogue < 0) {
+        throw StateError('The ASS fixture has no dialogue/header boundary');
+      }
+      final assHeader = originalAss.substring(0, firstDialogue);
+      ({int startMs, int endMs, String text, int y}) cue(
+        int startMs,
+        int endMs,
+        String text,
+        int y,
+      ) =>
+          (startMs: startMs, endMs: endMs, text: text, y: y);
+      final delayedCueCases = [
+        (
+          name: 'positive-delay-seek',
+          targetMs: 1500,
+          cues: [
+            cue(0, 750, 'DELAY_A 甲', 240),
+            cue(1000, 2000, 'DELAY_B 乙', 275),
+          ],
+        ),
+        (
+          name: 'overlap-delay-seek',
+          targetMs: 2500,
+          cues: [
+            cue(0, 2800, 'OVERLAP_A 甲', 240),
+            cue(1000, 1200, 'OVERLAP_B 乙', 275),
+          ],
+        ),
+        (
+          name: 'expired-queue-delay-seek',
+          targetMs: 2500,
+          cues: [
+            cue(0, 2800, 'QUEUE_A 甲', 240),
+            for (var index = 1; index <= 100; index++)
+              cue(
+                index * 10,
+                (index + 1) * 10,
+                'EXPIRED_${index.toString().padLeft(3, '0')} 舊',
+                205,
+              ),
+            cue(1300, 2800, 'QUEUE_B 乙', 275),
+          ],
+        ),
+      ];
+      String assTime(int milliseconds) {
+        final centiseconds = milliseconds ~/ 10;
+        return '${centiseconds ~/ 360000}:'
+            '${(centiseconds ~/ 6000 % 60).toString().padLeft(2, '0')}:'
+            '${(centiseconds ~/ 100 % 60).toString().padLeft(2, '0')}.'
+            '${(centiseconds % 100).toString().padLeft(2, '0')}';
+      }
+
+      for (final scenario in delayedCueCases) {
+        const delayMs = 1000;
+        final name = 'ass-${scenario.name}';
+        final subtitleFile = File('${fixtures.path}/$name.ass');
+        final dialogues = scenario.cues
+            .map(
+              (entry) =>
+                  'Dialogue: 0,${assTime(entry.startMs)},${assTime(entry.endMs)},'
+                  'Default,,0,0,0,,{\\an5\\pos(90,${entry.y})}${entry.text}\n',
+            )
+            .join();
+        await subtitleFile.writeAsString('$assHeader$dialogues');
+        final expectation = <String, Object?>{
+          'subtitle-input': await subtitleFile.readAsString(),
+          'source-cues': [
+            for (final entry in scenario.cues)
+              {
+                'start-ms': entry.startMs,
+                'end-exclusive-ms': entry.endMs,
+                'delayed-start-ms': entry.startMs + delayMs,
+                'delayed-end-exclusive-ms': entry.endMs + delayMs,
+                'text': entry.text,
+                'position': [90, entry.y],
+              },
+          ],
+          'requested-delay-ms': delayMs,
+          'requested-seek-ms': scenario.targetMs,
+          'expected-visible-labels': [
+            for (final entry in scenario.cues)
+              if (entry.startMs + delayMs <= scenario.targetMs &&
+                  scenario.targetMs < entry.endMs + delayMs)
+                entry.text,
+          ],
+          'expected-absent-labels': [
+            for (final entry in scenario.cues)
+              if (entry.startMs + delayMs > scenario.targetMs ||
+                  scenario.targetMs >= entry.endMs + delayMs)
+                entry.text,
+          ],
+          'glyph-result':
+              'requires actual native PNG review against these cues',
+        };
+        (metrics['ass_delayed_cue_inputs'] as Map<String, dynamic>? ??
+            (metrics['ass_delayed_cue_inputs'] =
+                <String, dynamic>{}))[name] = expectation;
+        final delayed = await open(tester, 'tracks.mkv');
+        final delayedAdvanced = AdvancedVideoController(delayed);
+        try {
+          await display(tester, delayed);
+          await delayedAdvanced.refresh();
+          await delayedAdvanced.importSubtitle(subtitleFile.path);
+          await delayed.play();
+          await awaitAssPlaying(
+            delayed,
+            delayedAdvanced,
+            '$name-playing-before-pause',
+            readinessMetric: 'ass_delayed_cue_readiness',
+          );
+          await Future<void>.delayed(const Duration(milliseconds: 400));
+          await delayed.pause();
+          Map<String, String>? baseline;
+          Future<void> observePaused(String label, {int? targetMs}) async {
+            final watch = Stopwatch()..start();
+            final observations = <Map<String, Object?>>[];
+            (metrics['ass_delayed_cue_readiness']
+                as Map<String, dynamic>)[label] = observations;
+            late Map<String, String> native;
+            int? position;
+            while (true) {
+              native = await recordDiagnostics(delayed, delayedAdvanced, label)
+                  .timeout(const Duration(seconds: 12) - watch.elapsed);
+              final probe = (metrics['native_diagnostics_probes']
+                  as Map<String, dynamic>)[label] as Map<String, dynamic>;
+              position = probe['native-position-ms'] as int?;
+              observations
+                  .add({...probe, 'elapsed-ms': watch.elapsedMilliseconds});
+              final ready = native['native-player-state'] == '4' &&
+                  native['native-is-playing'] == 'false' &&
+                  !delayed.value.isPlaying &&
+                  position != null &&
+                  (targetMs == null || (position - targetMs).abs() <= 30);
+              if (ready || watch.elapsed >= const Duration(seconds: 12)) break;
+              final remaining = const Duration(seconds: 12) - watch.elapsed;
+              if (remaining <= Duration.zero) break;
+              await Future<void>.delayed(
+                remaining < const Duration(milliseconds: 100)
+                    ? remaining
+                    : const Duration(milliseconds: 100),
+              );
+              if (watch.elapsed >= const Duration(seconds: 12)) break;
+            }
+            expect(native['native-player-state'], '4');
+            expect(native['native-is-playing'], 'false');
+            expect(delayed.value.isPlaying, isFalse);
+            expect(position, inInclusiveRange(0, 2999));
+            if (targetMs != null) {
+              expect(position, inInclusiveRange(targetMs - 30, targetMs + 30));
+            }
+            baseline ??= native;
+            expect(
+              native['input-reopen-count'],
+              baseline!['input-reopen-count'],
+            );
+            expect(
+              native['surface-generation'],
+              baseline!['surface-generation'],
+            );
+          }
+
+          await observePaused('$name-paused-before-delay');
+          expectation['player-id'] = delayed.playerId;
+          expectation['baseline-input-reopen-count'] =
+              baseline!['input-reopen-count'];
+          expectation['baseline-surface-generation'] =
+              baseline!['surface-generation'];
+          await delayedAdvanced
+              .setSubtitleDelay(const Duration(milliseconds: delayMs));
+          await delayed.seekTo(Duration(milliseconds: scenario.targetMs));
+          await observePaused(
+            '$name-before-capture',
+            targetMs: scenario.targetMs,
+          );
+          await recordSubtitlePixels(delayed, '$name-before-capture');
+          final frame =
+              await screenshot(tester, 'portrait-$name', aspect: 180 / 320);
+          expectation['capture'] = frame;
+          await observePaused(
+            '$name-after-capture',
+            targetMs: scenario.targetMs,
+          );
+          await recordSubtitlePixels(delayed, '$name-after-capture');
+        } finally {
+          delayedAdvanced.dispose();
+          await tester.pumpWidget(const SizedBox.shrink());
+          await delayed.dispose();
+          await subtitleFile.delete();
+        }
+      }
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );
