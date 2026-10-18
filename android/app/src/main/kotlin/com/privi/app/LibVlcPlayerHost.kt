@@ -1514,6 +1514,7 @@ class LibVlcPlayerHost(
             "active-view-window-visible" to (entry.activeView?.windowVisible == true).toString(),
             "active-view-presentable" to (entry.activeView?.presentable == true).toString(),
             "native-is-playing" to (entry.player?.isPlaying?.toString() ?: "false"),
+            "native-is-seekable" to (entry.player?.isSeekable?.toString() ?: "unopened"),
             "native-player-state" to (entry.player?.playerState?.toString() ?: "unopened"),
             "subtitle-track-intent" to (entry.selectedSubtitleTrack?.toString() ?: "automatic"),
             "subtitle-track-actual" to (entry.player?.spuTrack?.toString() ?: "unopened"),

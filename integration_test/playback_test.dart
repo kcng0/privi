@@ -226,6 +226,7 @@ void main() {
     String? compareTo,
     bool paused = false,
     bool graphicsDiagnostics = false,
+    bool surfaceComposition = false,
     Map<String, Object?>? uiWitness,
   }) async =>
       deviceAction(tester, {
@@ -237,6 +238,7 @@ void main() {
         if (compareTo != null) 'compareTo': compareTo,
         if (paused) 'expect': 'static',
         if (graphicsDiagnostics) 'graphicsDiagnostics': true,
+        if (surfaceComposition) 'surfaceComposition': true,
         if (uiWitness != null) 'ui_witness': uiWitness,
       });
 
@@ -871,6 +873,7 @@ void main() {
           String phase, {
           int? targetMs,
           String? compareTo,
+          bool surfaceComposition = false,
         }) async {
           await pausedObservation(
             'ass-paused-$phase-before',
@@ -882,6 +885,7 @@ void main() {
             aspect: 180 / 320,
             compareTo: compareTo,
             paused: compareTo != null,
+            surfaceComposition: surfaceComposition,
           );
           await pausedObservation(
             'ass-paused-$phase-after',
@@ -890,18 +894,27 @@ void main() {
           return frame;
         }
 
-        final first = await pausedFrame('steady-first');
+        final first =
+            await pausedFrame('steady-first', surfaceComposition: true);
         await Future<void>.delayed(const Duration(milliseconds: 300));
         await pausedFrame('steady-second', compareTo: first['id'] as String);
         await paused.seekTo(const Duration(milliseconds: 1000));
-        await pausedFrame('after-seek-1000', targetMs: 1000);
+        await pausedFrame(
+          'after-seek-1000',
+          targetMs: 1000,
+          surfaceComposition: true,
+        );
         final selected = await pausedObservation('ass-paused-before-reselect');
         final actual = selected['subtitle-track-actual'];
         expect(int.tryParse(actual ?? ''), greaterThanOrEqualTo(0));
         await pausedAdvanced.selectSubtitleTrack('-1');
         await pausedAdvanced.selectSubtitleTrack(actual!);
         await paused.seekTo(const Duration(milliseconds: 1000));
-        await pausedFrame('after-reselect-seek-1000', targetMs: 1000);
+        await pausedFrame(
+          'after-reselect-seek-1000',
+          targetMs: 1000,
+          surfaceComposition: true,
+        );
       } finally {
         pausedAdvanced.dispose();
         await tester.pumpWidget(const SizedBox.shrink());
@@ -997,6 +1010,7 @@ void main() {
   testWidgets(
     'native PiP returns through the root lock and revokes on screen off',
     (tester) async {
+      final sceneWatch = Stopwatch()..start();
       SharedPreferences.setMockInitialValues({
         'player_external': false,
         'flag_secure': false,
@@ -1230,6 +1244,7 @@ void main() {
         Future<void> movingFrames(
           String label, {
           bool graphicsDiagnostics = false,
+          bool surfaceComposition = false,
         }) async {
           final before = rootUiWitness();
           before['native_window'] =
@@ -1245,6 +1260,7 @@ void main() {
             aspect: 180 / 320,
             uiWitness: before,
             graphicsDiagnostics: graphicsDiagnostics,
+            surfaceComposition: surfaceComposition,
           );
           await Future<void>.delayed(const Duration(milliseconds: 900));
           final after = rootUiWitness();
@@ -1262,7 +1278,130 @@ void main() {
             aspect: 180 / 320,
             uiWitness: after,
             compareTo: first['id'] as String,
+            surfaceComposition: surfaceComposition,
           );
+        }
+
+        Future<void> diagnoseExpandSeekFailure(
+          Object original,
+          StackTrace originalStack,
+        ) async {
+          const label = 'diagnostic-expand-failure-seek';
+          final report = <String, Object?>{
+            'status': 'collecting',
+            'original-error': original.toString(),
+            'original-stack': originalStack.toString(),
+            'player-id': controller.playerId,
+            'controller-initialized': controller.value.isInitialized,
+            'controller-error': controller.value.errorDescription,
+            'interpretation': 'This seek can trigger native events and Flutter '
+                'frames. PNG recovery alone does not prove keyframe causality; '
+                'the original failure is always retained.',
+          };
+          metrics['pip_expand_failure_seek_probe'] = report;
+          report['scene-elapsed-ms'] = sceneWatch.elapsedMilliseconds;
+          // Existing bounded diagnostics/two captures can take about 93s in
+          // total. Reserve two minutes of this test's unchanged 4m deadline,
+          // including cleanup, so the original failure can still be rethrown.
+          if (sceneWatch.elapsed >= const Duration(minutes: 2)) {
+            report['status'] = 'not-executed';
+            report['reasons'] = ['insufficient-original-test-deadline-budget'];
+            return;
+          }
+          report['window-before'] =
+              await recordWindowDiagnostics('$label-before');
+          final before = await diagnostics('$label-position')
+              .timeout(const Duration(seconds: 3));
+          final positionProbe = (metrics['native_diagnostics_probes']
+                  as Map<String, dynamic>)['$label-position']
+              as Map<String, dynamic>;
+          final position = positionProbe['native-position-ms'] as int?;
+          final confirmed = await diagnostics('$label-confirm-input')
+              .timeout(const Duration(seconds: 3));
+          final state = container.read(pictureInPictureControllerProvider);
+          final window = report['window-before'] as Map<String, dynamic>;
+          final witness = rootUiWitness();
+          report['ui-before'] = witness;
+          report['native-before'] = before;
+          report['native-confirm-input'] = confirmed;
+          report['position-sample'] = positionProbe;
+          report['controller-error'] = controller.value.errorDescription;
+          final sameInput = [
+            'input-reopen-count',
+            'surface-generation',
+            'active-view-id',
+          ].every(
+            (key) => before[key] != null && before[key] == confirmed[key],
+          );
+          final reasons = <String>[
+            if (!controller.value.isInitialized || controller.value.hasError)
+              'controller-uninitialized-or-failed',
+            if (confirmed['native-player-created'] != 'true' ||
+                !['3', '4'].contains(confirmed['native-player-state']))
+              'no-active-native-input',
+            if (confirmed['native-is-seekable'] != 'true')
+              'seekability-${confirmed['native-is-seekable'] ?? 'unknown'}',
+            if (position == null ||
+                position < 0 ||
+                position >= controller.value.duration.inMilliseconds)
+              'no-valid-native-position',
+            if (!sameInput) 'input-changed-during-position-sample',
+            if (confirmed['pending-seek-ms'] != 'none')
+              'native-seek-already-pending',
+            if (!identical(state.controller, controller) ||
+                state.currentMediaId != item.id)
+              'controller-or-media-changed',
+            if (!rootIsUnlocked(witness) ||
+                !pip.canPlay(controller: controller, mediaId: item.id) ||
+                confirmed['presentation-allowed'] != 'true' ||
+                window['activity-window-focused'] != true ||
+                window['screen-interactive'] != true ||
+                window['keyguard-locked'] != false ||
+                window['native-cover-present'] != false)
+              'playback-not-authorized',
+          ];
+          if (reasons.isNotEmpty) {
+            report['status'] = 'not-executed';
+            report['reasons'] = reasons;
+            return;
+          }
+          report['command'] = 'controller.seekTo';
+          report['target-ms'] = position;
+          report['command-at'] = DateTime.now().toUtc().toIso8601String();
+          report['status'] = 'seek-issued';
+          try {
+            await controller
+                .seekTo(Duration(milliseconds: position!))
+                .timeout(const Duration(seconds: 3));
+            await waitFor(
+              () =>
+                  controller.value.isInitialized && controller.value.isPlaying,
+              'Diagnostic seek must retain the existing playing controller',
+            );
+            await diagnostics('$label-after-seek')
+                .timeout(const Duration(seconds: 3));
+            await movingFrames(label, surfaceComposition: true);
+            report['status'] = 'completed-original-failure-retained';
+          } finally {
+            try {
+              report['native-after'] = await diagnostics('$label-after-samples')
+                  .timeout(const Duration(seconds: 3));
+              final after = report['native-after'] as Map<String, String>;
+              final sameInputAfter = [
+                'input-reopen-count',
+                'surface-generation',
+                'active-view-id',
+              ].every((key) => confirmed[key] == after[key]);
+              report['input-identity-preserved'] = sameInputAfter;
+              if (!sameInputAfter) {
+                report['status'] =
+                    'inconclusive-input-changed-original-failure-retained';
+              }
+            } catch (error, stack) {
+              report['after-diagnostics-error'] = error.toString();
+              report['after-diagnostics-stack'] = stack.toString();
+            }
+          }
         }
 
         // The Android SurfaceView must pass the actual blank touch through.
@@ -1598,10 +1737,28 @@ void main() {
             await toggleControls(false);
           }
           await diagnostics('surface-before-${action.toLowerCase()}-capture');
-          await movingFrames(
-            'surface-after-${action.toLowerCase()}',
-            graphicsDiagnostics: action == 'SCREEN_OFF',
-          );
+          try {
+            await movingFrames(
+              'surface-after-${action.toLowerCase()}',
+              graphicsDiagnostics: action == 'SCREEN_OFF',
+            );
+          } catch (error, stack) {
+            if (action == 'EXPAND') {
+              try {
+                await diagnoseExpandSeekFailure(error, stack);
+              } catch (diagnosticError, diagnosticStack) {
+                final report = metrics.putIfAbsent(
+                  'pip_expand_failure_seek_probe',
+                  () => <String, Object?>{},
+                ) as Map<String, Object?>;
+                report['status'] =
+                    'diagnostic-failed-original-failure-retained';
+                report['diagnostic-error'] = diagnosticError.toString();
+                report['diagnostic-stack'] = diagnosticStack.toString();
+              }
+            }
+            Error.throwWithStackTrace(error, stack);
+          }
           await diagnostics('surface-after-${action.toLowerCase()}');
         }
         metrics['pip_expand_and_screen_off'] = 'passed';

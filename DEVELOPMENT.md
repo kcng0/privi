@@ -347,8 +347,10 @@ nor an instrumentation target. A single real blank tap is followed immediately
 by a strict PNG capture. PiP/Play reuse that snapshot's original screen bounds,
 within the existing controls deadline. Helper build/install/runtime errors,
 missing or zero-area controls and cleanup failures fail explicitly. Its
-connection ends before returning; startup-picture waits and held DOWN-to-UP
-windows never query it. The APK, keystore and owned package are temporary.
+connection stays alive for bounded read-only root sampling (up to 2s within
+the unchanged 8s host controls deadline), because service connection can finish
+before the app registers its accessibility window. It ends before returning;
+startup-picture waits and held DOWN-to-UP windows never query it. The APK, keystore and owned package are temporary.
 For subtitle diagnosis, debug builds expose an explicit
 `debugReadSubtitleSurfacePixels{id}` call on the existing LibVLC channel. It uses
 PixelCopy only to return buffer status, dimensions, nontransparent bounds/count
@@ -357,6 +359,17 @@ request and callback require the same authorized, current surface; a changed
 view, holder, presentation or device lock rejects the observation. Copy errors
 remain diagnostic failures, and a successful copy does not prove visible glyphs.
 These values are separate from the user's copyable playback diagnostics.
+Three existing paused ASS observations can opt into a PNG-then-SurfaceFlinger
+snapshot on the same ADB owner. Dumps have a shared 10s host sampling budget
+inside the original 20s action deadline; original pixel errors keep priority.
+The observations are adjacent, not an atomic frame/presentation fence.
+The PiP scenario also retains an EXPAND failure before an optional diagnostic
+same-position seek: it requires actual SDK seekability, authorization, current
+input identity and remaining test budget. New PNG/layer observations never turn
+the original failure green; the same original error and stack are rethrown.
+A seek may generate native/Flutter events, so image recovery alone does not
+prove a keyframe cause. The added native-is-seekable diagnostic is an actual SDK
+value; unopened does not imply seekable.
 The existing PiP integration scenario can explicitly start/stop a debug-only
 Flutter composition observer on `com.privi.app/window`. Window diagnostics then
 include reader identity/geometry, ImageAvailable notification timestamps and

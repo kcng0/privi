@@ -42,15 +42,20 @@ import android.graphics.Rect;
 import android.os.Bundle;
 import android.os.SystemClock;
 import android.util.Base64;
+import android.util.Log;
 import android.util.Xml;
 import android.view.accessibility.AccessibilityNodeInfo;
 import java.io.StringWriter;
+import org.json.JSONArray;
 import org.xmlpull.v1.XmlSerializer;
 
 /** Temporary instrumentation targets only its own package, never Privi. */
 public final class PriviSnapshotInstrumentation extends Instrumentation {
+    private Bundle arguments;
+
     @Override public void onCreate(Bundle arguments) {
         super.onCreate(arguments);
+        this.arguments = arguments == null ? new Bundle() : arguments;
         start();
     }
 
@@ -91,14 +96,45 @@ public final class PriviSnapshotInstrumentation extends Instrumentation {
         Bundle result = new Bundle();
         int code = Activity.RESULT_CANCELED;
         AccessibilityNodeInfo root = null;
+        JSONArray reads = new JSONArray();
         result.putLong("started_elapsed_ns", SystemClock.elapsedRealtimeNanos());
         try {
+            long waitMs = Long.parseLong(arguments.getString("root_wait_ms", "2000"));
+            if (waitMs < 0 || waitMs > 2000) {
+                throw new IllegalArgumentException("root_wait_ms must be within 0..2000");
+            }
+            result.putLong("root_wait_ms", waitMs);
+            long connecting = SystemClock.elapsedRealtimeNanos();
+            result.putLong("connection_started_elapsed_ns", connecting);
+            Log.i("PriviUiSnapshot", "connection-start elapsed_ns=" + connecting);
             UiAutomation automation = getUiAutomation();
+            long connected = SystemClock.elapsedRealtimeNanos();
+            result.putLong("connection_finished_elapsed_ns", connected);
+            Log.i("PriviUiSnapshot", "connection-finished elapsed_ns=" + connected);
             if (automation == null) throw new IllegalStateException("UiAutomation unavailable");
-            root = automation.getRootInActiveWindow();
+            // A connected service does not mean the app's asynchronous
+            // ViewRootImpl accessibility window registration has completed.
+            // Keep this connection alive for bounded read-only root sampling.
+            long deadline = SystemClock.uptimeMillis() + waitMs;
+            do {
+                long started = SystemClock.elapsedRealtimeNanos();
+                try {
+                    root = automation.getRootInActiveWindow();
+                } finally {
+                    long finished = SystemClock.elapsedRealtimeNanos();
+                    reads.put(new JSONArray().put(started).put(finished).put(root != null));
+                    Log.i("PriviUiSnapshot", "root-read elapsed_ns=" + started + ".."
+                            + finished + " present=" + (root != null));
+                }
+                long remaining = deadline - SystemClock.uptimeMillis();
+                if (root != null || remaining <= 0) break;
+                SystemClock.sleep(Math.min(50, remaining));
+            } while (true);
             if (root == null) {
                 result.putString("status", "root-unavailable");
+                result.putString("root_unavailable_reason", "no-active-root-within-read-only-budget");
             } else {
+                result.putInt("root_window_id", root.getWindowId());
                 StringWriter writer = new StringWriter();
                 XmlSerializer xml = Xml.newSerializer();
                 xml.setOutput(writer);
@@ -117,6 +153,8 @@ public final class PriviSnapshotInstrumentation extends Instrumentation {
             result.putString("error", error.getClass().getName() + ": " + error.getMessage());
         } finally {
             if (root != null) root.recycle();
+            result.putInt("root_read_attempts", reads.length());
+            result.putString("root_reads_json", reads.toString());
             result.putLong("finished_elapsed_ns", SystemClock.elapsedRealtimeNanos());
             // API33 Instrumentation.finish disconnects UiAutomation before
             // finishInstrumentation returns these results to the shell.
@@ -264,19 +302,35 @@ def preflight():
         save_device_state("preflight-final")
 
 
-def action_window(request):
-    windows = shell_text("dumpsys", "window")
+def composition_timeout(deadline, maximum):
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError("Surface composition sampling deadline expired")
+    return min(maximum, remaining)
+
+
+def action_window(request, *, deadline=None):
+    started = time.monotonic()
+    windows = (shell_text("dumpsys", "window") if deadline is None else
+               adb("shell", "dumpsys", "window", capture_output=True, text=True,
+                   timeout=composition_timeout(deadline, 2)).stdout.strip())
+    finished = time.monotonic()
     (OUTPUT / f"{request['id']}-window.txt").write_text(windows)
     focus = focus_from(windows)
     if "Application Not Responding:" in windows or "Application Error:" in windows:
-        capture(f"{request['id']}-blocked")
+        capture(f"{request['id']}-blocked", timeout=15 if deadline is None else
+                composition_timeout(deadline, 5))
         raise RuntimeError(f"Android ANR/crash dialog is visible: {focus}")
     # Raw PiP composition intentionally has HOME focused. All touch/fullscreen
     # content assertions must target the real foreground Privi Activity.
     if request["op"] != "screenshot" and "com.privi.app/" not in focus:
-        capture(f"{request['id']}-blocked")
+        capture(f"{request['id']}-blocked", timeout=15 if deadline is None else
+                composition_timeout(deadline, 5))
         raise RuntimeError(f"Privi is not the focused Android window: {focus}")
-    return {"android_foreground_window": focus}
+    return {"android_foreground_window": focus, **({
+        "window_started_monotonic": started,
+        "window_finished_monotonic": finished,
+    } if deadline is not None else {})}
 
 
 def persist():
@@ -360,6 +414,10 @@ class Handler(BaseHTTPRequestHandler):
             identifier = request["id"]
             if request.get("op") not in ("tap", "down", "up", "capture", "screenshot"):
                 raise ValueError("Unknown registered action operation")
+            if "surfaceComposition" in request and not isinstance(request["surfaceComposition"], bool):
+                raise ValueError("surfaceComposition must be a boolean")
+            if request.get("surfaceComposition") and request["op"] not in ("capture", "screenshot"):
+                raise ValueError("surfaceComposition is only available for image capture")
             with REGISTRATION_LOCK:
                 if identifier in ACTION_REQUESTS or identifier in DISPATCHED_IDS:
                     status = 409
@@ -446,7 +504,7 @@ def content_bounds(image, viewport):
     return bounds
 
 
-def inspect_capture(request, *, captured=None):
+def inspect_capture(request, *, captured=None, captured_monotonic=None):
     path, image = captured if captured is not None else capture(request["name"])
     if request["op"] == "screenshot":
         return {"screenshot": path.name, "screen_size": image.size,
@@ -468,7 +526,8 @@ def inspect_capture(request, *, captured=None):
     left, top, right, bottom = bounds
     width, height = right - left, bottom - top
     result = {"screenshot": path.name, "screen_size": image.size, "video_bounds": bounds,
-              "video_aspect_ratio": width / height, "captured_monotonic": time.monotonic(),
+              "video_aspect_ratio": width / height,
+              "captured_monotonic": time.monotonic() if captured_monotonic is None else captured_monotonic,
               "fixture_signature": fixture_signature(image, bounds)}
     if "aspect" in request:
         expected = request["aspect"]
@@ -515,12 +574,69 @@ def inspect_capture(request, *, captured=None):
     return result
 
 
-def perform(request):
+def capture_surface_composition(request, deadline):
+    """Observe PNG then raw layers on the same ADB owner, without UI/frame input."""
+    prefix = request["id"] + "-surface-composition"
+    layers = OUTPUT / f"{prefix}-surfaceflinger.txt"
+    report = {"order": ["png", "surfaceflinger", "pixel-inspection"],
+              "window_dump": f"{request['id']}-window.txt",
+              "screenshot": request["name"] + ".png", "surfaceflinger_dump": layers.name,
+              "host_deadline_monotonic": deadline, "png_started_monotonic": time.monotonic()}
+    captured, primary_error, diagnostic_error = None, None, None
+    try:
+        captured = capture(request["name"], timeout=composition_timeout(deadline, 5))
+    except Exception as error:
+        primary_error = error
+        report["png_error"] = f"{type(error).__name__}: {error}"
+    report["png_finished_monotonic"] = time.monotonic()
+    report["surfaceflinger_started_monotonic"] = time.monotonic()
+    try:
+        with layers.open("wb") as target:
+            result = adb("shell", "dumpsys", "SurfaceFlinger", stdout=target, stderr=subprocess.PIPE,
+                         timeout=composition_timeout(deadline, 2))
+        (OUTPUT / f"{prefix}-stderr.txt").write_bytes(result.stderr)
+        report["surfaceflinger_bytes"] = layers.stat().st_size
+        if not report["surfaceflinger_bytes"]:
+            raise RuntimeError("SurfaceFlinger returned an empty diagnostic dump")
+    except Exception as error:
+        diagnostic_error = error
+        report["surfaceflinger_error"] = f"{type(error).__name__}: {error}"
+        stderr = getattr(error, "stderr", None)
+        if stderr:
+            report["surfaceflinger_stderr"] = stderr.decode("utf-8", errors="replace") if isinstance(stderr, bytes) else stderr
+    report["surfaceflinger_finished_monotonic"] = time.monotonic()
+    result = None
+    if captured is not None:
+        try:
+            result = inspect_capture(request, captured=captured,
+                                     captured_monotonic=report["png_finished_monotonic"])
+        except Exception as error:
+            primary_error = error
+            report["pixel_inspection_error"] = f"{type(error).__name__}: {error}"
+    report["finished_monotonic"] = time.monotonic()
+    try:
+        (OUTPUT / f"{prefix}.json").write_text(json.dumps(report, indent=2))
+    except Exception as error:
+        diagnostic_error = error
+        # If disk persistence fails, retain the diagnostic error in the runner
+        # output while preserving any earlier PNG/pixel failure as primary.
+        print(json.dumps({"surface_composition": report,
+                          "diagnostic_save_error": f"{type(error).__name__}: {error}"}), flush=True)
+    if primary_error is not None:
+        raise primary_error
+    if diagnostic_error is not None:
+        raise RuntimeError(f"Surface composition diagnostics failed: {prefix}: {diagnostic_error}") from diagnostic_error
+    return {**result, "surface_composition": report}
+
+
+def perform(request, *, deadline=None):
     global HELD_POINT
     operation = request["op"]
     if operation in ("capture", "screenshot"):
         if request.get("graphicsDiagnostics"):
             save_graphics_state(request["id"] + "-before-capture")
+        if request.get("surfaceComposition"):
+            return capture_surface_composition(request, deadline if deadline is not None else time.monotonic() + 10)
         return inspect_capture(request)
     x, y = (round(value) for value in request["point"])
     if operation == "tap":
@@ -556,11 +672,15 @@ def dispatch_action(identifier):
         value = {"ok": False, "request": {"id": identifier}, "error": message}
     else:
         try:
-            window = action_window(request)
-            value = {"ok": True, "request": request, **window, **perform(request)}
+            # This opt-in leaves half of the existing 20s client deadline for
+            # registration/transport and pixel inspection; it never extends it.
+            deadline = time.monotonic() + 10 if request.get("surfaceComposition") else None
+            window = action_window(request, deadline=deadline)
+            value = {"ok": True, "request": request, **window, **perform(request, deadline=deadline)}
         except Exception as error:
             value = {"ok": False, "request": request, "error": f"{type(error).__name__}: {error}"}
-            if request["op"] in ("capture", "screenshot") and not request.get("graphicsDiagnostics"):
+            if (request["op"] in ("capture", "screenshot") and not request.get("graphicsDiagnostics")
+                    and not request.get("surfaceComposition")):
                 save_graphics_state(identifier + "-failed-capture")
             if request["op"] == "up" and HELD_POINT is not None:
                 # Release held input after a failed focus/ANR assertion without
@@ -695,13 +815,23 @@ class ReleaseSmoke:
         timeout = min(10, deadline - started) if deadline is not None else 10
         if timeout <= 0:
             raise TimeoutError("Transient controls snapshot deadline expired")
+        # The original host controls deadline includes process startup, root
+        # sampling and shell results. Reserve startup/return time, never extend it.
+        root_wait_ms = min(2000, max(0, int((timeout - 1) * 1000)))
         try:
             result = adb("shell", "am", "instrument", "-w", "-r",
+                         "-e", "root_wait_ms", str(root_wait_ms),
                          self.fast_ui_package + "/com.privi.validation.PriviSnapshotInstrumentation",
                          capture_output=True, text=True, timeout=timeout)
         except Exception as error:
+            def partial_text(value):
+                return value.decode("utf-8", errors="replace") if isinstance(value, bytes) else value or ""
+
+            (OUTPUT / f"{prefix}-runner.txt").write_text(
+                partial_text(getattr(error, "stdout", None)) + partial_text(getattr(error, "stderr", None)))
             self.note("fast-ui-snapshot-failed", label=label, started_monotonic=started,
-                      finished_monotonic=time.monotonic(), error=f"{type(error).__name__}: {error}")
+                      finished_monotonic=time.monotonic(), runner=f"{prefix}-runner.txt",
+                      error=f"{type(error).__name__}: {error}")
             raise
         finished = time.monotonic()
         (OUTPUT / f"{prefix}-runner.txt").write_text(result.stdout + result.stderr)
@@ -719,7 +849,14 @@ class ReleaseSmoke:
                   xml=f"{prefix}.xml" if record["status"] == "snapshot" else None,
                   started_monotonic=started, finished_monotonic=finished,
                   guest_started_elapsed_ns=int(record["started_elapsed_ns"]),
-                  guest_finished_elapsed_ns=int(record["finished_elapsed_ns"]), status=record["status"])
+                  guest_finished_elapsed_ns=int(record["finished_elapsed_ns"]),
+                  guest_connection_started_elapsed_ns=int(record["connection_started_elapsed_ns"]),
+                  guest_connection_finished_elapsed_ns=int(record["connection_finished_elapsed_ns"]),
+                  guest_root_wait_ms=int(record["root_wait_ms"]),
+                  guest_root_read_attempts=int(record["root_read_attempts"]),
+                  guest_root_reads=json.loads(record["root_reads_json"]),
+                  guest_root_unavailable_reason=record.get("root_unavailable_reason"),
+                  guest_root_window_id=record.get("root_window_id"), status=record["status"])
         if record["status"] == "root-unavailable":
             return None
         if record["status"] != "snapshot":

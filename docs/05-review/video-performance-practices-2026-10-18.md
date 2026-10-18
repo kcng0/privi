@@ -262,3 +262,12 @@ root另行启动[不插桩原生39146944141](https://github.com/kcng0/privi/acti
 本次ASS paused对照更强：ordinary seek@HUD1.000有中文字，off/on再seek@相同1.000无字；native position1000、reopen0、surface generation1保持。当前subtitleSurface在两条暂停路径前后PixelCopy均31412非透明像素、同bbox与CRC31e114fd，采样跨2.35秒仍稳定。这不支持直接把无字归为缓存清空/时间错位；需定位其buffer与屏幕layer的关系。root实际看过两张暂停图及playing seek图（HUD2.833无字），保持字幕反例开放。
 
 诊断工具修复`5bca013`已推送；新的[可选Frida39147687212](https://github.com/kcng0/privi/actions/runs/39147687212)进行中，普通业务APK仍43。修复的临时真实Frida17 API与进程组隔离探针通过，Android hook/runtime尚未验。瞬时UI helper亦已通过API33 javac/D8/封包/签名探针；真实Android安装、连接耗时和3秒内控件采样须继续用同签名43验证，不以运输桩或编译成功判产品通过。
+
+
+新的Frida39147687212已结束：旧loader abort未复现，hooks-ready实际到达，531条记录覆盖字幕阶段；随后action49运动检查失败、app退场，agent未正常stop，故coverage=partial，不能标captured或当性能证据。独立只读`ass_trace_analysis`核同轮paused两张PNG：普通seek@1.000有字、off/on再seek@1.000无字。新track40/sub14实际经过cue decode、clock转换、vout-put/spu-put，renderer41在990ms has_images=true，SPU持续region_count1；PixelCopy仍31412alpha/同CRC。这关闭“未解码/cue外/无SPU输出”的解释，但还不能把新sub14对应到已latch的Surface buffer。playing embedded seek本轮@1.875有字，不可拿来解释普通无插桩@2.833缺字；两路径保持区分。
+
+同trace另有独立时钟反例：负delay−250000us把合法cue start2us变−249998us，clock因符号跳过start转换，stop却转到system域，随后在vout-put前delete。官方3.7.7 core源码匹配。将delay纳入clock映射而不损失原validity可关闭stream跨零，但低uptime/大负delay仍可映射为有效signed system日期，被后续SPU符号判断丢弃。完整修复需分离“转换成功/日期已知”与符号，不能夹0/1/now或宣称三文件patch覆盖所有合法输入；尚未改/构建SDK。
+
+[signed43即时helper验收39148303329](https://github.com/kcng0/privi/actions/runs/39148303329)再次首画面3.6386秒、held画面推进，但controls-before连续root-unavailable，未发PiP。固定AOSP13源码及真实log说明：服务connected不等于Privi ViewRoot已注册accessibility window；旧helper读一次null便finish，22–126ms内销毁仍建立中的连接。修正改同连接内有界只读poll，最长2秒且扣入原8秒host预算，不waitIdle/造帧/重复tap。实际Android新poll时序待验。
+
+下一次原生观察保留原失败：三个paused ASS截图紧邻保存SF层dump；EXPAND原检查失败后，仅在真实seekable、授权、input身份与实际位置有效时，可诊断性seek同位置并另存PNG/SF，最终始终重抛原错误。它用于检验SDK detachViews重建decoder后从GOP中段续播的候选，不能当产品自动fallback，也不能仅凭PNG恢复认定关键帧因果。Host新增只读native-is-seekable字段并通过官方AAR Kotlin编译，现有immutable签名43不包含该新字段；最终后续native生产构建需新build号≥44。
