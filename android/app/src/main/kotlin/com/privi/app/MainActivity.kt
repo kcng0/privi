@@ -212,6 +212,11 @@ class MainActivity : FlutterFragmentActivity() {
         MethodChannel(messenger, "com.privi.app/window")
             .setMethodCallHandler { call, result ->
                 when (call.method) {
+                    "getWindowDiagnostics" -> {
+                        result.success(mapOf(
+                            "activity-window-focused" to hasWindowFocus(),
+                        ) + pictureInPicture?.diagnostics().orEmpty())
+                    }
                     "getFlutterViewScreenOffset" -> {
                         val view = findViewById<FlutterView>(FlutterFragment.FLUTTER_VIEW_ID)
                         if (view == null || !view.isAttachedToWindow) {

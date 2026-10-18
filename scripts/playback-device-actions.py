@@ -27,8 +27,9 @@ OUTPUT.mkdir(parents=True, exist_ok=True)
 
 
 def adb(*args, **kwargs):
+    kwargs.setdefault("timeout", 15)
     return subprocess.run(["adb", "-s", SERIAL, *args], check=True,
-                          timeout=15, **kwargs)
+                          **kwargs)
 
 
 def shell_text(*args):
@@ -57,6 +58,27 @@ def save_device_state(prefix):
         capture(f"{prefix}-screen")
     except Exception as error:
         (OUTPUT / f"{prefix}-screen-error.txt").write_text(str(error))
+
+
+def save_graphics_state(prefix):
+    """Observe wake/graphics state without changing renderer, power or frames."""
+    commands = {
+        "power": ["shell", "dumpsys", "power"],
+        "display": ["shell", "dumpsys", "display"],
+        "surfaceflinger": ["shell", "dumpsys", "SurfaceFlinger"],
+        "threads": ["shell", "ps", "-T", "-A"],
+    }
+    report = {"captured_monotonic": time.monotonic(), "files": {}}
+    for name, arguments in commands.items():
+        path = OUTPUT / f"{prefix}-{name}.txt"
+        try:
+            result = adb(*arguments, capture_output=True, text=True, timeout=2)
+            path.write_text(result.stdout)
+            report["files"][name] = path.name
+        except Exception as error:
+            path.write_text(f"{type(error).__name__}: {error}")
+            report["files"][name] = {"file": path.name, "error": str(error)}
+    (OUTPUT / f"{prefix}-graphics.json").write_text(json.dumps(report, indent=2))
 
 
 def preflight():
@@ -310,6 +332,8 @@ def perform(request):
     global HELD_POINT
     operation = request["op"]
     if operation in ("capture", "screenshot"):
+        if request.get("graphicsDiagnostics"):
+            save_graphics_state(request["id"] + "-before-capture")
         return inspect_capture(request)
     x, y = (round(value) for value in request["point"])
     if operation == "tap":
@@ -364,6 +388,8 @@ def main():
                     value = {"ok": True, "request": request, **window, **perform(request)}
                 except Exception as error:
                     value = {"ok": False, "request": request, "error": f"{type(error).__name__}: {error}"}
+                    if request["op"] in ("capture", "screenshot") and not request.get("graphicsDiagnostics"):
+                        save_graphics_state(identifier + "-failed-capture")
                     if request["op"] == "up" and HELD_POINT is not None:
                         # Release our held input even if an ANR/focus assertion
                         # failed; do not dismiss the dialog or turn failure green.

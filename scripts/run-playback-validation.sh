@@ -8,6 +8,9 @@ for fixture in integration_test/fixtures/*.mp4 integration_test/fixtures/*.mkv i
   ffprobe -v error -show_streams -show_format -of json "$fixture" > "build/playback-validation/$(basename "$fixture").ffprobe.json"
 done
 adb -s "$ANDROID_SERIAL" shell getprop ro.build.fingerprint > build/playback-validation/emulator-build.txt
+flutter --version --machine > build/playback-validation/flutter-version.json
+"${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}/emulator/emulator" -version > build/playback-validation/emulator-version.txt 2>&1
+adb -s "$ANDROID_SERIAL" shell getprop > build/playback-validation/emulator-properties.txt
 # The first immersive-mode tutorial steals window focus and blocks PiP entry.
 # This setting applies only to the disposable CI emulator.
 adb -s "$ANDROID_SERIAL" shell settings --user current put secure immersive_mode_confirmations confirmed

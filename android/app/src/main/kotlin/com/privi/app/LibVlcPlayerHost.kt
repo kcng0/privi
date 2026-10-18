@@ -144,6 +144,7 @@ class LibVlcPlayerHost(
         var abStart: Long? = null
         var abEnd: Long? = null
         var abSeeking = false
+        var abSeekCount = 0L
         var openTimeout: Runnable? = null
         var playerTimeout: Runnable? = null
         var focusRequest: AudioFocusRequest? = null
@@ -844,6 +845,9 @@ class LibVlcPlayerHost(
                                     entry.abSeeking = false
                                     advancedError(entry, "LibVLC could not seek the A–B loop")
                                 }
+                            } else {
+                                entry.abSeekCount++
+                                trace(entry, "ab-seek-$start")
                             }
                         }
                     }
@@ -1238,6 +1242,13 @@ class LibVlcPlayerHost(
             "subtitle-track-ids" to (entry.player?.let { player ->
                 player.spuTracks?.joinToString(prefix = "[", postfix = "]") { it.id.toString() } ?: "unavailable"
             } ?: "unopened"),
+            "audio-delay-intent-us" to entry.audioDelay.toString(),
+            "audio-delay-actual-us" to (entry.player?.audioDelay?.toString() ?: "unopened"),
+            "subtitle-delay-intent-us" to entry.subtitleDelay.toString(),
+            "subtitle-delay-actual-us" to (entry.player?.spuDelay?.toString() ?: "unopened"),
+            "ab-loop-start-ms" to (entry.abStart?.toString() ?: "none"),
+            "ab-loop-end-ms" to (entry.abEnd?.toString() ?: "none"),
+            "ab-seek-count" to entry.abSeekCount.toString(),
             "presentation-allowed" to entry.allowed.toString(),
             "play-requested" to entry.wantsPlay.toString(),
             "viewport-presentable" to entry.viewportAttached.toString(),

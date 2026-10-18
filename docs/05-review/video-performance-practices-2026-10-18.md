@@ -193,3 +193,7 @@ Hacker 第 1 轮在 `34ec5ba` 的实际原生结果中确认：真实 ADB 点击
 该快照的[作者原生运行](https://github.com/kcng0/privi/actions/runs/39130426888) 仍失败，普通 CI 则通过。实际缓存构建成功，耗时 8989ms；首次视频以及 H264、VP9、HEVC、AV1、旋转/SAR、各比例模式的真实画面通过。100 次切片完成。真实长按持续 10.6 秒、跨多次片尾重开，持触/松手/菜单 2×/回 1× 均有视频 ROI 持续变化；横竖屏运动、暂停后控件切换和旋转静帧、恢复 Play 后运动均通过。作者同时补齐已结束输入的显式 replay seek(0)，运行中 seek(0) 不受影响；该边界待下一次原生运行。
 
 剩余两项需要区分源问题与验收呈现：ASS 实际已选 track4，字幕 Surface 有效且可见，但原截图处于首次 seek(1000) 与窄 A–B 的连续 flush 期间，图片 HUD 仍为 frame0，没有中文字，不能据 API 绿宣称字幕通过。PiP 第一次返回并锁定时黑屏保护通过；随后测试解锁后的两张图实际仍是相同的“Draw your pattern”界面，旧多色边界误把锁图标和 Forgot pattern 按钮算成视频。此处没有视频冻结的像素证据；需检查真实锁层撤出及合成结果，并强化素材识别防止假阳性。作者侧关闭这些反例后才提交第 2 轮 Hacker 复验，原生验收未通过前不发布。
+
+作者快照 `a4c1f35` 的[原生运行](https://github.com/kcng0/privi/actions/runs/39132675632) 增加了独立稳态内嵌 ASS 对照、解锁真实 widget/交互 witness 和锁/PiP timeline；候选视频 bounds 内须有大面积、多色段 testsrc2 特征，旧锁屏图不再算视频。35 张旧真实视频图保留原比例、Original 物理尺寸与运动阈值通过，2 张 pattern 图明确被拒绝。本轮实际内嵌字幕 PNG 已显示 `Privi 中文字幕測試`，源 HUD 为 0.917 秒/frame22，字幕和视频 Surface 本身可用；显式 seek 请求 0、无 A–B。原外部导入＋seek/A–B 路径两张图仍无文字，later 图源 HUD 已到1.708秒/frame41，须继续定位，不能以稳态内嵌通过替代外部字幕合同。
+
+该次长按持续11.59秒、100次切片及先前交互/比例检查仍通过。PiP EXPAND 后单次解锁的真实树已无锁层且恢复交互，两张视频图 ROI 变化16.78%、9/16区块，通过；没有出现晚到 relock。随后实际 SCREEN_OFF→唤醒返回，真实树同样解锁/已resumed，首张截图却全黑，测试据此失败。Flutter raster 线程在该熄屏阶段开始持续报 `EGL_BAD_ACCESS: context current to another thread`，不能按时钟或 widget 树宣称恢复成功，也不能直接把该图形上下文失败归给 LibVLC。作者分别定位外部字幕与此图形恢复问题；发布及第2轮 Hacker继续等待。

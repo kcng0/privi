@@ -58,6 +58,26 @@ void main() {
     return native;
   }
 
+  Future<Map<String, dynamic>> recordWindowDiagnostics(String label) async {
+    final native = await const MethodChannel('com.privi.app/window')
+        .invokeMapMethod<String, dynamic>('getWindowDiagnostics')
+        .timeout(const Duration(seconds: 5));
+    if (native == null) {
+      throw StateError('Native window diagnostics are unavailable: $label');
+    }
+    final observation = <String, dynamic>{
+      ...native,
+      'captured-at': DateTime.now().toUtc().toIso8601String(),
+    };
+    (metrics['native_window_diagnostics'] as Map<String, dynamic>? ??
+        (metrics['native_window_diagnostics'] =
+            <String, dynamic>{}))[label] = observation;
+    debugPrint(
+      'PRIVI_TEST_WINDOW ${jsonEncode({'label': label, ...observation})}',
+    );
+    return observation;
+  }
+
   Future<Map<String, dynamic>> deviceAction(
     WidgetTester tester,
     Map<String, Object?> action,
@@ -141,6 +161,7 @@ void main() {
     List<int>? physicalSize,
     String? compareTo,
     bool paused = false,
+    bool graphicsDiagnostics = false,
     Map<String, Object?>? uiWitness,
   }) async =>
       deviceAction(tester, {
@@ -151,6 +172,7 @@ void main() {
         if (physicalSize != null) 'physicalSize': physicalSize,
         if (compareTo != null) 'compareTo': compareTo,
         if (paused) 'expect': 'static',
+        if (graphicsDiagnostics) 'graphicsDiagnostics': true,
         if (uiWitness != null) 'ui_witness': uiWitness,
       });
 
@@ -512,6 +534,89 @@ void main() {
         await steady.dispose();
       }
 
+      // Keep the imported ASS input independent of the embedded-track and
+      // original combined controls scenarios. Each phase retains native pixels
+      // and clock/configuration probes; glyph presence is reviewed in the PNGs.
+      final external = await open(tester, 'tracks.mkv');
+      final externalAdvanced = AdvancedVideoController(external);
+      try {
+        await display(tester, external);
+        await externalAdvanced.refresh();
+        await externalAdvanced.importSubtitle(files['chinese.ass']!.path);
+        expect(externalAdvanced.value.audioDelay, Duration.zero);
+        expect(externalAdvanced.value.subtitleDelay, Duration.zero);
+        expect(externalAdvanced.value.abLoopStart, isNull);
+        expect(externalAdvanced.value.abLoopEnd, isNull);
+        await external.setLooping(true);
+        await external.play();
+        await Future<void>.delayed(const Duration(milliseconds: 800));
+
+        Future<Map<String, dynamic>> externalFrame(
+          String phase, {
+          String? compareTo,
+        }) async {
+          final before = await recordDiagnostics(
+            external,
+            externalAdvanced,
+            'ass-external-$phase-before',
+          );
+          expect(before['native-is-playing'], 'true');
+          expect(
+            (await external.position)?.inMilliseconds,
+            inInclusiveRange(0, 2999),
+            reason: 'The external ASS cue spans 0-3s',
+          );
+          final frame = await screenshot(
+            tester,
+            'portrait-ass-external-$phase',
+            aspect: 180 / 320,
+            compareTo: compareTo,
+          );
+          final after = await recordDiagnostics(
+            external,
+            externalAdvanced,
+            'ass-external-$phase-after',
+          );
+          expect(after['native-is-playing'], 'true');
+          expect(
+            (await external.position)?.inMilliseconds,
+            inInclusiveRange(0, 2999),
+            reason:
+                'The external ASS cue must also remain active after capture',
+          );
+          return frame;
+        }
+
+        final first = await externalFrame('steady-first');
+        await Future<void>.delayed(const Duration(milliseconds: 600));
+        await externalFrame('steady-second', compareTo: first['id'] as String);
+        metrics['ass_external_steady_probes'] = {
+          'explicit_seek_requests': playback.seeks
+              .where((entry) => entry.$1 == external.playerId)
+              .length,
+          'ab_loop_configured': externalAdvanced.value.abLoopEnd != null,
+          'cjk': 'inspect native PNGs against the same chinese.ass fixture',
+        };
+        await external.seekTo(const Duration(milliseconds: 1000));
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+        await externalFrame('after-seek-1000');
+        await externalAdvanced.setAudioDelay(const Duration(milliseconds: 125));
+        await externalAdvanced
+            .setSubtitleDelay(const Duration(milliseconds: -250));
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+        await externalFrame('after-delay');
+        await externalAdvanced.setAbLoop(
+          const Duration(milliseconds: 500),
+          const Duration(milliseconds: 1500),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 600));
+        await externalFrame('after-ab');
+      } finally {
+        externalAdvanced.dispose();
+        await tester.pumpWidget(const SizedBox.shrink());
+        await external.dispose();
+      }
+
       final controller = await open(tester, 'tracks.mkv');
       final advanced = AdvancedVideoController(controller);
       try {
@@ -831,8 +936,13 @@ void main() {
           );
         }
 
-        Future<void> movingFrames(String label) async {
+        Future<void> movingFrames(
+          String label, {
+          bool graphicsDiagnostics = false,
+        }) async {
           final before = rootUiWitness();
+          before['native_window'] =
+              await recordWindowDiagnostics('$label-first-before');
           expect(
             rootIsUnlocked(before),
             isTrue,
@@ -843,9 +953,12 @@ void main() {
             '$label-first',
             aspect: 180 / 320,
             uiWitness: before,
+            graphicsDiagnostics: graphicsDiagnostics,
           );
           await Future<void>.delayed(const Duration(milliseconds: 900));
           final after = rootUiWitness();
+          after['native_window'] =
+              await recordWindowDiagnostics('$label-second-before');
           expect(
             rootIsUnlocked(after),
             isTrue,
@@ -1162,11 +1275,16 @@ void main() {
             find.byKey(const Key('native-pip-route'), skipOffstage: false),
             findsOneWidget,
           );
+          final fullscreenWindow = await recordWindowDiagnostics(
+            'native-fullscreen-${action.toLowerCase()}',
+          );
           await deviceAction(tester, {
             'op': 'capture',
             'name': 'native-fullscreen-${action.toLowerCase()}',
             ...await physicalViewport(tester),
             'expectNoVideo': true,
+            'native_window_witness': fullscreenWindow,
+            if (action == 'SCREEN_OFF') 'graphicsDiagnostics': true,
           });
           (container.read(lockControllerProvider.notifier) as _IntegrationLock)
               .unlockForTest();
@@ -1183,7 +1301,11 @@ void main() {
           if (find.byTooltip('Player settings').evaluate().isNotEmpty) {
             await toggleControls(false);
           }
-          await movingFrames('surface-after-${action.toLowerCase()}');
+          await diagnostics('surface-before-${action.toLowerCase()}-capture');
+          await movingFrames(
+            'surface-after-${action.toLowerCase()}',
+            graphicsDiagnostics: action == 'SCREEN_OFF',
+          );
           await diagnostics('surface-after-${action.toLowerCase()}');
         }
         metrics['pip_expand_and_screen_off'] = 'passed';
