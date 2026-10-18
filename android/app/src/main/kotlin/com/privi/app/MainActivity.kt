@@ -10,7 +10,9 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.view.WindowManager
+import io.flutter.embedding.android.FlutterFragment
 import io.flutter.embedding.android.FlutterFragmentActivity
+import io.flutter.embedding.android.FlutterView
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.util.concurrent.Executors
@@ -199,6 +201,16 @@ class MainActivity : FlutterFragmentActivity() {
         MethodChannel(messenger, "com.privi.app/window")
             .setMethodCallHandler { call, result ->
                 when (call.method) {
+                    "getFlutterViewScreenOffset" -> {
+                        val view = findViewById<FlutterView>(FlutterFragment.FLUTTER_VIEW_ID)
+                        if (view == null || !view.isAttachedToWindow) {
+                            result.error("view_unavailable", "Flutter view is not attached", null)
+                        } else {
+                            val location = IntArray(2)
+                            view.getLocationOnScreen(location)
+                            result.success(location.toList())
+                        }
+                    }
                     "setFlagSecure" -> {
                         val enabled = call.argument<Boolean>("enabled") ?: false
                         runOnUiThread {

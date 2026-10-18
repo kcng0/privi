@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:ui' show FrameTiming;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:media_kit/media_kit.dart';
@@ -22,7 +23,7 @@ const _fixtureBase = String.fromEnvironment(
 );
 
 // Run through scripts/run-playback-rate-profile.sh: device gestures and screenshots
-// come from adb, not WidgetTester's synthetic pointer events. No app code changes.
+// come from adb, not WidgetTester's synthetic pointer events.
 void main() {
   const runId = String.fromEnvironment('PROFILE_RUN_ID');
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -42,6 +43,7 @@ void main() {
       final surfaceEvents = <Map<String, Object?>>[];
       final flutterFrames = <Map<String, Object?>>[];
       final nativeLogs = <Map<String, Object?>>[];
+      final pointerEvents = <Map<String, Object?>>[];
       var omittedNativeLogs = 0;
       final metrics = <String, Object?>{
         'schema_version': 1,
@@ -76,6 +78,7 @@ void main() {
         'flutter_frames': flutterFrames,
         'native_log_level': 'warn',
         'native_logs': nativeLogs,
+        'native_pointer_events': pointerEvents,
       };
       Directory? fixtures;
       VideoPlayerController? controller;
@@ -83,6 +86,16 @@ void main() {
       void Function()? surfaceChanged;
       StreamSubscription<PlayerLog>? logSubscription;
       final orientation = PlaybackOrientationService();
+      void recordPointer(String kind, PointerEvent event) {
+        pointerEvents.add({
+          'kind': kind,
+          'wall_us': platform.clock.elapsedMicroseconds,
+          'scene': platform.scene,
+          'position_logical': [event.position.dx, event.position.dy],
+        });
+        debugPrint('PRIVI_RATE_POINTER $runId $kind ${event.position}');
+      }
+
       void onTimings(List<FrameTiming> timings) {
         for (final timing in timings) {
           flutterFrames.add({
@@ -146,13 +159,18 @@ void main() {
           MaterialApp(
             home: Scaffold(
               backgroundColor: Colors.black,
-              body: VideoGestureSurface(
-                controller: current,
-                seekSeconds: 10,
-                onTap: () {},
-                child: VideoViewport(
+              body: Listener(
+                onPointerDown: (event) => recordPointer('down', event),
+                onPointerUp: (event) => recordPointer('up', event),
+                onPointerCancel: (event) => recordPointer('cancel', event),
+                child: VideoGestureSurface(
                   controller: current,
-                  fitMode: VideoFitMode.fit,
+                  seekSeconds: 10,
+                  onTap: () {},
+                  child: VideoViewport(
+                    controller: current,
+                    fitMode: VideoFitMode.fit,
+                  ),
                 ),
               ),
             ),
@@ -381,13 +399,19 @@ void main() {
           await prepare(baseline);
           platform.scene = name;
           final commandIndex = platform.commands.length;
-          final point =
-              tester.getRect(find.byType(VideoGestureSurface)).centerLeft +
-                  const Offset(40, 0);
+          final point = tester.getRect(find.byType(VideoGestureSurface)).center;
           final dpr = tester.view.devicePixelRatio;
+          // ADB expects screen pixels. Flutter positions use the view origin,
+          // which can be inset from the screen by a cutout or window placement.
+          final screenOffset = await const MethodChannel('com.privi.app/window')
+              .invokeListMethod<int>('getFlutterViewScreenOffset');
+          if (screenOffset == null || screenOffset.length != 2) {
+            throw StateError('Missing Flutter view screen offset');
+          }
           final requested = platform.clock.elapsedMicroseconds;
           debugPrint('PRIVI_RATE_HOLD $runId $name '
-              '${(point.dx * dpr).round()} ${(point.dy * dpr).round()} 15000');
+              '${(point.dx * dpr + screenOffset[0]).round()} '
+              '${(point.dy * dpr + screenOffset[1]).round()} 15000');
           await waitFor(
             () => find.text('2x').evaluate().isNotEmpty,
             'Real Android hold did not show the 2x badge',
@@ -424,6 +448,8 @@ void main() {
               .add({
             'name': name,
             'baseline_rate': baseline,
+            'flutter_view_screen_offset': screenOffset,
+            'requested_position_logical': [point.dx, point.dy],
             'request_wall_us': requested,
             'badge_visible_wall_us': recognized,
             'badge_gone_wall_us': released,

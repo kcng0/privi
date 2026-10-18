@@ -450,6 +450,17 @@ void main() {
             playback.advancedPortFor(playerId) as MediaKitAdvancedVideoPort;
         final native = port.player.platform as NativePlayer;
         expect(await native.getProperty('hr-seek-framedrop'), 'yes');
+        Future<void> waitForNativeSpeed(double expected) async {
+          final watch = Stopwatch()..start();
+          String actual;
+          do {
+            actual = await native.getProperty('speed');
+            if (double.tryParse(actual) == expected) return;
+            await Future<void>.delayed(const Duration(milliseconds: 50));
+          } while (watch.elapsed < const Duration(seconds: 12));
+          fail('Native speed did not reach $expected; last value: $actual');
+        }
+
         int rates() =>
             playback.rates.where((entry) => entry.$1 == playerId).length;
         int seeks() =>
@@ -469,7 +480,9 @@ void main() {
         );
         expect(find.text('2x'), findsOneWidget);
         expect(find.byTooltip('Player settings'), findsNothing);
-        expect(double.parse(await native.getProperty('speed')), 2);
+        // media_kit updates state.rate before its native property write settles.
+        // Verify the engine, rather than racing that optimistic notification.
+        await waitForNativeSpeed(2);
         await Future<void>.delayed(const Duration(milliseconds: 500));
         expect(rates(), initialRates + 1);
         expect(seeks(), initialSeeks);
@@ -481,7 +494,7 @@ void main() {
               rates() == initialRates + 2,
           'Releasing long press must restore the previous native speed once',
         );
-        expect(double.parse(await native.getProperty('speed')), originalSpeed);
+        await waitForNativeSpeed(originalSpeed);
         final swipe = await tester.startGesture(touchPoint);
         await swipe.moveBy(const Offset(-60, 0));
         await Future<void>.delayed(const Duration(milliseconds: 300));

@@ -5,6 +5,7 @@ on:
     paths:
       - 'lib/data/services/playback/**'
       - 'android/app/build.gradle.kts'
+      - 'android/app/src/main/**'
       - 'android/app/src/profile/**'
       - 'integration_test/playback_rate_profile_test.dart'
       - 'scripts/*playback-rate*'
