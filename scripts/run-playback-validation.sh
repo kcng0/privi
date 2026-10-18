@@ -14,6 +14,10 @@ fi
 
 device_actions_pid=''
 trace_runner_pid=''
+trace_runner_status=0
+trace_drive_pid=''
+trace_drive_status=''
+trace_aborted_drive=false
 trace_server_adb_pid=''
 trace_temp=''
 trace_guest=''
@@ -22,12 +26,35 @@ trace_forward_created=false
 trace_setup_ready=false
 trace_setup_stage=disabled
 
+stop_trace_drive() {
+  [[ -n "$trace_drive_pid" ]] || return 0
+  if kill -0 "$trace_drive_pid" 2>/dev/null; then
+    local session_id
+    session_id=$(ps -o sid= -p "$trace_drive_pid" | tr -d ' ') || session_id=''
+    if [[ "$session_id" == "$trace_drive_pid" ]]; then
+      # setsid gives this invocation its own session and process group.
+      kill -TERM -- "-$trace_drive_pid" 2>/dev/null || true
+      for _ in {1..120}; do
+        kill -0 "$trace_drive_pid" 2>/dev/null || break
+        sleep 0.1
+      done
+      kill -KILL -- "-$trace_drive_pid" 2>/dev/null || true
+    else
+      echo 'Diagnostic drive session identity mismatch; only signalling the exact owned child PID' >&2
+      kill -TERM "$trace_drive_pid" 2>/dev/null || true
+    fi
+  fi
+  if wait "$trace_drive_pid"; then trace_drive_status=0; else trace_drive_status=$?; fi
+  trace_drive_pid=''
+}
+
 # Keep the original drive/smoke failure. Diagnostic failure only changes an
 # otherwise successful exit, and cleanup touches this invocation's resources.
 cleanup() {
-  local original_status=$? trace_status=0 remote_pid=''
+  local original_status=$? trace_status=$trace_runner_status remote_pid=''
   trap - EXIT INT TERM
   set +e
+  stop_trace_drive
   if [[ -n "$trace_runner_pid" ]]; then
     kill -TERM "$trace_runner_pid" 2>/dev/null
     # GNU timeout forwards TERM and kills its own group after ten seconds.
@@ -67,15 +94,17 @@ cleanup() {
   if [[ -n "$device_actions_pid" ]]; then kill "$device_actions_pid" 2>/dev/null; fi
   timeout 15s adb -s "$ANDROID_SERIAL" logcat -d > build/playback-validation/logcat.txt
   if [[ "$subtitle_trace" == true ]]; then
-    python3 - "$trace_setup_stage" "$trace_setup_ready" "$trace_status" "$original_status" <<'TRACE_CLEANUP'
+    python3 - "$trace_setup_stage" "$trace_setup_ready" "$trace_status" "$original_status" "$trace_aborted_drive" "$trace_drive_status" <<'TRACE_CLEANUP'
 import json
 from pathlib import Path
 import sys
-stage, ready, trace_status, original_status = sys.argv[1:]
+stage, ready, trace_status, original_status, aborted_drive, drive_status = sys.argv[1:]
 Path("build/playback-validation/subtitle-trace-run.json").write_text(json.dumps({
     "instrumented": True, "performance_measurement": False, "business_assertions": False,
     "setup_stage": stage, "setup_ready": ready == "true", "trace_exit_code": int(trace_status),
     "original_validation_exit_code": int(original_status),
+    "validation_aborted_by_diagnostic": aborted_drive == "true",
+    "drive_exit_code": int(drive_status) if drive_status else None,
 }, indent=2) + "\n")
 TRACE_CLEANUP
     if [[ "$trace_setup_ready" != true ]]; then
@@ -203,6 +232,44 @@ for attempt in {1..50}; do
   sleep 0.1
 done
 curl --silent --fail http://127.0.0.1:8766/health > /dev/null
-timeout 1200s flutter drive --no-pub -d "$ANDROID_SERIAL" \
-  --driver=test_driver/playback_driver.dart \
-  --target=integration_test/playback_test.dart
+if [[ "$subtitle_trace" == true ]]; then
+  # Keep the same business command/deadline. Its owned session lets a failed
+  # diagnostic terminate only this drive, instead of waiting on a stale VM.
+  set +m
+  setsid timeout --foreground --kill-after=10s 1200s flutter drive --no-pub -d "$ANDROID_SERIAL" \
+    --driver=test_driver/playback_driver.dart \
+    --target=integration_test/playback_test.dart &
+  trace_drive_pid=$!
+  # Poll only our two child PIDs. This also handles a diagnostic that exited
+  # before wait began, which Bash wait -n does not reliably return as a job.
+  while kill -0 "$trace_runner_pid" 2>/dev/null && kill -0 "$trace_drive_pid" 2>/dev/null; do
+    sleep 0.2
+  done
+  if ! kill -0 "$trace_drive_pid" 2>/dev/null; then
+    if wait "$trace_drive_pid"; then completed_status=0; else completed_status=$?; fi
+    trace_drive_status=$completed_status
+    trace_drive_pid=''
+    exit "$completed_status"
+  fi
+  if wait "$trace_runner_pid"; then completed_status=0; else completed_status=$?; fi
+  trace_runner_status=$completed_status
+  trace_runner_pid=''
+  if [[ "$completed_status" -ne 0 ]]; then
+    echo 'Subtitle diagnostic failed; aborting this instrumented drive without restarting the app.' >&2
+    if kill -0 "$trace_drive_pid" 2>/dev/null; then trace_aborted_drive=true; fi
+    stop_trace_drive
+    # If drive had already failed independently, retain its actual exit code.
+    if [[ "$trace_aborted_drive" != true && "$trace_drive_status" -ne 0 ]]; then
+      exit "$trace_drive_status"
+    fi
+    exit "$completed_status"
+  fi
+  # A complete bounded trace may finish before the unchanged playback script.
+  if wait "$trace_drive_pid"; then trace_drive_status=0; else trace_drive_status=$?; fi
+  trace_drive_pid=''
+  exit "$trace_drive_status"
+else
+  timeout 1200s flutter drive --no-pub -d "$ANDROID_SERIAL" \
+    --driver=test_driver/playback_driver.dart \
+    --target=integration_test/playback_test.dart
+fi

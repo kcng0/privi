@@ -8,8 +8,8 @@ file paths, image bytes, or other applications' processes.
 
 Requires the official frida==17.24.2 client and matching loopback server.
 The embedded JS is frozen at SHA256
- a38ff9bcf513c3bd2f747b8024f60265b287baed088ebf4f7b8760e1f499a78a.
-Frida 17 API: Process.attachModuleObserver, module.findExportByName;
+ 435b61dfd3cb6623111b28c8e2f1e56642722cf9c916343d5f4dae0e223722b6.
+Frida 17 API: Process.attachModuleObserver, setImmediate, module.enumerateExports;
 Python: DeviceManager.add_remote_device, Device.attach, Session.create_script.
 Official JS reference: https://frida.re/docs/javascript-api/
 """
@@ -30,7 +30,7 @@ import time
 FRIDA_VERSION = "17.24.2"
 PACKAGE = "com.privi.app"
 ENDPOINT = "127.0.0.1:27043"
-AGENT_SHA256 = "a38ff9bcf513c3bd2f747b8024f60265b287baed088ebf4f7b8760e1f499a78a"
+AGENT_SHA256 = "435b61dfd3cb6623111b28c8e2f1e56642722cf9c916343d5f4dae0e223722b6"
 AGENT_SOURCE = r'''
 'use strict';
 /*
@@ -55,7 +55,7 @@ AGENT_SOURCE = r'''
   const LIMIT = { waitForCueMs: 600000, traceMs: 240000,
     events: 8000, actors: 1024, subpictures: 2048, regions: 64, sampleMs: 500 };
   let stopped = false, installed = false, eventCount = 0, firstCueAt = 0;
-  let observer = null, waitTimer = null, traceTimer = null;
+  let observer = null, waitTimer = null, traceTimer = null, pendingInstall = null;
   let nextActor = 0, nextSubpicture = 0;
   const listeners = [], actors = new Map(), subpictures = new Map();
   const lastByThread = new Map(), sampleState = new Map(), counters = {};
@@ -67,6 +67,7 @@ AGENT_SOURCE = r'''
   function stop(reason) {
     if (stopped) return;
     stopped = true;
+    if (pendingInstall !== null) clearImmediate(pendingInstall);
     if (waitTimer !== null) clearTimeout(waitTimer);
     if (traceTimer !== null) clearTimeout(traceTimer);
     if (observer !== null) observer.detach();
@@ -143,9 +144,9 @@ AGENT_SOURCE = r'''
     sampleState.set(key, { state, at: now });
     return true;
   }
-  function hook(module, name, callbacks) {
-    const address = module.findExportByName(name);
-    if (address === null) { emit('missing-hook', { hook: name }); return false; }
+  function hook(module, exports, name, callbacks) {
+    const address = exports.get(name);
+    if (address === undefined) { emit('missing-hook', { hook: name }); return false; }
     if (!address.equals(module.base.add(OFFSETS[name]))) {
       emit('export-offset-mismatch', { hook: name }); return false;
     }
@@ -165,8 +166,19 @@ AGENT_SOURCE = r'''
       if (buildId !== BUILD_ID) { fail('unsupported-build-id'); return; }
       emit('build-accepted', { build_id: buildId, architecture: Process.arch,
         pointer_size: Process.pointerSize });
+      // Frida 17.24.2's findExportByName lazily obtains a dlopen handle on
+      // Android. That reenters the loader when called from onAdded and can
+      // abort bionic before ELF Load has completed. Enumerating this non-linker
+      // module uses Gum's in-memory ELF parser, without taking a module handle.
+      const exports = new Map();
+      try {
+        for (const entry of module.enumerateExports()) {
+          if (entry.type === 'function' && Object.prototype.hasOwnProperty.call(OFFSETS, entry.name))
+            exports.set(entry.name, entry.address);
+        }
+      } catch (_) { fail('export-enumeration-error'); return; }
       const required = (name, callbacks) => {
-        if (!hook(module, name, callbacks)) throw new Error('required-hook-missing');
+        if (!hook(module, exports, name, callbacks)) throw new Error('required-hook-missing');
       };
       required('decoder_NewSubpicture', {
         onEnter(args) { this.decoder = actor('decoder', args[0]); },
@@ -264,9 +276,30 @@ AGENT_SOURCE = r'''
         },
       });
       emit('hooks-ready', { hooks: Object.keys(OFFSETS), limits: LIMIT,
-        private_hooks: false, data_mutation: false,
+        private_hooks: false, data_mutation: false, pre_ready_calls_covered: false,
+        installation: 'deferred-elf-export-enumeration',
         warning: 'instrumented-run-is-not-a-performance-measurement' });
     } catch (_) { fail('install-or-abi-error'); }
+  }
+
+  function scheduleInstall(module) {
+    if (module.name !== 'libvlc.so' || installed || stopped || pendingInstall !== null) return;
+    const base = ptr(module.base.toString()), size = module.size;
+    emit('module-observed', { pre_ready_calls_covered: false });
+    // This callback returns to the native loader without resolving or binding.
+    // setImmediate executes on Frida's JS thread, rather than the loading thread.
+    pendingInstall = setImmediate(() => {
+      pendingInstall = null;
+      if (stopped) return;
+      try {
+        const current = Process.findModuleByAddress(base);
+        if (current === null || current.name !== 'libvlc.so' ||
+            !current.base.equals(base) || current.size !== size) {
+          fail('module-identity-changed-before-install'); return;
+        }
+        install(current); // Rechecks the exact build ID before reading exports.
+      } catch (_) { fail('deferred-install-error'); }
+    });
   }
 
   raw('started', { frida_version: Frida.version, architecture: Process.arch,
@@ -276,7 +309,7 @@ AGENT_SOURCE = r'''
   }
   if (Frida.version.split('.')[0] !== '17') { fail('unsupported-frida-major'); return; }
   waitTimer = setTimeout(() => stop('first-cue-timeout'), LIMIT.waitForCueMs);
-  observer = Process.attachModuleObserver({ onAdded: install,
+  observer = Process.attachModuleObserver({ onAdded: scheduleInstall,
     onRemoved(module) { if (module.name === 'libvlc.so') stop('module-unloaded'); } });
   if (stopped && observer !== null) observer.detach();
   // Explicit termination is optional. It never invokes a VLC playback API.
@@ -317,9 +350,13 @@ def main():
     active_call = None
     session = script = None
     closing = False
+    session_detached = False
+    hook_ready_deadline = None
     state = {"diagnostic_status": "starting", "performance_measurement": False,
              "business_assertions": False, "package": PACKAGE,
              "agent_sha256": AGENT_SHA256, "hooks_ready": False,
+             "pre_ready_calls_covered": False, "module_observed": False,
+             "hooks_ready_guest_utc_ms": None, "session_detach_reason": None,
              "cue_window_started": False, "agent_stopped": None,
              "error_codes": [], "records": 0, "attached_pid": None}
     stream = args.output.open("w", encoding="utf-8")
@@ -382,6 +419,7 @@ def main():
             active_call.cancel()
 
     def on_message(message, data):
+        nonlocal hook_ready_deadline
         if data is not None:
             failure("unexpected-binary-payload")
             return
@@ -403,8 +441,13 @@ def main():
         with lock:
             record("agent", payload, payload.get("device_utc_ms"))
             event = payload.get("event")
-            if event == "hooks-ready":
+            if event == "module-observed":
+                state["module_observed"] = True
+                hook_ready_deadline = time.monotonic() + 30
+            elif event == "hooks-ready":
                 state["hooks_ready"] = True
+                state["hooks_ready_guest_utc_ms"] = payload.get("device_utc_ms")
+                hook_ready_deadline = None
             elif event == "cue-window-started":
                 state["cue_window_started"] = True
             elif event in ("probe-error", "missing-hook", "export-offset-mismatch"):
@@ -416,8 +459,11 @@ def main():
                 done.set()
 
     def on_detached(reason, _crash=None):
+        nonlocal session_detached
+        session_detached = True
         safe_reason = reason if reason in ("application-requested", "process-replaced",
                                           "process-terminated", "connection-terminated", "device-lost") else "unknown"
+        state["session_detach_reason"] = safe_reason
         record("session-detached", {"reason": safe_reason})
         if not closing and state["agent_stopped"] is None:
             failure("unexpected-session-detach")
@@ -474,6 +520,8 @@ def main():
             if requested_stop.is_set():
                 record("host-stop-requested")
                 break
+            if hook_ready_deadline is not None and time.monotonic() >= hook_ready_deadline:
+                raise DiagnosticFailure("hook-installation-deadline")
             if time.monotonic() >= deadline:
                 raise DiagnosticFailure("session-deadline")
     except DiagnosticFailure as error:
@@ -484,7 +532,7 @@ def main():
         # All teardown operations have their own cancellable deadline. The shell
         # additionally bounds the entire process and preserves the drive status.
         closing = True
-        if script is not None:
+        if script is not None and not session_detached:
             if state["agent_stopped"] is None:
                 try:
                     frida_call("stop-script", lambda: script.exports_sync.stop(), seconds=3)
@@ -494,7 +542,7 @@ def main():
                 frida_call("unload-script", script.unload, seconds=3)
             except DiagnosticFailure as error:
                 failure(str(error))
-        if session is not None:
+        if session is not None and not session_detached:
             try:
                 frida_call("detach", session.detach, seconds=3)
             except DiagnosticFailure as error:
@@ -506,6 +554,8 @@ def main():
         if state["agent_stopped"] is None:
             failure("agent-stop-not-confirmed")
         state["diagnostic_status"] = "failed" if state["error_codes"] else "captured"
+        state["coverage_status"] = ("not-started" if not state["hooks_ready"] else
+                                    "partial" if state["error_codes"] else "captured")
         state["elapsed_seconds"] = round(time.monotonic() - started, 3)
         record("finished", {"diagnostic_status": state["diagnostic_status"],
                             "error_codes": state["error_codes"]})
