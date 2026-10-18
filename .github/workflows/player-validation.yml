@@ -12,6 +12,22 @@ on:
         required: false
         type: boolean
         default: false
+      sdk_run_id:
+        description: 'Optional temporary same-repository successful LibVLC SDK workflow run'
+        required: false
+        type: string
+      sdk_url:
+        description: 'Optional permanent GitHub Release libvlc-sdk.tar.xz URL; replaces sdk_run_id'
+        required: false
+        type: string
+      sdk_commit:
+        description: 'Required with a custom SDK: its full build-source commit'
+        required: false
+        type: string
+      sdk_sha256:
+        description: 'Required with a custom SDK: SHA-256 of its entire libvlc-sdk.tar.xz bundle'
+        required: false
+        type: string
   push:
     branches: [main, feat/vlc-playback]
     paths:
@@ -24,6 +40,8 @@ on:
       - 'scripts/run-playback-validation.sh'
       - 'scripts/trace-libvlc-subtitles.py'
       - 'scripts/playback-device-actions.py'
+      - 'scripts/build-libvlc-sdk.sh'
+      - 'third_party/libvlc/**'
       - 'pubspec.*'
       - '.github/workflows/player-validation.yml'
 
@@ -41,6 +59,25 @@ jobs:
       SUBTITLE_TRACE: ${{ inputs.subtitle_trace && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@v4
+      - name: Select an explicit fixed-source LibVLC SDK
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SDK_RUN_ID: ${{ inputs.sdk_run_id }}
+          SDK_URL: ${{ inputs.sdk_url }}
+          SDK_COMMIT: ${{ inputs.sdk_commit }}
+          SDK_SHA256: ${{ inputs.sdk_sha256 }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$SDK_RUN_ID$SDK_URL" ]]; then
+            [[ -z "$RELEASE_RUN_ID" ]] || { echo 'error: SDK inputs cannot replace libraries in an already signed release APK' >&2; exit 2; }
+            [[ -z "$SDK_RUN_ID" || -z "$SDK_URL" ]] || { echo 'error: choose sdk_run_id or sdk_url' >&2; exit 2; }
+            if [[ -n "$SDK_RUN_ID" ]]; then SOURCE=(fetch-run --run-id "$SDK_RUN_ID"); else SOURCE=(fetch-release --url "$SDK_URL"); fi
+            bash scripts/build-libvlc-sdk.sh "${SOURCE[@]}" --commit "$SDK_COMMIT" \
+              --sha256 "$SDK_SHA256" --output-dir build/libvlc-sdk-input
+          elif [[ -n "$SDK_COMMIT$SDK_SHA256" ]]; then
+            echo 'error: sdk_commit/sdk_sha256 require sdk_run_id or sdk_url' >&2
+            exit 2
+          fi
       - name: Validate optional diagnostic mode
         if: inputs.subtitle_trace && inputs.release_run_id != ''
         run: |

@@ -1,0 +1,814 @@
+--- a/include/vlc_subpicture.h
++++ b/include/vlc_subpicture.h
+@@ -190,6 +190,12 @@
+     subpicture_updater_t updater;
+ 
+     subpicture_private_t *p_private;    /* Reserved to the core */
++
++    /* Core-converted cue dates use explicit validity, including system dates
++     * at/before zero. Unmarked OSD/transcode pictures retain legacy semantics.
++     * All bundled modules must be rebuilt with this private SDK ABI change. */
++    bool system_dates_valid;
++    bool stop_known;
+ };
+ 
+ /**
+--- a/src/Makefile.am
++++ b/src/Makefile.am
+@@ -241,6 +241,7 @@
+ 	input/info.h \
+ 	input/meta.c \
+ 	input/clock.h \
++	input/subtitle_date.h \
+ 	input/attachment.c \
+ 	input/decoder.h \
+ 	input/demux.h \
+--- a/src/input/clock.c
++++ b/src/input/clock.c
+@@ -33,6 +33,7 @@
+ #include <vlc_common.h>
+ #include <vlc_input.h>
+ #include "clock.h"
++#include "subtitle_date.h"
+ #include <assert.h>
+ 
+ /* TODO:
+@@ -463,6 +464,63 @@
+ /*****************************************************************************
+  * input_clock_GetRate: Return current rate
+  *****************************************************************************/
++/* A delayed stream date can cross zero before conversion, and a valid system
++ * date can be non-positive. Validity comes from the raw cue, not its value
++ * after applying an ES delay. Audio/video keep the existing conversion path. */
++int input_clock_ConvertSubtitleTS( input_clock_t *cl, vlc_tick_t delay,
++                                   vlc_tick_t *start, vlc_tick_t *stop )
++{
++    vlc_mutex_lock( &cl->lock );
++    if( !cl->b_has_reference )
++    {
++        vlc_mutex_unlock( &cl->lock );
++        return VLC_EGENERIC;
++    }
++
++    const subtitle_date_wide pts = SubtitleDateWide( cl->i_pts_delay );
++    const subtitle_date_wide offset = SubtitleDateDivide( SubtitleDateAdd(
++        SubtitleDateMultiply( pts, cl->i_rate ),
++        SubtitleDateNegate( SubtitleDateMultiply( pts, INPUT_RATE_DEFAULT ) ) ),
++        INPUT_RATE_DEFAULT );
++    const subtitle_date_wide final_offset = SubtitleDateAdd( pts, offset );
++    vlc_tick_t converted[2], maximum;
++    const unsigned count = stop ? 2 : 1;
++    for( unsigned i = 0; i < count; ++i )
++    {
++        subtitle_date_wide date = SubtitleDateWide( i == 0 ? *start : *stop );
++        date = SubtitleDateAdd( date, SubtitleDateWide( delay ) );
++        date = SubtitleDateAdd( date, SubtitleDateWide( AvgGet( &cl->drift ) ) );
++        date = SubtitleDateAdd( date,
++            SubtitleDateNegate( SubtitleDateWide( cl->ref.i_stream ) ) );
++        date = SubtitleDateDivide( SubtitleDateMultiply( date, cl->i_rate ),
++                                   INPUT_RATE_DEFAULT );
++        date = SubtitleDateAdd( date, SubtitleDateWide( cl->ref.i_system ) );
++        /* This pre-offset start is also stored in i_ts_max. */
++        if( i == 0 && !SubtitleDateStore( date, &maximum ) )
++            goto overflow;
++        if( !SubtitleDateStore( SubtitleDateAdd( date, final_offset ),
++                                &converted[i] ) )
++            goto overflow;
++    }
++    if( stop )
++    {
++        vlc_tick_t duration;
++        if( !SubtitleDateStore( SubtitleDateAdd( SubtitleDateWide( converted[1] ),
++                SubtitleDateNegate( SubtitleDateWide( converted[0] ) ) ),
++                &duration ) )
++            goto overflow;
++    }
++    if( maximum > cl->i_ts_max ) cl->i_ts_max = maximum;
++    *start = converted[0];
++    if( stop ) *stop = converted[1];
++    vlc_mutex_unlock( &cl->lock );
++    return VLC_SUCCESS;
++
++overflow:
++    vlc_mutex_unlock( &cl->lock );
++    return VLC_EINVAL;
++}
++
+ int input_clock_GetRate( input_clock_t *cl )
+ {
+     int i_rate;
+--- a/src/input/clock.h
++++ b/src/input/clock.h
+@@ -35,6 +35,12 @@
+  * MUST be called from one and only one thread.
+  */
+ typedef struct input_clock_t input_clock_t;
++
++/* Raw cue validity is checked by the decoder. A NULL stop means unknown.
++ * EGENERIC: no clock reference yet; EINVAL: a stored date is unrepresentable.
++ * Successful output dates may be zero or negative. */
++int input_clock_ConvertSubtitleTS( input_clock_t *, vlc_tick_t delay,
++                                   vlc_tick_t *start, vlc_tick_t *stop );
+ 
+ /**
+  * This function creates a new input_clock_t.
+--- a/src/input/decoder.c
++++ b/src/input/decoder.c
+@@ -753,7 +753,7 @@
+ {
+     decoder_owner_sys_t *p_owner = p_dec->p_owner;
+ 
+-    if (deadline - mdate() <= 0)
++    if (deadline <= mdate())
+         return VLC_SUCCESS;
+ 
+     vlc_fifo_Lock( p_owner->p_fifo );
+@@ -1275,12 +1275,41 @@
+     }
+ 
+     DecoderWaitUnblock( p_dec );
+-    DecoderFixTs( p_dec, &p_subpic->i_start, &p_subpic->i_stop, NULL,
+-                  NULL, INT64_MAX );
++    const bool stop_known = p_subpic->i_stop > VLC_TICK_INVALID;
++    const bool same_date = stop_known && p_subpic->i_start == p_subpic->i_stop;
++    int conversion = VLC_SUCCESS;
++    if( p_owner->p_clock )
++    {
++        conversion = input_clock_ConvertSubtitleTS( p_owner->p_clock,
++            p_owner->i_ts_delay, &p_subpic->i_start,
++            stop_known ? &p_subpic->i_stop : NULL );
++        if( conversion == VLC_SUCCESS )
++        {
++            p_subpic->system_dates_valid = true;
++            p_subpic->stop_known = stop_known;
++            /* Keep the existing non-ephemeral rounding correction, but never
++             * turn an unknown stop into a dated stop. */
++            if( stop_known && !same_date &&
++                p_subpic->i_start == p_subpic->i_stop )
++            {
++                if( p_subpic->i_stop == INT64_MAX ) conversion = VLC_EINVAL;
++                else p_subpic->i_stop++;
++            }
++        }
++    }
+     vlc_mutex_unlock( &p_owner->lock );
+ 
+-    if( p_subpic->i_start <= VLC_TICK_INVALID
+-     || DecoderTimedWait( p_dec, p_subpic->i_start - SPU_MAX_PREPARE_TIME ) )
++    if( conversion == VLC_EINVAL && p_owner->p_input != NULL )
++    {
++        msg_Err( p_dec, "Subtitle delay produces an unrepresentable clock date" );
++        input_ControlPush( p_owner->p_input, INPUT_CONTROL_TIMING_ERROR, NULL );
++    }
++    const bool invalid = conversion != VLC_SUCCESS ||
++        (!p_subpic->system_dates_valid && p_subpic->i_start <= VLC_TICK_INVALID);
++    /* Past signed dates are ready now; subtract only when it cannot underflow. */
++    const bool wait = !invalid && p_subpic->i_start > SPU_MAX_PREPARE_TIME;
++    if( invalid || (wait && DecoderTimedWait( p_dec,
++                        p_subpic->i_start - SPU_MAX_PREPARE_TIME )) )
+     {
+         subpicture_Delete( p_subpic );
+         return;
+--- a/src/input/input.c
++++ b/src/input/input.c
+@@ -36,6 +36,7 @@
+ #include <sys/stat.h>
+ 
+ #include "input_internal.h"
++#include "subtitle_date.h"
+ #include "event.h"
+ #include "es_out.h"
+ #include "es_out_timeshift.h"
+@@ -208,6 +209,7 @@
+     }
+     sys->i_control = 0;
+     sys->is_stopped = true;
++    sys->timing_error_pending = false;
+     vlc_cond_signal( &sys->wait_control );
+     vlc_mutex_unlock( &sys->lock_control );
+     vlc_interrupt_kill( &sys->interrupt );
+@@ -401,6 +403,7 @@
+     vlc_mutex_init( &priv->lock_control );
+     vlc_cond_init( &priv->wait_control );
+     priv->i_control = 0;
++    priv->timing_error_pending = false;
+     vlc_interrupt_init(&priv->interrupt);
+ 
+     /* Create Object Variables for private use only */
+@@ -789,9 +792,9 @@
+ 
+             if( ControlPop( p_input, &i_type, &val, i_deadline, b_postpone ) )
+             {
+-                if( b_postpone )
++                if( b_postpone && !input_Stopped( p_input ) )
+                     continue;
+-                break; /* Wake-up time reached */
++                break; /* Wake-up time reached or input stopped */
+             }
+ 
+ #ifndef NDEBUG
+@@ -803,6 +806,11 @@
+                     i_last_seek_mdate = mdate();
+                 i_intf_update = 0;
+             }
++
++            /* A fatal timing request must leave the control wait immediately;
++             * queued controls retain their ownership until normal cleanup. */
++            if( input_priv(p_input)->i_state == ERROR_S )
++                break;
+ 
+             /* Update the wakeup time */
+             if( i_wakeup != 0 )
+@@ -1253,7 +1261,29 @@
+         var_Destroy( p_input, "sub-description" );
+ }
+ 
+-static void UpdatePtsDelay( input_thread_t *p_input )
++static void InputTimingError( input_thread_t *p_input )
++{
++    msg_Err( p_input, "native subtitle timing overflow: date or clock configuration is not representable" );
++    input_ChangeState( p_input, ERROR_S );
++}
++
++/* Exact signed-64 factor using the portable wide helper's 16-bit limbs. */
++static subtitle_date_wide PtsDelayMultiply( subtitle_date_wide value,
++                                           int64_t factor )
++{
++    const uint64_t magnitude = factor < 0
++        ? (uint64_t)(-(factor + 1)) + 1 : (uint64_t)factor;
++    subtitle_date_wide product = SubtitleDateWide( 0 );
++    for( unsigned limb = 4; limb-- > 0; )
++    {
++        product = SubtitleDateMultiply( product, 65536 );
++        product = SubtitleDateAdd( product, SubtitleDateMultiply( value,
++                     (magnitude >> (limb * 16)) & UINT64_C(0xffff) ) );
++    }
++    return factor < 0 ? SubtitleDateNegate( product ) : product;
++}
++
++static int UpdatePtsDelay( input_thread_t *p_input )
+ {
+     input_thread_private_t *p_sys = input_priv(p_input);
+ 
+@@ -1265,29 +1295,38 @@
+     if( i_pts_delay < 0 )
+         i_pts_delay = 0;
+ 
+-    /* Take care of audio/spu delay */
+     const vlc_tick_t i_audio_delay = var_GetInteger( p_input, "audio-delay" );
+-    const vlc_tick_t i_spu_delay   = var_GetInteger( p_input, "spu-delay" );
++    const vlc_tick_t i_spu_delay = var_GetInteger( p_input, "spu-delay" );
+     const vlc_tick_t i_extra_delay = __MIN( i_audio_delay, i_spu_delay );
++    subtitle_date_wide pts_delay = SubtitleDateWide( i_pts_delay );
+     if( i_extra_delay < 0 )
+-        i_pts_delay -= i_extra_delay;
+-
+-    /* Update cr_average depending on the caching */
+-    const int i_cr_average = var_GetInteger( p_input, "cr-average" ) * i_pts_delay / DEFAULT_PTS_DELAY;
+-
+-    /* */
+-    es_out_SetDelay( input_priv(p_input)->p_es_out_display, AUDIO_ES, i_audio_delay );
+-    es_out_SetDelay( input_priv(p_input)->p_es_out_display, SPU_ES, i_spu_delay );
+-    es_out_SetJitter( input_priv(p_input)->p_es_out, i_pts_delay, 0, i_cr_average );
+-}
+-
+-static void InitPrograms( input_thread_t * p_input )
++        pts_delay = SubtitleDateAdd( pts_delay,
++                                     SubtitleDateNegate( SubtitleDateWide( i_extra_delay ) ) );
++
++    int64_t cr_average;
++    if( !SubtitleDateStore( pts_delay, &i_pts_delay ) ||
++        !SubtitleDateStore( SubtitleDateDivide( PtsDelayMultiply( pts_delay,
++            var_GetInteger( p_input, "cr-average" ) ), DEFAULT_PTS_DELAY ), &cr_average ) ||
++        cr_average < INT_MIN || cr_average > INT_MAX )
++    {
++        InputTimingError( p_input );
++        return VLC_EINVAL;
++    }
++
++    es_out_SetDelay( p_sys->p_es_out_display, AUDIO_ES, i_audio_delay );
++    es_out_SetDelay( p_sys->p_es_out_display, SPU_ES, i_spu_delay );
++    es_out_SetJitter( p_sys->p_es_out, i_pts_delay, 0, (int)cr_average );
++    return VLC_SUCCESS;
++}
++
++static int InitPrograms( input_thread_t * p_input )
+ {
+     int i_es_out_mode;
+     vlc_list_t list;
+ 
+     /* Compute correct pts_delay */
+-    UpdatePtsDelay( p_input );
++    if( UpdatePtsDelay( p_input ) != VLC_SUCCESS )
++        return VLC_EINVAL;
+ 
+     /* Set up es_out */
+     i_es_out_mode = ES_OUT_MODE_AUTO;
+@@ -1337,6 +1376,7 @@
+         demux_Control( input_priv(p_input)->master->p_demux, DEMUX_SET_GROUP,
+                        es_out_GetGroupForced( input_priv(p_input)->p_es_out ), NULL );
+     }
++    return VLC_SUCCESS;
+ }
+ 
+ static int Init( input_thread_t * p_input )
+@@ -1395,7 +1435,8 @@
+         StartTitle( p_input );
+         SetSubtitlesOptions( p_input );
+         LoadSlaves( p_input );
+-        InitPrograms( p_input );
++        if( InitPrograms( p_input ) != VLC_SUCCESS )
++            goto error;
+ 
+         double f_rate = var_InheritFloat( p_input, "rate" );
+         if( f_rate != 0.0 && f_rate != 1.0 )
+@@ -1593,7 +1634,16 @@
+     input_thread_private_t *sys = input_priv(p_input);
+ 
+     vlc_mutex_lock( &sys->lock_control );
+-    if( sys->is_stopped || sys->i_control >= INPUT_CONTROL_FIFO_SIZE )
++    if( i_type == INPUT_CONTROL_TIMING_ERROR )
++    {
++        /* Fatal errors must not compete with user controls for FIFO capacity. */
++        if( !sys->is_stopped )
++        {
++            sys->timing_error_pending = true;
++            vlc_cond_signal( &sys->wait_control );
++        }
++    }
++    else if( sys->is_stopped || sys->i_control >= INPUT_CONTROL_FIFO_SIZE )
+     {
+         if( sys->is_stopped )
+             msg_Dbg( p_input, "input control stopped, trashing type=%d",
+@@ -1662,19 +1712,31 @@
+     input_thread_private_t *p_sys = input_priv(p_input);
+ 
+     vlc_mutex_lock( &p_sys->lock_control );
+-    while( p_sys->i_control <= 0 ||
+-           ( b_postpone_seek && ControlIsSeekRequest( p_sys->control[0].i_type ) ) )
++    for( ;; )
+     {
+         if( p_sys->is_stopped )
+         {
++            p_sys->timing_error_pending = false;
+             vlc_mutex_unlock( &p_sys->lock_control );
+             return VLC_EGENERIC;
+         }
++        if( p_sys->timing_error_pending )
++        {
++            p_sys->timing_error_pending = false;
++            *pi_type = INPUT_CONTROL_TIMING_ERROR;
++            memset( p_val, 0, sizeof(*p_val) );
++            vlc_mutex_unlock( &p_sys->lock_control );
++            return VLC_SUCCESS;
++        }
++        if( p_sys->i_control > 0 &&
++            !(b_postpone_seek && ControlIsSeekRequest( p_sys->control[0].i_type )) )
++            break;
+ 
+         if( i_deadline >= 0 )
+         {
+             if( vlc_cond_timedwait( &p_sys->wait_control, &p_sys->lock_control,
+-                                    i_deadline ) )
++                                   i_deadline ) &&
++                !p_sys->timing_error_pending && !p_sys->is_stopped )
+             {
+                 vlc_mutex_unlock( &p_sys->lock_control );
+                 return VLC_EGENERIC;
+@@ -2010,6 +2072,10 @@
+ 
+     switch( i_type )
+     {
++        case INPUT_CONTROL_TIMING_ERROR:
++            InputTimingError( p_input );
++            break;
++
+         case INPUT_CONTROL_SET_POSITION:
+         {
+             if( input_priv(p_input)->b_recording )
+--- a/src/input/input_internal.h
++++ b/src/input/input_internal.h
+@@ -171,6 +171,7 @@
+     vlc_mutex_t lock_control;
+     vlc_cond_t  wait_control;
+     int i_control;
++    bool timing_error_pending; /* protected by lock_control, outside the bounded FIFO */
+     input_control_t control[INPUT_CONTROL_FIFO_SIZE];
+ 
+     vlc_thread_t thread;
+@@ -232,6 +233,8 @@
+     INPUT_CONTROL_SET_FRAME_NEXT,
+ 
+     INPUT_CONTROL_SET_RENDERER,
++
++    INPUT_CONTROL_TIMING_ERROR, /* private fatal timing notification, keep old values stable */
+ };
+ 
+ /* Internal helpers */
+--- /dev/null
++++ b/src/input/subtitle_date.h
+@@ -0,0 +1,103 @@
++/* Signed subtitle clock arithmetic for both 32- and 64-bit Android.
++ * LGPL-2.1-or-later, like the surrounding VLC input implementation.
++ *
++ * Stream timestamps, delays and reference offsets are independently signed
++ * 64-bit values. Their sum times an input rate needs at most 100 bits. Keep
++ * that intermediate exact; reject only an unrepresentable stored result.
++ */
++#ifndef VLC_INPUT_SUBTITLE_DATE_H
++#define VLC_INPUT_SUBTITLE_DATE_H
++
++#include <stdint.h>
++#include <stdbool.h>
++#include <limits.h>
++
++typedef struct { uint64_t hi, lo; } subtitle_date_wide;
++
++static inline subtitle_date_wide SubtitleDateWide(int64_t value)
++{
++    return (subtitle_date_wide) { value < 0 ? UINT64_MAX : 0,
++                                 (uint64_t)value };
++}
++
++static inline subtitle_date_wide SubtitleDateAdd(subtitle_date_wide a,
++                                                 subtitle_date_wide b)
++{
++    const uint64_t lo = a.lo + b.lo;
++    return (subtitle_date_wide) { a.hi + b.hi + (lo < a.lo), lo };
++}
++
++static inline subtitle_date_wide SubtitleDateNegate(subtitle_date_wide a)
++{
++    const uint64_t lo = ~a.lo + 1;
++    return (subtitle_date_wide) { ~a.hi + (lo == 0), lo };
++}
++
++/* The caller's bound above ensures multiplication cannot overflow 128 bits. */
++static inline subtitle_date_wide SubtitleDateMultiply(subtitle_date_wide a,
++                                                       int32_t factor)
++{
++    const bool negative = (a.hi >> 63) != (factor < 0);
++    if (a.hi >> 63) a = SubtitleDateNegate(a);
++    const uint64_t multiplier = factor < 0 ? -(int64_t)factor : factor;
++    uint32_t parts[4] = { a.lo, a.lo >> 32, a.hi, a.hi >> 32 };
++    uint64_t carry = 0;
++    for (unsigned i = 0; i < 4; ++i) {
++        const uint64_t product = (uint64_t)parts[i] * multiplier + carry;
++        parts[i] = product;
++        carry = product >> 32;
++    }
++    a = (subtitle_date_wide) { ((uint64_t)parts[3] << 32) | parts[2],
++                              ((uint64_t)parts[1] << 32) | parts[0] };
++    return negative ? SubtitleDateNegate(a) : a;
++}
++
++/* Signed division rounds toward zero, exactly like the original C clock. */
++static inline subtitle_date_wide SubtitleDateDivide(subtitle_date_wide a,
++                                                     uint64_t divisor)
++{
++    const bool negative = a.hi >> 63;
++    if (negative) a = SubtitleDateNegate(a);
++    if (divisor > UINT32_MAX) {
++        subtitle_date_wide quotient = { 0, 0 };
++        uint64_t remainder = 0;
++        for (unsigned i = 128; i-- > 0;) {
++            const uint64_t bit = i >= 64 ? (a.hi >> (i - 64)) & 1
++                                         : (a.lo >> i) & 1;
++            const bool carry = remainder >> 63;
++            remainder = (remainder << 1) | bit;
++            if (carry || remainder >= divisor) {
++                remainder -= divisor;
++                if (i >= 64) quotient.hi |= UINT64_C(1) << (i - 64);
++                else quotient.lo |= UINT64_C(1) << i;
++            }
++        }
++        return negative ? SubtitleDateNegate(quotient) : quotient;
++    }
++    uint32_t parts[4] = { a.lo, a.lo >> 32, a.hi, a.hi >> 32 };
++    uint64_t remainder = 0;
++    for (unsigned i = 4; i-- > 0;) {
++        const uint64_t value = (remainder << 32) | parts[i];
++        parts[i] = value / divisor;
++        remainder = value % divisor;
++    }
++    a = (subtitle_date_wide) { ((uint64_t)parts[3] << 32) | parts[2],
++                              ((uint64_t)parts[1] << 32) | parts[0] };
++    return negative ? SubtitleDateNegate(a) : a;
++}
++
++static inline bool SubtitleDateStore(subtitle_date_wide value, int64_t *out)
++{
++    if (value.hi == 0 && value.lo <= INT64_MAX) {
++        *out = value.lo;
++        return true;
++    }
++    if (value.hi == UINT64_MAX && value.lo >= (UINT64_C(1) << 63)) {
++        /* Avoid implementation-defined unsigned-to-signed conversion. */
++        *out = -1 - (int64_t)~value.lo;
++        return true;
++    }
++    return false;
++}
++
++#endif
+--- a/src/video_output/vout_subpictures.c
++++ b/src/video_output/vout_subpictures.c
+@@ -43,6 +43,8 @@
+ #include "../libvlc.h"
+ #include "vout_internal.h"
+ #include "../misc/subpicture.h"
++#include "../input/input_internal.h"
++#include "../input/subtitle_date.h"
+ 
+ /*****************************************************************************
+  * Local prototypes
+@@ -95,8 +97,64 @@
+ 
+     /* */
+     vlc_tick_t          last_sort_date;
++    bool                last_sort_date_valid;
+     vout_thread_t       *vout;
+ };
++
++/* Called under sys->lock, which also protects the attached input pointer. */
++static void SpuTimingError(spu_t *spu)
++{
++    msg_Err(spu, "native subtitle timing overflow: SPU date arithmetic is not representable");
++    if (spu->p->input)
++        input_ControlPush((input_thread_t *)spu->p->input,
++                          INPUT_CONTROL_TIMING_ERROR, NULL);
++}
++
++static bool SpuDateDifference(vlc_tick_t date, vlc_tick_t start, vlc_tick_t *out)
++{
++    return SubtitleDateStore(SubtitleDateAdd(SubtitleDateWide(date),
++                             SubtitleDateNegate(SubtitleDateWide(start))), out);
++}
++
++static bool SpuDateOffset(vlc_tick_t date, vlc_tick_t duration, vlc_tick_t *out)
++{
++    return SubtitleDateStore(SubtitleDateAdd(SubtitleDateWide(date),
++                                            SubtitleDateWide(duration)), out);
++}
++
++/* Marked fade arithmetic stays exact until its stored int alpha is checked. */
++static bool SpuFadeAlpha(const subpicture_t *subpic, int region_alpha,
++                         vlc_tick_t render_date, int *result)
++{
++    int fade_alpha = 255;
++    if (subpic->b_fade && subpic->stop_known) {
++        subtitle_date_wide span = SubtitleDateAdd(SubtitleDateWide(subpic->i_stop),
++            SubtitleDateNegate(SubtitleDateWide(subpic->i_start)));
++        vlc_tick_t fade_start;
++        if (!SubtitleDateStore(SubtitleDateAdd(SubtitleDateWide(subpic->i_start),
++            SubtitleDateDivide(SubtitleDateMultiply(span, 3), 4)), &fade_start))
++            return false;
++        if (fade_start <= render_date && fade_start < subpic->i_stop) {
++            subtitle_date_wide denominator = SubtitleDateAdd(SubtitleDateWide(subpic->i_stop),
++                SubtitleDateNegate(SubtitleDateWide(fade_start)));
++            subtitle_date_wide remaining = SubtitleDateAdd(SubtitleDateWide(subpic->i_stop),
++                SubtitleDateNegate(SubtitleDateWide(render_date)));
++            int64_t alpha;
++            if (!SubtitleDateStore(SubtitleDateDivide(SubtitleDateMultiply(remaining, 255),
++                                    denominator.lo), &alpha) ||
++                alpha < INT_MIN || alpha > INT_MAX)
++                return false;
++            fade_alpha = (int)alpha;
++        }
++    }
++    int64_t alpha;
++    if (!SubtitleDateStore(SubtitleDateDivide(SubtitleDateMultiply(
++        SubtitleDateMultiply(SubtitleDateWide(fade_alpha), subpic->i_alpha), region_alpha),
++        65025), &alpha) || alpha < INT_MIN || alpha > INT_MAX)
++        return false;
++    *result = (int)alpha;
++    return true;
++}
+ 
+ /*****************************************************************************
+  * heap management
+@@ -561,8 +619,11 @@
+         int          available_count = 0;
+ 
+         vlc_tick_t   start_date = render_subtitle_date;
++        vlc_tick_t   system_start_date = render_subtitle_date;
+         vlc_tick_t   ephemer_subtitle_date = 0;
+         vlc_tick_t   ephemer_osd_date = 0;
++        bool         ephemer_subtitle_valid = false;
++        bool         ephemer_osd_valid = false;
+         int64_t      ephemer_subtitle_order = INT64_MIN;
+         int64_t      ephemer_system_order = INT64_MIN;
+ 
+@@ -579,34 +640,51 @@
+                 continue;
+             }
+ 
++            const bool subtitle_date = current->b_subtitle;
+             if (current->i_channel != channel[i] ||
+-               (ignore_osd && !current->b_subtitle))
++               (ignore_osd && !subtitle_date))
+                 continue;
+ 
+-            const vlc_tick_t render_date = current->b_subtitle ? render_subtitle_date : render_osd_date;
+-            if (render_date &&
++            /* Legacy unknown non-ephemeral stops were already expired. A
++             * signed system clock must not turn that sentinel into infinity. */
++            if (current->system_dates_valid && !current->stop_known && !current->b_ephemer) {
++                SpuHeapDeleteAt(&sys->heap, index);
++                continue;
++            }
++
++            const vlc_tick_t render_date = subtitle_date ? render_subtitle_date : render_osd_date;
++            if ((current->system_dates_valid || render_date != 0) &&
+                 render_date < current->i_start) {
+                 /* Too early, come back next monday */
+                 continue;
+             }
+ 
+-            vlc_tick_t *ephemer_date_ptr  = current->b_subtitle ? &ephemer_subtitle_date  : &ephemer_osd_date;
+-            int64_t *ephemer_order_ptr = current->b_subtitle ? &ephemer_subtitle_order : &ephemer_system_order;
+-            if (current->i_start >= *ephemer_date_ptr) {
++            vlc_tick_t *ephemer_date_ptr = subtitle_date ? &ephemer_subtitle_date : &ephemer_osd_date;
++            bool *ephemer_valid_ptr = subtitle_date ? &ephemer_subtitle_valid : &ephemer_osd_valid;
++            int64_t *ephemer_order_ptr = subtitle_date ? &ephemer_subtitle_order : &ephemer_system_order;
++            const vlc_tick_t previous_ephemer = current->system_dates_valid
++                ? *ephemer_date_ptr : __MAX(0, *ephemer_date_ptr);
++            if ((current->system_dates_valid && !*ephemer_valid_ptr) ||
++                current->i_start >= previous_ephemer) {
++                *ephemer_valid_ptr = true;
+                 *ephemer_date_ptr = current->i_start;
+                 if (current->i_order > *ephemer_order_ptr)
+                     *ephemer_order_ptr = current->i_order;
+             }
+ 
+-            is_stop_valid = !current->b_ephemer || current->i_stop > current->i_start;
++            is_stop_valid = (!current->system_dates_valid || current->stop_known) &&
++                            (!current->b_ephemer || current->i_stop > current->i_start);
+ 
+             is_late = is_stop_valid && current->i_stop <= render_date;
+ 
+             /* start_date will be used for correct automatic overlap support
+              * in case picture that should not be displayed anymore (display_time)
+              * overlap with a picture to be displayed (current->i_start)  */
+-            if (current->b_subtitle && !is_late && !current->b_ephemer)
++            if (subtitle_date && !is_late && !current->b_ephemer) {
+                 start_date = current->i_start;
++                if (current->system_dates_valid || current->i_start > 0)
++                    system_start_date = current->i_start;
++            }
+ 
+             /* */
+             available_subpic[available_count] = current;
+@@ -619,19 +697,27 @@
+             start_date = sys->last_sort_date;
+         if (start_date <= 0)
+             start_date = INT64_MAX;
++        if (sys->last_sort_date_valid && system_start_date < sys->last_sort_date)
++            system_start_date = sys->last_sort_date;
+ 
+         /* Select pictures to be displayed */
+         for (int index = 0; index < available_count; index++) {
+             subpicture_t *current = available_subpic[index];
+             bool is_late = is_available_late[index];
+ 
+-            const vlc_tick_t stop_date = current->b_subtitle ? __MAX(start_date, sys->last_sort_date) : render_osd_date;
+-            const vlc_tick_t ephemer_date  = current->b_subtitle ? ephemer_subtitle_date  : ephemer_osd_date;
+-            const int64_t ephemer_order = current->b_subtitle ? ephemer_subtitle_order : ephemer_system_order;
++            const bool subtitle_date = current->b_subtitle;
++            const vlc_tick_t stop_date = current->b_subtitle
++                ? (current->system_dates_valid ? system_start_date : __MAX(start_date, sys->last_sort_date))
++                : render_osd_date;
++            vlc_tick_t ephemer_date = subtitle_date ? ephemer_subtitle_date : ephemer_osd_date;
++            const bool ephemer_valid = subtitle_date ? ephemer_subtitle_valid : ephemer_osd_valid;
++            const int64_t ephemer_order = subtitle_date ? ephemer_subtitle_order : ephemer_system_order;
++            if (!current->system_dates_valid)
++                ephemer_date = __MAX(0, ephemer_date);
+ 
+             /* Destroy late and obsolete ephemer subpictures */
+             bool is_rejeted = is_late && current->i_stop <= stop_date;
+-            if (current->b_ephemer) {
++            if (current->b_ephemer && (!current->system_dates_valid || ephemer_valid)) {
+                 if (current->i_start < ephemer_date)
+                     is_rejeted = true;
+                 else if (current->i_start == ephemer_date &&
+@@ -647,6 +733,7 @@
+     }
+ 
+     sys->last_sort_date = render_subtitle_date;
++    sys->last_sort_date_valid = true;
+ }
+ 
+ 
+@@ -687,9 +774,15 @@
+         if (region->fmt.space == COLOR_SPACE_UNDEF)
+             region->fmt.space = COLOR_SPACE_SRGB;
+ 
+-        SpuRenderText(spu, &restore_text, region,
+-                      chroma_list,
+-                      render_date - subpic->i_start);
++        vlc_tick_t elapsed;
++        if (subpic->system_dates_valid) {
++            if (!SpuDateDifference(render_date, subpic->i_start, &elapsed)) {
++                SpuTimingError(spu);
++                goto exit;
++            }
++        } else
++            elapsed = render_date - subpic->i_start;
++        SpuRenderText(spu, &restore_text, region, chroma_list, elapsed);
+ 
+         /* Check if the rendering has failed ... */
+         if (region->fmt.i_chroma == VLC_CODEC_TEXT)
+@@ -970,14 +1063,24 @@
+             picture_Release(dst->p_picture);
+         dst->p_picture = picture_Hold(region_picture);
+         int fade_alpha = 255;
+-        if (subpic->b_fade) {
+-            vlc_tick_t fade_start = subpic->i_start + 3 * (subpic->i_stop - subpic->i_start) / 4;
+-
+-            if (fade_start <= render_date && fade_start < subpic->i_stop)
+-                fade_alpha = 255 * (subpic->i_stop - render_date) /
+-                                   (subpic->i_stop - fade_start);
+-        }
+-        dst->i_alpha   = fade_alpha * subpic->i_alpha * region->i_alpha / 65025;
++        if (subpic->system_dates_valid) {
++            if (!SpuFadeAlpha(subpic, region->i_alpha, render_date, &dst->i_alpha))
++                goto timing_error;
++        } else {
++            if (subpic->b_fade) {
++                vlc_tick_t fade_start = subpic->i_start + 3 * (subpic->i_stop - subpic->i_start) / 4;
++                if (fade_start <= render_date && fade_start < subpic->i_stop)
++                    fade_alpha = 255 * (subpic->i_stop - render_date) /
++                                       (subpic->i_stop - fade_start);
++            }
++            dst->i_alpha = fade_alpha * subpic->i_alpha * region->i_alpha / 65025;
++        }
++        goto exit;
++
++timing_error:
++        subpicture_region_Delete(dst);
++        *dst_ptr = NULL;
++        SpuTimingError(spu);
+     }
+ 
+ exit:
+@@ -1338,6 +1441,7 @@
+ 
+     /* */
+     sys->last_sort_date = -1;
++    sys->last_sort_date_valid = false;
+     sys->vout = vout;
+ 
+     return spu;
+@@ -1597,9 +1701,14 @@
+     /* Updates the subpictures */
+     for (unsigned i = 0; i < subpicture_count; i++) {
+         subpicture_t *subpic = subpicture_array[i];
+-        subpicture_Update(subpic,
+-                          fmt_src, fmt_dst,
+-                          subpic->b_subtitle ? render_subtitle_date : render_osd_date);
++        const vlc_tick_t render_date = subpic->b_subtitle ? render_subtitle_date : render_osd_date;
++        vlc_tick_t elapsed;
++        if (subpic->system_dates_valid && !SpuDateDifference(render_date, subpic->i_start, &elapsed)) {
++            SpuTimingError(spu);
++            vlc_mutex_unlock(&sys->lock);
++            return NULL;
++        }
++        subpicture_Update(subpic, fmt_src, fmt_dst, render_date);
+     }
+ 
+     /* Now order the subpicture array
+@@ -1624,15 +1733,29 @@
+     spu_private_t *sys = spu->p;
+ 
+     vlc_mutex_lock(&sys->lock);
++    /* Validate the complete marked transaction before publishing any offset. */
+     for (int i = 0; i < VOUT_MAX_SUBPICTURES; i++) {
+-        spu_heap_entry_t *entry = &sys->heap.entry[i];
+-        subpicture_t *current = entry->subpicture;
+-
+-        if (current && current->b_subtitle) {
++        const subpicture_t *current = sys->heap.entry[i].subpicture;
++        vlc_tick_t adjusted;
++        if (current && current->b_subtitle && current->system_dates_valid &&
++            (!SpuDateOffset(current->i_start, duration, &adjusted) ||
++             (current->stop_known && !SpuDateOffset(current->i_stop, duration, &adjusted)))) {
++            SpuTimingError(spu);
++            vlc_mutex_unlock(&sys->lock);
++            return;
++        }
++    }
++    for (int i = 0; i < VOUT_MAX_SUBPICTURES; i++) {
++        subpicture_t *current = sys->heap.entry[i].subpicture;
++        if (current && current->b_subtitle && current->system_dates_valid) {
++            SpuDateOffset(current->i_start, duration, &current->i_start);
++            if (current->stop_known)
++                SpuDateOffset(current->i_stop, duration, &current->i_stop);
++        } else if (current && current->b_subtitle) {
+             if (current->i_start > 0)
+                 current->i_start += duration;
+             if (current->i_stop > 0)
+-                current->i_stop  += duration;
++                current->i_stop += duration;
+         }
+     }
+     vlc_mutex_unlock(&sys->lock);

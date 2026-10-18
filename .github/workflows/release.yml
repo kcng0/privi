@@ -38,8 +38,25 @@ on:
         description: "Release notes when publishing a staged artifact."
         required: false
         type: string
+      sdk_run_id:
+        description: "Optional temporary same-repository successful LibVLC SDK workflow run."
+        required: false
+        type: string
+      sdk_url:
+        description: "Optional permanent GitHub Release libvlc-sdk.tar.xz URL; replaces sdk_run_id."
+        required: false
+        type: string
+      sdk_commit:
+        description: "Required with a custom SDK: its full build-source commit."
+        required: false
+        type: string
+      sdk_sha256:
+        description: "Required with a custom SDK: SHA-256 of its entire libvlc-sdk.tar.xz bundle."
+        required: false
+        type: string
 
 permissions:
+  actions: read
   contents: write
 
 jobs:
@@ -51,6 +68,25 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Select an explicit fixed-source LibVLC SDK
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SDK_RUN_ID: ${{ inputs.sdk_run_id }}
+          SDK_URL: ${{ inputs.sdk_url }}
+          SDK_COMMIT: ${{ inputs.sdk_commit }}
+          SDK_SHA256: ${{ inputs.sdk_sha256 }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$SDK_RUN_ID$SDK_URL" ]]; then
+            [[ -z "$SDK_RUN_ID" || -z "$SDK_URL" ]] || { echo 'error: choose sdk_run_id or sdk_url' >&2; exit 2; }
+            if [[ -n "$SDK_RUN_ID" ]]; then SOURCE=(fetch-run --run-id "$SDK_RUN_ID"); else SOURCE=(fetch-release --url "$SDK_URL"); fi
+            bash scripts/build-libvlc-sdk.sh "${SOURCE[@]}" --commit "$SDK_COMMIT" \
+              --sha256 "$SDK_SHA256" --output-dir build/libvlc-sdk-input
+          elif [[ -n "$SDK_COMMIT$SDK_SHA256" ]]; then
+            echo 'error: sdk_commit/sdk_sha256 require sdk_run_id or sdk_url' >&2
+            exit 2
+          fi
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -223,6 +259,21 @@ jobs:
           SIZE_BYTES=$(stat -c%s "$APK")
           SIZE_HUMAN=$(numfmt --to=iec --suffix=B "$SIZE_BYTES")
 
+          # Preserve the exact SDK and source offer through staged validation and
+          # publication. Actions retention is not a permanent build dependency.
+          if [[ -n "${PRIVI_LIBVLC_BUNDLE:-}" ]]; then
+            cp "$PRIVI_LIBVLC_BUNDLE" libvlc-sdk.tar.xz
+            cp "${PRIVI_LIBVLC_BUNDLE}.sha256" libvlc-sdk.tar.xz.sha256
+            cp "$PRIVI_LIBVLC_RECEIPT" LIBVLC_SDK_INPUT.json
+            {
+              echo 'sdk_files<<LIBVLC_ASSETS'
+              echo libvlc-sdk.tar.xz
+              echo libvlc-sdk.tar.xz.sha256
+              echo LIBVLC_SDK_INPUT.json
+              echo LIBVLC_ASSETS
+            } >> "$GITHUB_OUTPUT"
+          fi
+
           # GNU coreutils style checksum file (sha256sum -c SHA256SUMS)
           echo "${SHA256}  ${APK}" > SHA256SUMS
           # Sidecar next to the APK
@@ -260,6 +311,7 @@ jobs:
             ${{ steps.artifacts.outputs.apk_path }}.sha256
             SHA256SUMS
             CHECKSUMS.txt
+            ${{ steps.artifacts.outputs.sdk_files }}
           if-no-files-found: error
           retention-days: 30
 
@@ -279,6 +331,7 @@ jobs:
             ${{ steps.artifacts.outputs.apk_path }}.sha256
             SHA256SUMS
             CHECKSUMS.txt
+            ${{ steps.artifacts.outputs.sdk_files }}
           fail_on_unmatched_files: true
           body: |
             ## Privi ${{ steps.version.outputs.tag }}
@@ -377,6 +430,7 @@ jobs:
           run-id: ${{ inputs.publish_run_id }}
           github-token: ${{ github.token }}
       - name: Verify downloaded artifact integrity
+        id: integrity
         env:
           APK_NAME: ${{ steps.staged.outputs.apk }}
         run: |
@@ -384,6 +438,21 @@ jobs:
           test -s "$APK_NAME"
           sha256sum -c SHA256SUMS
           [ "$(sha256sum "$APK_NAME" | cut -d' ' -f1)" = "$(tr -d '\r\n' < "$APK_NAME.sha256")" ]
+          if [[ -f LIBVLC_SDK_INPUT.json ]]; then
+            sha256sum -c libvlc-sdk.tar.xz.sha256
+            EXPECTED=$(jq -er '.bundle_sha256' LIBVLC_SDK_INPUT.json)
+            [ "$(sha256sum libvlc-sdk.tar.xz | cut -d' ' -f1)" = "$EXPECTED" ]
+            {
+              echo 'sdk_files<<LIBVLC_ASSETS'
+              echo libvlc-sdk.tar.xz
+              echo libvlc-sdk.tar.xz.sha256
+              echo LIBVLC_SDK_INPUT.json
+              echo LIBVLC_ASSETS
+            } >> "$GITHUB_OUTPUT"
+          elif [[ -f libvlc-sdk.tar.xz || -f libvlc-sdk.tar.xz.sha256 ]]; then
+            echo 'error: SDK release assets have no input provenance receipt' >&2
+            exit 1
+          fi
       # GITHUB_TOKEN creates the tag at this verified commit without triggering
       # a second tag-push build. The tested APK is uploaded without rebuilding.
       - name: Publish verified APK
@@ -402,5 +471,6 @@ jobs:
             ${{ steps.staged.outputs.apk }}.sha256
             SHA256SUMS
             CHECKSUMS.txt
+            ${{ steps.integrity.outputs.sdk_files }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

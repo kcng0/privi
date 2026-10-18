@@ -1,0 +1,69 @@
+--- a/modules/video_output/android/display.c
++++ b/modules/video_output/android/display.c
+@@ -133,6 +133,7 @@
+     filter_t *p_spu_blend;
+     picture_t *p_sub_pic;
+     buffer_bounds *p_sub_buffer_bounds;
++    bool b_sub_last_valid;
+     int64_t i_sub_last_order;
+     ARect sub_last_region;
+ 
+@@ -286,6 +287,7 @@
+     p_subfmt->i_sar_num = 1;
+     p_subfmt->i_sar_den = 1;
+     sys->b_sub_invalid = true;
++    sys->b_sub_last_valid = false;
+ }
+ 
+ #define ALIGN_16_PIXELS( x ) ( ( ( x ) + 15 ) / 16 * 16 )
+@@ -1028,24 +1030,25 @@
+ static void SubpicturePrepare(vout_display_t *vd, subpicture_t *subpicture)
+ {
+     vout_display_sys_t *sys = vd->sys;
+-    ARect memset_bounds;
+-
+-    SubtitleRegionToBounds(subpicture, &memset_bounds);
++    ARect subtitle_bounds = { 0 };
++
++    SubtitleRegionToBounds(subpicture, &subtitle_bounds);
+ 
+     if( subpicture )
+     {
+-        if( subpicture->i_order == sys->i_sub_last_order
+-         && memcmp( &memset_bounds, &sys->sub_last_region, sizeof(ARect) ) == 0 )
++        if( sys->b_sub_last_valid
++         && subpicture->i_order == sys->i_sub_last_order
++         && memcmp( &subtitle_bounds, &sys->sub_last_region, sizeof(ARect) ) == 0 )
+             return;
+-
+-        sys->i_sub_last_order = subpicture->i_order;
+-        sys->sub_last_region = memset_bounds;
+-    }
+-
++    }
++
++    /* NULL clears and failed locks must not preserve a cache hit. */
++    sys->b_sub_last_valid = false;
+     if (AndroidWindow_LockPicture(sys, sys->p_sub_window, sys->p_sub_pic) != 0)
+         return;
+ 
+     /* Clear the subtitles surface. */
++    ARect memset_bounds;
+     SubtitleGetDirtyBounds(vd, subpicture, &memset_bounds);
+     const int x_pixels_offset = memset_bounds.left
+                                 * sys->p_sub_pic->p[0].i_pixel_pitch;
+@@ -1055,8 +1058,13 @@
+         memset(&sys->p_sub_pic->p[0].p_pixels[y * sys->p_sub_pic->p[0].i_pitch
+                                               + x_pixels_offset], 0, i_line_size);
+ 
+-    if (subpicture)
++    if (subpicture) {
+         picture_BlendSubpicture(sys->p_sub_pic, sys->p_spu_blend, subpicture);
++        /* Cache completed buffer preparation, never an attempted lock. */
++        sys->i_sub_last_order = subpicture->i_order;
++        sys->sub_last_region = subtitle_bounds;
++        sys->b_sub_last_valid = true;
++    }
+ }
+ 
+ static picture_pool_t *Pool(vout_display_t *vd, unsigned requested_count)

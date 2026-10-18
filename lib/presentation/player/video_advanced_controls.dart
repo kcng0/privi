@@ -11,6 +11,19 @@ import '../../core/l10n.dart';
 import '../../domain/models/video_playback_settings.dart';
 import 'video_player_surface.dart';
 
+int? _parseDelayMilliseconds(String input) {
+  final milliseconds = BigInt.tryParse(input);
+  if (milliseconds == null) return null;
+  // Duration and the native channel store signed 64-bit microseconds. Check
+  // before converting units so an out-of-range input cannot wrap its sign.
+  final microseconds = milliseconds * BigInt.from(1000);
+  if (microseconds < BigInt.parse('-9223372036854775808') ||
+      microseconds > BigInt.parse('9223372036854775807')) {
+    return null;
+  }
+  return milliseconds.toInt();
+}
+
 String videoOrientationLabel(BuildContext context, String mode) =>
     switch (mode) {
       'portrait' => context.l10n.portrait,
@@ -318,7 +331,7 @@ class _AdvancedSheetState extends State<_AdvancedSheet> {
               suffixText: 'ms',
               helperText: context.l10n.videoDelayHelp,
             ),
-            validator: (value) => int.tryParse(value ?? '') == null
+            validator: (value) => _parseDelayMilliseconds(value ?? '') == null
                 ? context.l10n.videoInvalidDelay
                 : null,
           ),
@@ -331,7 +344,7 @@ class _AdvancedSheetState extends State<_AdvancedSheet> {
           TextButton(
             onPressed: () {
               if (form.currentState!.validate()) {
-                Navigator.pop(context, int.parse(input));
+                Navigator.pop(context, _parseDelayMilliseconds(input)!);
               }
             },
             child: Text(context.l10n.save),

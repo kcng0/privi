@@ -1,0 +1,66 @@
+{
+  "format": 1,
+  "sdk_version": "3.7.7",
+  "official_aar": {
+    "url": "https://repo.maven.apache.org/maven2/org/videolan/android/libvlc-all/3.7.7/libvlc-all-3.7.7.aar",
+    "sha256": "b48dab96e0e90e34cce3861963500c144a5aadb1b249d501d6a4b104d849e61b"
+  },
+  "vlc_android": {
+    "repository": "https://code.videolan.org/videolan/vlc-android.git",
+    "commit": "7a7c8f14be6759f9bb1b9a934fd086259473e20e",
+    "tag": "libvlc-3.7.7"
+  },
+  "jni": {
+    "repository": "https://code.videolan.org/videolan/libvlcjni.git",
+    "commit": "0b8dc65efb203c86a0476bc337ddd99ecf1c0ef6"
+  },
+  "vlc": {
+    "repository": "https://code.videolan.org/videolan/vlc.git",
+    "commit": "84177b2273abc5c4300234e6e18b55a4d2dd5a03",
+    "official_patch_count": 20
+  },
+  "compile_flags": [
+    "--release",
+    "--license",
+    "g"
+  ],
+  "build_environment": {
+    "FORCE_UNSAFE_CONFIGURE": "1"
+  },
+  "ci_container_user": "0",
+  "native_libraries": [
+    "libc++_shared.so",
+    "libvlc.so",
+    "libvlcjni.so"
+  ],
+  "targets": [
+    {
+      "abi": "arm64-v8a",
+      "triplet": "aarch64-linux-android",
+      "ndk": "29.0.14206865",
+      "image": "registry.videolan.org/vlc-debian-android@sha256:5a050fb64299a27d68bdb944fc23c8e4d3b401a42c2abe3683fbd199fc30514d"
+    },
+    {
+      "abi": "armeabi-v7a",
+      "triplet": "arm-linux-androideabi",
+      "ndk": "21.4.7075529",
+      "image": "registry.videolan.org/vlc-debian-android-3.0@sha256:b3bc028e3c7cb62d2f9910487a8835c02c13c5d2d8dcf09156dd09dd6f2eddca"
+    },
+    {
+      "abi": "x86_64",
+      "triplet": "x86_64-linux-android",
+      "ndk": "29.0.14206865",
+      "image": "registry.videolan.org/vlc-debian-android@sha256:5a050fb64299a27d68bdb944fc23c8e4d3b401a42c2abe3683fbd199fc30514d"
+    }
+  ],
+  "patches": [
+    {
+      "path": "third_party/libvlc/patches/0001-preserve-valid-delayed-subtitle-dates.patch",
+      "sha256": "fccc89fa4d70c8b7ed2fa3f79df22f42ab7c167f94ccc3e74fd98b584e7900ca"
+    },
+    {
+      "path": "third_party/libvlc/patches/0002-invalidate-cleared-subtitle-surface-cache.patch",
+      "sha256": "dfff5609d49cd8f529bc52db6a32e05158d618a757cf2c5153cd80cdb008653f"
+    }
+  ]
+}
