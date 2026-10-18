@@ -86,7 +86,7 @@ The result `libvlc-sdk.tar.xz` contains:
 - `libvlc-privi.aar`: original official Java/resources, with **all** original
   `jni/` entries removed and replaced by the nine freshly built native files.
 - `libvlc-corresponding-source.tar.xz`: patched VLC/JNI sources, build script,
-  lock/patches, downloaded contrib/tool source archives, actual configure output
+  lock/patches, original contrib/tool source archives and `.githash` sidecars, actual configure output
   and built-in module lists for each ABI. It also retains shallow public Git
   metadata and the pinned base AAR needed by the build, without app credentials.
 - `libvlc-licenses.tar.xz`: notices captured from source dependencies and the
@@ -106,9 +106,42 @@ temporary packaging directories; it never prunes shared Docker/build resources.
 The corresponding-source archive is itself a prepared working directory. For a
 source-offer rebuild, extract a fresh copy for each ABI and invoke its
 `inputs/scripts/build-libvlc-sdk.sh build` in the locked container with
-`--work-dir` pointing at that copy. Downloaded dependency archives are already
-in the upstream contrib/tool cache paths. An app repository checkout is not
-needed for that native rebuild.
+`--work-dir` pointing at that copy. An app repository checkout is not needed:
+
+```bash
+# Extract the bundle first, then extract its corresponding-source archive into
+# a new directory for this ABI. SDK_WORK and SDK_PART are fresh absolute paths;
+# use the ABI/image from inputs/third_party/libvlc/source-lock.json.
+mkdir "$SDK_WORK" "$SDK_PART"
+tar -xJf libvlc-corresponding-source.tar.xz -C "$SDK_WORK"
+docker run --rm --platform linux/amd64 --user 0 \
+  -e PRIVI_LIBVLC_BUILD_IMAGE="$SDK_IMAGE" \
+  -v "$SDK_WORK:$SDK_WORK" -v "$SDK_PART:$SDK_PART" \
+  -w "$SDK_WORK" "$SDK_IMAGE" \
+  bash inputs/scripts/build-libvlc-sdk.sh build --abi "$SDK_ABI" --jobs 2 \
+    --timeout-seconds 18000 --work-dir "$SDK_WORK" --output-dir "$SDK_PART"
+```
+
+Dependency inputs are content-addressed at `dependency-sources/sha256/<SHA-256>`.
+The original `dependency_sources` inventory and its matching
+`dependency-source-sha256.json` are retained under `build-provenance/<ABI>/`.
+Identical bytes are stored once; same-name upstream archives with different
+bytes are retained separately. Container Git/xz versions can produce different
+archives for the same upstream commit, so filenames alone are not a deduplication
+key. Each ABI also retains the real upstream `.githash` bytes, including any
+original absolute path; upstream `check_githash` uses its basename. These
+sidecars are required when `make fetch` reuses an already downloaded Git archive.
+
+Before compiling, `build --abi` verifies the exact ABI list, matching provenance
+and inventories, every content-store hash and every restore path. It then
+restores only that ABI's original archives and sidecars into `contrib/tarballs`
+and `extras/tools`. The source offer's `prepared.json` explicitly declares
+`dependency_source_storage: sha256-cas-v1`; missing stores/provenance and unknown
+storage modes fail instead of being treated as a fresh upstream prepare.
+Missing/extra inputs, unsafe paths or conflicting existing files fail explicitly.
+Always extract a fresh source-offer copy for each ABI;
+one ABI's original archive must never overwrite another ABI's bytes. Source
+availability and input integrity do not establish bit-identical compiler output.
 
 ## Select, validate, and publish
 

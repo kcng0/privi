@@ -27,6 +27,9 @@ BUNDLE = 'libvlc-sdk.tar.xz'
 AAR = 'libvlc-privi.aar'
 SOURCE_STATE_KEYS = tuple(f'{name}_patched_{kind}' for name in ('jni', 'vlc')
                           for kind in ('commit', 'tree'))
+DEPENDENCY_GROUPS = {'contrib-tarballs': ('contrib', 'tarballs'),
+                     'tools-tarballs': ('extras', 'tools')}
+DEPENDENCY_STORAGE = 'sha256-cas-v1'
 
 
 def fail(message):
@@ -227,6 +230,150 @@ def prepared_input(work):
     return info
 
 
+def dependency_file(name):
+    return bool(re.search(r'\.(tar\.(gz|bz2|xz|lz|lzma|zst)|tgz|zip|githash)$', name))
+
+
+def dependency_inventory(value):
+    if not isinstance(value, dict) or not value:
+        fail('Dependency source inventory must be a nonempty object')
+    for relative, digest in value.items():
+        if not isinstance(relative, str) or '\\' in relative or '\x00' in relative:
+            fail('Invalid dependency source path')
+        parts = relative.split('/')
+        if (len(parts) != 2 or parts[0] not in DEPENDENCY_GROUPS
+                or parts[1] in ('', '.', '..') or not dependency_file(parts[1])):
+            fail('Dependency source path must name a direct contrib/tool archive or .githash: ' + relative)
+        if not isinstance(digest, str) or not re.fullmatch('[0-9a-f]{64}', digest):
+            fail('Invalid dependency source SHA-256: ' + relative)
+        if relative.endswith('.githash') and relative[:-len('.githash')] + '.tar.xz' not in value:
+            fail('Dependency .githash has no corresponding original .tar.xz: ' + relative)
+    if not any(relative.startswith('contrib-tarballs/') and not relative.endswith('.githash')
+               for relative in value):
+        fail('No contrib source archives in the dependency inventory')
+    return value
+
+
+def dependency_records(directory, prepared):
+    if directory.is_symlink() or not directory.is_dir() or {p.name for p in directory.iterdir()} != set(TARGETS):
+        fail('Dependency source provenance must cover exactly the locked ABI list')
+    records = {}
+    for abi, target in TARGETS.items():
+        base = directory / abi
+        if base.is_symlink() or not base.is_dir():
+            fail('Invalid dependency source provenance directory: ' + abi)
+        for name in ['provenance.json', 'dependency-source-sha256.json']:
+            path = base / name
+            if path.is_symlink() or not path.is_file():
+                fail('Missing regular dependency source provenance file: ' + str(path))
+        record = json.loads((base / 'provenance.json').read_text())
+        for key in ['project_commit', 'source_lock_sha256', 'build_script_sha256',
+                    'custom_patches', *SOURCE_STATE_KEYS]:
+            if record[key] != prepared[key]:
+                fail('ABI outputs came from different source inputs: ' + abi + '/' + key)
+        if record['target'] != target or set(record['libraries']) != set(LOCK['native_libraries']):
+            fail('Dependency source ABI target differs from the source lock: ' + abi)
+        inventory = dependency_inventory(record['dependency_sources'])
+        if json.loads((base / 'dependency-source-sha256.json').read_text()) != inventory:
+            fail('Dependency source inventory differs from ABI provenance: ' + abi)
+        records[abi] = record
+    return records
+
+
+def dependency_store(store, records):
+    expected = {digest for record in records.values() for digest in record['dependency_sources'].values()}
+    if store.is_symlink() or not store.is_dir():
+        fail('Missing regular dependency source content store')
+    actual = set()
+    for path in store.iterdir():
+        if path.is_symlink() or not path.is_file() or not re.fullmatch('[0-9a-f]{64}', path.name):
+            fail('Invalid dependency source content-store entry: ' + str(path))
+        check_sha(path, path.name)
+        actual.add(path.name)
+    if actual != expected:
+        fail('Dependency source content store has missing or unexpected archives/sidecars')
+
+
+def collect_dependency_sources(parts, records, source):
+    store = source / 'dependency-sources/sha256'
+    store.mkdir(parents=True)
+    for abi, record in records.items():
+        inventory = record['dependency_sources']
+        with tempfile.TemporaryDirectory(prefix='privi-libvlc-deps-') as temporary:
+            deps = Path(temporary)
+            original_part = parts / 'source-parts' / (abi + '.tar.xz')
+            if original_part.is_symlink() or not original_part.is_file():
+                fail('Missing regular dependency source-part archive: ' + abi)
+            with tarfile.open(original_part, 'r:xz') as archive:
+                seen = set()
+                for member in archive.getmembers():
+                    if member.isdir() and member.name.rstrip('/') in DEPENDENCY_GROUPS:
+                        continue
+                    if not member.isfile() or member.name not in inventory or member.name in seen:
+                        fail('Unexpected, duplicate or unsafe dependency source archive member: ' + member.name)
+                    seen.add(member.name)
+                if seen != set(inventory):
+                    fail('Dependency source-part members differ from ABI inventory: ' + abi)
+                archive.extractall(deps, filter='data')
+            for relative, digest in inventory.items():
+                original = deps / relative
+                check_sha(original, digest)
+                dest = store / digest
+                if dest.exists():
+                    check_sha(dest, digest)
+                else:
+                    copy_file(original, dest)
+    dependency_store(store, records)
+
+
+def restore_dependency_sources(work, abi, prepared):
+    directory = work / 'build-provenance'
+    source_cache = work / 'dependency-sources'
+    if 'dependency_source_storage' not in prepared:
+        if any(path.exists() or path.is_symlink() for path in [directory, source_cache]):
+            fail('Dependency source inputs require an explicit source-offer storage declaration')
+        return  # Only a fresh upstream prepare downloads its own original inputs.
+    if prepared['dependency_source_storage'] != DEPENDENCY_STORAGE:
+        fail('Unknown source-offer dependency storage mode')
+    if source_cache.is_symlink() or not source_cache.is_dir() or {p.name for p in source_cache.iterdir()} != {'sha256'}:
+        fail('Incomplete or unexpected dependency source content store')
+    records = dependency_records(directory, prepared)
+    store = source_cache / 'sha256'
+    dependency_store(store, records)
+    inventory = records[abi]['dependency_sources']
+    vlc = work / 'libvlcjni/vlc'
+    if (work / 'libvlcjni').is_symlink() or vlc.is_symlink():
+        fail('Dependency source destination repository must not be a symlink')
+    destinations = []
+    # Preflight every existing destination before restoring any bytes. In
+    # particular, extracting one ABI must never overwrite another ABI's archive.
+    for group, components in DEPENDENCY_GROUPS.items():
+        base = vlc
+        for component in components:
+            if base.is_symlink() or (base.exists() and not base.is_dir()):
+                fail('Unsafe dependency cache directory: ' + str(base))
+            base = base / component
+        if base.is_symlink() or (base.exists() and not base.is_dir()):
+            fail('Unsafe dependency cache directory: ' + str(base))
+        if base.exists():
+            for path in base.iterdir():
+                if dependency_file(path.name) and group + '/' + path.name not in inventory:
+                    fail('Unexpected existing dependency archive/sidecar for ' + abi + ': ' + str(path))
+    for relative, digest in inventory.items():
+        group, name = relative.split('/')
+        dest = vlc.joinpath(*DEPENDENCY_GROUPS[group], name)
+        if dest.is_symlink() or (dest.exists() and not dest.is_file()):
+            fail('Unsafe dependency source destination: ' + str(dest))
+        if dest.exists():
+            check_sha(dest, digest)
+        destinations.append((dest, digest))
+    for dest, digest in destinations:
+        if not dest.exists():
+            copy_file(store / digest, dest)
+        check_sha(dest, digest)
+    print(f'Restored {len(inventory)} original dependency archives/sidecars for {abi}')
+
+
 def build(args):
     work = Path(args.work_dir).resolve()
     independent_output(args.output_dir, work)
@@ -243,6 +390,7 @@ def build(args):
     vlc = jni / 'vlc'
     if (jni / 'libvlc/jni/libs').exists():
         fail('Native output already exists; refusing a mixed or incremental SDK build')
+    restore_dependency_sources(work, args.abi, info)
     diagnostics = out / 'diagnostics'
     diagnostics.mkdir()
     log = diagnostics / f'{args.abi}.log'
@@ -297,7 +445,9 @@ def build(args):
     for base, dest in [(vlc / 'contrib/tarballs', 'contrib-tarballs'),
                        (vlc / 'extras/tools', 'tools-tarballs')]:
         for path in sorted(base.iterdir()):
-            if path.is_file() and re.search(r'\.(tar\.(gz|bz2|xz|lz|lzma|zst)|tgz|zip)$', path.name):
+            if path.is_file() and dependency_file(path.name):
+                if path.is_symlink():
+                    fail('Dependency source archive/sidecar must not be a symlink: ' + str(path))
                 copy_file(path, source_part / dest / path.name)
     notices = out / 'licenses' / args.abi
     copy_file(jni / 'LICENSE', notices / 'jni/LICENSE')
@@ -327,6 +477,7 @@ def build(args):
     if not any((source_part / 'contrib-tarballs').glob('*')):
         fail('No downloaded contrib source archives were captured')
     inventory = {str(p.relative_to(source_part)): sha(p) for p in sorted(source_part.rglob('*')) if p.is_file()}
+    dependency_inventory(inventory)
     write_json(provenance / 'dependency-source-sha256.json', inventory)
     archive_tree(source_part, out / 'source-parts' / (args.abi + '.tar.xz'), info['source_date_epoch'])
     record = dict(info, target=target, compile_command=command, libraries=lib_info,
@@ -343,25 +494,21 @@ def package(args):
     independent_output(args.output_dir, work, parts)
     out = fresh_dir(args.output_dir)
     prepared = prepared_input(work)
-    records = {}
+    records = dependency_records(parts / 'abi', prepared)
     expected = set()
     for abi, target in TARGETS.items():
-        record = json.loads((parts / 'abi' / abi / 'provenance.json').read_text())
-        for key in ['project_commit', 'source_lock_sha256', 'build_script_sha256',
-                    'custom_patches', *SOURCE_STATE_KEYS]:
-            if record[key] != prepared[key]:
-                fail('ABI outputs came from different source inputs: ' + abi + '/' + key)
+        record = records[abi]
         if record['target'] != target or set(record['libraries']) != set(LOCK['native_libraries']):
             fail('Incomplete or differently configured ABI output: ' + abi)
         for name, details in record['libraries'].items():
             path = parts / 'native' / abi / name
             check_sha(path, details['sha256'])
             expected.add(str(path.relative_to(parts / 'native')))
-        records[abi] = record
     actual = {str(p.relative_to(parts / 'native')) for p in (parts / 'native').rglob('*.so')}
     if actual != expected:
         fail('Unexpected/missing native libraries in the three-ABI package')
     provenance = dict(prepared, abis=records,
+                      dependency_source_storage=DEPENDENCY_STORAGE,
                       java_resources='Unmodified non-jni entries of the hash-pinned official AAR',
                       license_configuration='Upstream g: GPLv3; includes mixed upstream dependency licenses')
     with zipfile.ZipFile(work / 'official.aar') as original, zipfile.ZipFile(out / AAR, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as aar:
@@ -380,24 +527,11 @@ def package(args):
         # get-vlc.sh need it. No authenticated remote or app checkout is copied.
         shutil.copytree(work / 'libvlcjni', source / 'libvlcjni')
         shutil.copytree(work / 'inputs', source / 'inputs')
-        copy_file(work / 'prepared.json', source / 'prepared.json')
+        # The original prepare/native provenance stays unchanged. A source
+        # offer explicitly requires its preserved offline dependency inputs.
+        write_json(source / 'prepared.json', dict(prepared, dependency_source_storage=DEPENDENCY_STORAGE))
         copy_file(work / 'official.aar', source / 'official.aar')
-        for abi in TARGETS:
-            with tempfile.TemporaryDirectory(prefix='privi-libvlc-deps-') as deps_temp:
-                deps = Path(deps_temp)
-                extract(parts / 'source-parts' / (abi + '.tar.xz'), deps)
-                inventory = records[abi]['dependency_sources']
-                for relative, expected_hash in inventory.items():
-                    path = deps / relative
-                    check_sha(path, expected_hash)
-                    group, name = relative.split('/', 1)
-                    destination = {'contrib-tarballs': 'contrib/tarballs',
-                                   'tools-tarballs': 'extras/tools'}[group]
-                    dest = source / 'libvlcjni/vlc' / destination / name
-                    if dest.exists():
-                        check_sha(dest, expected_hash)
-                    else:
-                        copy_file(path, dest)
+        collect_dependency_sources(parts, records, source)
         shutil.copytree(parts / 'abi', source / 'build-provenance')
         archive_tree(source, out / 'libvlc-corresponding-source.tar.xz', prepared['source_date_epoch'])
     archive_tree(parts / 'licenses', out / 'libvlc-licenses.tar.xz', prepared['source_date_epoch'])

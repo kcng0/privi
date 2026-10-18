@@ -291,3 +291,9 @@ root另行启动[不插桩原生39146944141](https://github.com/kcng0/privi/acti
 [普通原生39154250229](https://github.com/kcng0/privi/actions/runs/39154250229)使用 `f4c3775`、旧官方SDK。实际100handoff完成、held23.70%/10块、released24.43%/14块；本轮paused baseline/seek/reselect三图均有中文字，但不能替代此前同路径无字反例的新SDK验收。action40 menu2×两PNG均为HUD2.958/frame71，motion0/16，原门严格失败。真实action markers08.640与13.751分别落在input14/16 reopen后、first-picture前，存在短clip循环末帧采样别名候选；中间只有decode/vout活动记录、没有中间上屏帧证据，不能据reopen或时钟认定流畅，也不直接认定持续freeze。PiP/SCREEN_OFF尚未进入。本轮公开版本仍40，签名新native候选需build44以上。
 
 现有原生字幕用例在原3分钟期限内增加三张独立输入PNG：正delay seek、overlap、长A/100expired/B。保留旧素材及所有旧路径；实际图中文字与独立cue区间才作为通过依据，native paused/position/reopen/gen/PixelCopy仅为诊断。新SDK编译、三图、PiP/锁屏、实际签名APK均尚未验，当前不发布。
+
+SDK `39155522179` 的三个 ABI 原生任务随后全部编译成功，但 package 严格失败，未产生可供消费者使用的 bundle：不同 ABI 的 `fluidlite-b0f187b404e393ee0a495b277154d55d7d03cbeb.tar.xz` 同名、原始 SHA-256 不同，旧源码 offer 合并逻辑要求同名归档逐字节一致。不能跳过校验、覆盖其中一份或据此声称源码内容相同。修复将按内容保存全部原归档，以每 ABI 的实际 inventory 恢复构建输入。独立 Hacker 另确认上游 `download_git`/`check_githash` 需要同名 `.githash`，必须一并采集原字节；否则已有 tarball 会跳过下载却在校验时报缺文件。此项属于对应源码复建合同，不能用编译成功代替复建检查。
+
+实际 arm64 产物保留 271 个 built-in modules，包含 MediaCodec、Android display/window、avcodec、dav1d、vpx、libass、freetype、subtitle、Matroska/MP4/AVI 和 Android 音频输出。其 configure 功能开关与官方 arm64 库相同；官方额外的 debug/branch-protection 参数不作为功能裁剪。真实三库的 64-bit PT_LOAD 均为 16KiB 对齐。这些是构建与兼容性探针，尚不能证明字幕呈现、Samsung A52 输出 FPS 或声音。默认 SDK 消费路径已在 `e822ed7` 统一且移除 Maven fallback；永久 manifest 仍待成功 bundle 的真实哈希，不填占位值。
+
+对应源码归档修复随后用旧 run 的三个真实 source-part 检查：同名字节差异包含 fluidlite/postproc/x264；fluidlite 的三个压缩文件解开后 tar SHA 相同，确认该包差异来自压缩层。按内容存储共 70 个对象、349,183,267 bytes，保留各 ABI 原字节且不按文件名任选变体。旧产物未采集 `.githash`，只用于归档探针，不作为新 SDK 或完整 source-offer 复建成功证据。修正后的 producer 将捕获真实 sidecar，并通过对应源码包的 `inputs/scripts/build-libvlc-sdk.sh build --abi …` 在编译前校验并恢复该 ABI 的输入；仍需新的完整三 ABI 构建与实际播放验收。
