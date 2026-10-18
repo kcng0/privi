@@ -221,8 +221,8 @@ existing policy. Changing `hwdec` rebuilds the decoder and queues a seek, so thi
 choice happens once during initialization, never during rate changes. Readback
 confirms the requested policy; it does not prove direct output or a ready frame.
 
-The advanced sheet also offers an explicit session-only direct decoding
-experiment. It accepts active MediaCodec copy-back with reported 8-bit output
+The draft advanced sheet includes a session-only direct decoding experiment
+(currently blocked from publication by the recovery issue below). It accepts active MediaCodec copy-back with reported 8-bit output
 and either SDR or explicitly unspecified raw color values; missing properties
 and reported HDR/wide gamut/high-depth output remain ineligible. This does not
 prove source bit depth: Android decoders may convert high-depth sources to NV12.
@@ -234,6 +234,12 @@ changes audio or rate, or persists this choice. Requested hwdec and actual
 hwdec-current are shown separately, including allowed fallback. Users resume
 manually and compare the same clip, including sound; actual frame pacing and
 source quality still require physical-device acceptance.
+
+Publication of the session switch is blocked: the pinned media_kit promotes
+some recoverable vd error logs to fatal video_player events. A successful native
+fallback can therefore leave the facade uninitialized, with no in-place recovery.
+Do not suppress diagnostics or re-emit initialized to work around this boundary.
+The current release does not include the switch; native-stack selection is pending.
 
 The advanced playback sheet offers an explicit Copy playback diagnostics action
 on supported backends. It reads an allowlist of technical native properties once,

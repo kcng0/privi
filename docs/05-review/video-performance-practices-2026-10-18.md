@@ -127,7 +127,7 @@ iOS 继续单独验证 AVFoundation。Apple 的 `canPlayFastForward == false` �
 Hacker 本轮结论为部分验收：无已建立的新产品正确性反例，新增功能与 A52 性能仍有上述未验项。本轮部署使用 `1.1.2-rc.1+39` 候选完整 APK，供真实设备核对选路、画质与倍速表现；不标记为已验证流畅的稳定版本。
 
 
-## A52 实机回报与会话级对照（1.1.2+40）
+## A52 实机回报与会话级对照草案（1.1.2+40，未发布）
 
 用户安装候选版后确认画面和声音仍一起卡顿，同片在 VLC 倍速顺畅。其真实诊断为 H.264 1920×1080、60fps、speed=2、`hwdec=auto-safe` / `hwdec-current=mediacodec-copy`；raw NV12 的 matrix/primaries/gamma 均为 auto，normalized 为 BT.709/BT.1886。采样时 seeking、cache wait、core-idle 均为 no，累计 VO drop=3054、decoder drop=0、avsync=8.484234 秒，ao=opensles。累计计数没有时间窗口，不能据此计算 FPS；实际音画卡顿和同步偏离说明持续播放仍未满足要求。
 
@@ -140,3 +140,10 @@ Hacker 本轮结论为部分验收：无已建立的新产品正确性反例，�
 音频方面，本包强制 OpenSL ES；固定 mpv 的实现按默认 250ms 块估算时钟。这是可疑差异，尚非根因证明。也不能直接切 AudioTrack：本包虽包含驱动和 JavaVM 入口，但固定旧版会由一个实例释放另一个实例还在使用的全局 JNI 引用，与 current+preload 冲突，可造成原生进程崩溃。修复晚于当前 bundle，因此本轮不改音频输出。[维护者说明](https://github.com/media-kit/media-kit/issues/1061#issuecomment-2585963757)、[mpv 上游修复 #15213](https://github.com/mpv-player/mpv/pull/15213)。VLC Android 3.6.5 配置默认 AAudio，用户当前 VLC 实际 driver 未取到；不能把 VLC 流畅归因为 AudioTrack。[VLC 配置](https://github.com/videolan/vlc-android/blob/3.6.5/application/resources/src/main/java/org/videolan/resources/VLCOptions.kt#L222)。
 
 Hacker 首轮发现的源位深保护合同反证已用于收窄上述声明；新入口真实 UI、A52 direct 的音画改善与颜色、失败恢复和锁屏竞态仍未验。没有新增入库测试；已有探针仅检查改动和回归，不代替这些实际行为。
+
+
+### 第二轮失败恢复反例与发布阻塞
+
+新增会话开关提交 `6d1459e` 已推送可审阅，但没有打版本标签或发布。第二轮 Hacker 定位到恢复设计反例：direct codec open 失败后，即使 mpv 自行回退成功，`vd/error: Could not open codec.` 仍被 media_kit 转成错误流；当前桥接无条件转成 video_player 致命事件，已初始化的 facade 会变为未初始化。随后切回兼容或刷新 Advanced 状态不能恢复同一 facade；重复发送 initialized 也会被依赖拒绝。该反例依据固定版本源码的完整传播链，尚没有真实设备失败复现；因此不能将其记为实机观察，也不能据未复现忽略恢复合同。
+
+两轮审查已到上限，新增开关的发布被阻止，现有已部署版本没有这次开关。用户已通过真实入口复制并提供 JSON，诊断导出这条真路径已有实机回报；新的硬件切换、音画改善、颜色和失败恢复仍未验。接下来向用户提交重大底层选型：内置 LibVLC + 原生 SurfaceView，或保留 mpv 并升级内核、输出与错误边界。仅更换 Dart 开关、吞掉日志或把同一 facade 重新标为 initialized，都不作为根因修复。
