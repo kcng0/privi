@@ -113,6 +113,36 @@ internal class LibVlcVideoView(
         }
     }
 
+    /** Snapshot on the main thread; do not change layout or Surface ordering. */
+    internal fun subtitleDiagnostics(): Map<String, String> {
+        // SDK 3.7.7 VideoHelper inflates this id from vlc_video_layout. Resolve
+        // its resource name without relying on library R's generated integer.
+        val subtitle = surfaces.firstOrNull { surface ->
+            surface.id != View.NO_ID && layout.resources.getResourceEntryName(surface.id) == "surface_subtitles"
+        }
+        val result = linkedMapOf(
+            "subtitle-surface-view-id" to platformViewId.toString(),
+            "subtitle-surface-present" to (subtitle != null).toString(),
+        )
+        if (subtitle != null) {
+            result["subtitle-surface-width"] = subtitle.width.toString()
+            result["subtitle-surface-height"] = subtitle.height.toString()
+            result["subtitle-surface-visibility"] = when (subtitle.visibility) {
+                View.VISIBLE -> "visible"
+                View.INVISIBLE -> "invisible"
+                View.GONE -> "gone"
+                else -> subtitle.visibility.toString()
+            }
+            result["subtitle-surface-shown"] = subtitle.isShown.toString()
+            result["subtitle-surface-attached"] = subtitle.isAttachedToWindow.toString()
+            result["subtitle-surface-holder-valid"] = subtitle.holder.surface.isValid.toString()
+            result["subtitle-surface-holder-destroyed"] = (subtitle.holder in destroyedHolders).toString()
+            result["subtitle-surface-buffer-width"] = subtitle.holder.surfaceFrame.width().toString()
+            result["subtitle-surface-buffer-height"] = subtitle.holder.surfaceFrame.height().toString()
+        }
+        return result
+    }
+
     private fun clipGroups(group: ViewGroup) {
         group.clipChildren = true
         group.clipToPadding = true

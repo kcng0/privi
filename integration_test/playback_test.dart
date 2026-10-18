@@ -40,6 +40,23 @@ void main() {
   late Directory fixtures;
   var deviceActionId = 0;
 
+  Future<Map<String, String>> recordDiagnostics(
+    VideoPlayerController controller,
+    AdvancedVideoController advanced,
+    String label,
+  ) async {
+    final native = await advanced.readPlaybackDiagnostics();
+    expect(native['engine'], 'libvlc');
+    (metrics['native_diagnostics_probes'] as Map<String, dynamic>? ??
+        (metrics['native_diagnostics_probes'] = <String, dynamic>{}))[label] = {
+      ...native,
+      'facade-position-ms': controller.value.position.inMilliseconds,
+      'native-position-ms': (await controller.position)?.inMilliseconds,
+      'captured-at': DateTime.now().toUtc().toIso8601String(),
+    };
+    return native;
+  }
+
   Future<Map<String, dynamic>> deviceAction(
     WidgetTester tester,
     Map<String, Object?> action,
@@ -305,6 +322,12 @@ void main() {
             await controller.play();
             await tester.pump(const Duration(milliseconds: 800));
             expect(controller.value.hasError, isFalse);
+            final probe = AdvancedVideoController(controller);
+            try {
+              await recordDiagnostics(controller, probe, 'first-${entry.key}');
+            } finally {
+              probe.dispose();
+            }
             // LibVLC's Flutter box is the viewport, not the displayed video.
             // Measure saturated fixture pixels in the actual Android screenshot.
             await screenshot(
@@ -426,6 +449,7 @@ void main() {
         await tester.pump(const Duration(milliseconds: 800));
         await advanced.refresh();
         expect(advanced.value.audioTracks.last.isSelected, isTrue);
+        await recordDiagnostics(controller, advanced, 'ass-before-capture');
         await screenshot(tester, 'portrait-ass-best-fit', aspect: 180 / 320);
         await advanced.setAbLoop(null, null);
         expect(advanced.value.abLoopEnd, isNull);
@@ -595,19 +619,8 @@ void main() {
           );
         }
 
-        Future<Map<String, String>> diagnostics(String label) async {
-          final native = await advanced.readPlaybackDiagnostics();
-          expect(native['engine'], 'libvlc');
-          (metrics['native_diagnostics_probes'] as Map<String, dynamic>? ??
-              (metrics['native_diagnostics_probes'] =
-                  <String, dynamic>{}))[label] = {
-            ...native,
-            'facade-position-ms': controller.value.position.inMilliseconds,
-            'native-position-ms': (await controller.position)?.inMilliseconds,
-            'captured-at': DateTime.now().toUtc().toIso8601String(),
-          };
-          return native;
-        }
+        Future<Map<String, String>> diagnostics(String label) =>
+            recordDiagnostics(controller, advanced, label);
 
         Future<void> movingFrames(String label) async {
           final first = await screenshot(tester, '$label-first');

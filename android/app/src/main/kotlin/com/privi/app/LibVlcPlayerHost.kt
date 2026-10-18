@@ -11,6 +11,7 @@ import android.media.AudioManager
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.EventChannel
@@ -113,6 +114,7 @@ class LibVlcPlayerHost(
         var surfaceLossCount = 0L
         var surfaceAttachCount = 0L
         var rateRequestCount = 0L
+        var inputReopenCount = 0L
         var frameRequestView: LibVlcVideoView? = null
         var frameRequestGeneration: Long? = null
         var lastFrameRequestView: LibVlcVideoView? = null
@@ -200,6 +202,8 @@ class LibVlcPlayerHost(
     // Created and finally released on nativeQueue.
     private var libVlc: LibVLC? = null
     private var subtitleFonts: File? = null
+    private var fontCacheValid: Boolean? = null
+    private var fontCacheBuildMs: Long? = null
     private val audioManager = activity.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private var focusOwner: Entry? = null
     private val screenOffReceiver = object : BroadcastReceiver() {
@@ -275,6 +279,7 @@ class LibVlcPlayerHost(
                     check(entry.allowed) { "Presentation permission is required before playback" }
                     check(entry.failure == null) { "Player initialization failed; recreate the player to retry" }
                     entry.wantsPlay = true
+                    trace(entry, "play-request")
                     maybePlay(entry)
                     result.success(null)
                 }
@@ -423,7 +428,13 @@ class LibVlcPlayerHost(
                     emitAdvanced(entry)
                     result.success(null)
                 }
-                "readPlaybackDiagnostics" -> nativeCall(entry, result) { diagnostics(entry) }
+                "readPlaybackDiagnostics" -> {
+                    // View/holder state belongs to the Android main thread; SDK
+                    // player queries remain serialized on nativeQueue.
+                    val subtitleSurface = entry.activeView?.subtitleDiagnostics()
+                        ?: mapOf("subtitle-surface-present" to "false", "subtitle-surface-view-id" to "none")
+                    nativeCall(entry, result) { diagnostics(entry) + subtitleSurface }
+                }
                 "setFitMode" -> {
                     val mode = call.argument<String>("fitMode")
                         ?: throw IllegalArgumentException("Missing video fit mode")
@@ -470,12 +481,27 @@ class LibVlcPlayerHost(
                     ?: throw IllegalArgumentException("Missing media URI")
                 val lib = libVlc ?: LibVLC(activity.applicationContext, arrayListOf(
                     "--audio-time-stretch", "--no-video-title-show", "--stats", "--android-display-chroma=RV32",
-                )).also { libVlc = it }
+                )).also {
+                    libVlc = it
+                    // The SDK's first text renderer otherwise scans system fonts
+                    // during playback. This blocking work belongs to initialization
+                    // on nativeQueue, before any Media or decoder is created.
+                    val started = SystemClock.elapsedRealtime()
+                    try {
+                        fontCacheValid = it.buildFontCache()
+                    } catch (error: Exception) {
+                        fontCacheValid = false
+                        Log.w(TAG, "Font cache build failed (${error.javaClass.simpleName})")
+                    } finally {
+                        fontCacheBuildMs = SystemClock.elapsedRealtime() - started
+                    }
+                    if (fontCacheValid == true) Log.i(TAG, "Font cache valid after ${fontCacheBuildMs}ms")
+                    else Log.w(TAG, "Font cache not valid on disk after ${fontCacheBuildMs}ms")
+                }
                 val fonts = subtitleFonts ?: prepareSubtitleFonts().also { subtitleFonts = it }
                 source = openSource(lib, uri, call.argument<String>("package"))
                 applyHttpHeaders(source.media, call.argument<Map<*, *>>("httpHeaders"))
                 source.media.addOption(":ssa-fontsdir=${fonts.absolutePath}")
-                source.media.addOption(":freetype-font=${File(fonts, "NotoSansCJKsc-Regular.ttf").absolutePath}")
                 source.media.setHWDecoderEnabled(true, false)
             } catch (error: Exception) {
                 val code = if (error is UnsupportedOperationException) "unsupported_http_headers" else "media_open_failed"
@@ -618,6 +644,7 @@ class LibVlcPlayerHost(
             "event" to "initialized", "duration" to entry.duration,
             "width" to entry.width, "height" to entry.height, "rotationCorrection" to 0,
         )
+        trace(entry, "metadata-ready")
         emit(entry, entry.initialized!!)
         emitAdvanced(entry)
         maybePlay(entry)
@@ -626,8 +653,10 @@ class LibVlcPlayerHost(
     private fun ensurePlayer(entry: Entry) {
         if (entry.player != null) return
         val media = entry.source?.media ?: return
+        trace(entry, "player-creating")
         val player = MediaPlayer(media)
         entry.player = player
+        trace(entry, "player-created")
         player.setUseOrientationFromBounds(true)
         player.setVideoTitleDisplay(MediaPlayer.Position.Disable, 0)
         player.setEventListener { event -> onPlayerEvent(entry, event) }
@@ -667,9 +696,12 @@ class LibVlcPlayerHost(
                     if (entry.nativeEnded) {
                         player.media = entry.source?.media
                         entry.nativeEnded = false
+                        entry.inputReopenCount++
+                        trace(entry, "input-reopened")
                     }
                     check(player.setVolume((entry.volume * 100).roundToInt()) == 0) { "LibVLC rejected volume" }
                     setRate(player, entry.speed)
+                    trace(entry, "native-play")
                     player.play()
                 } catch (error: Exception) {
                     main.post { fail(entry, "playback_failed", "LibVLC could not start playback (${error.javaClass.simpleName})") }
@@ -704,6 +736,7 @@ class LibVlcPlayerHost(
         player.setVideoScale(scaleTypes.getValue(view.fitMode))
         updateVisibility(entry)
         updateSurfaceReadiness(entry, view)
+        trace(entry, "surface-attached")
     }
 
     private fun setRate(player: MediaPlayer, speed: Double) {
@@ -715,6 +748,7 @@ class LibVlcPlayerHost(
         if (entry.disposed || entry.failure != null) return
         when (event.type) {
             MediaPlayer.Event.Playing -> {
+                trace(entry, "event-playing")
                 if (!entry.allowed || !entry.wantsPlay) {
                     pause(entry)
                     return
@@ -740,6 +774,7 @@ class LibVlcPlayerHost(
                             restoreTrackIntent(entry, player)
                             entry.pendingPosition?.let { position ->
                                 if (player.isSeekable) {
+                                    trace(entry, "pending-seek-$position")
                                     check(player.setTime(position) >= 0) { "Pending seek rejected" }
                                     main.post { if (entry.pendingPosition == position) entry.pendingPosition = null }
                                 }
@@ -753,6 +788,7 @@ class LibVlcPlayerHost(
                 emitAdvanced(entry)
             }
             MediaPlayer.Event.Paused, MediaPlayer.Event.Stopped -> {
+                trace(entry, if (event.type == MediaPlayer.Event.Paused) "event-paused" else "event-stopped")
                 entry.playing = false
                 updateAwake(entry)
                 if (!entry.surfaceSuspended || !entry.allowed || !entry.wantsPlay) {
@@ -761,12 +797,15 @@ class LibVlcPlayerHost(
             }
             MediaPlayer.Event.EncounteredError -> fail(entry, "libvlc_error", "LibVLC encountered a fatal playback error")
             MediaPlayer.Event.EndReached -> {
+                trace(entry, "event-ended")
                 entry.playing = false
                 entry.nativeEnded = true
                 updateAwake(entry)
                 val start = entry.abStart
                 if ((entry.looping || (start != null && entry.abEnd != null)) && entry.allowed && entry.wantsPlay) {
-                    entry.pendingPosition = start ?: 0L
+                    // Reopening ordinary playback (or A=0) already starts at
+                    // zero; only a nonzero A point needs a subsequent seek.
+                    if (entry.pendingPosition == null) entry.pendingPosition = start?.takeIf { it > 0L }
                     maybePlay(entry)
                 } else {
                     entry.wantsPlay = false
@@ -944,6 +983,7 @@ class LibVlcPlayerHost(
             entry.surfaceLossCount++
             entry.surfaceGeneration++
             pauseForMissingViewport(entry)
+            trace(entry, "surface-suspended")
         }
         if (entry.allowed && entry.wantsPlay) {
             entry.surfaceSuspended = true
@@ -978,9 +1018,11 @@ class LibVlcPlayerHost(
         entry.lastFrameRequestView = view
         entry.lastFrameRequestGeneration = generation
         emitSurfaceFrameRequest(entry, view, generation, true)
+        trace(entry, "frame-request-$generation")
         entry.frameRequestTimeout = Runnable {
             if (entry.disposed || entry.frameRequestView !== view || entry.frameRequestGeneration != generation) return@Runnable
             entry.frameRequestTimeoutCount++
+            trace(entry, "frame-timeout-$generation")
             // attach() can advance generation within this same recovery episode.
             // A timeout must not immediately start another request for that work.
             entry.lastFrameRequestGeneration = entry.surfaceGeneration
@@ -997,6 +1039,7 @@ class LibVlcPlayerHost(
         entry.frameRequestView = null
         entry.frameRequestGeneration = null
         if (view != null && generation != null) emitSurfaceFrameRequest(entry, view, generation, false)
+        if (view != null && generation != null) trace(entry, "frame-finished-$generation")
     }
 
     private fun scheduleSurfaceRecovery(entry: Entry, view: LibVlcVideoView) {
@@ -1171,8 +1214,22 @@ class LibVlcPlayerHost(
             // Configured rate and lifecycle counters are probes, not displayed FPS.
             "playback-rate-requested" to entry.speed.toString(),
             "rate-request-count" to entry.rateRequestCount.toString(),
+            "font-cache-valid" to (fontCacheValid?.toString() ?: "not-built"),
+            "font-cache-build-ms" to (fontCacheBuildMs?.toString() ?: "not-built"),
+            "input-reopen-count" to entry.inputReopenCount.toString(),
+            "pending-seek-ms" to (entry.pendingPosition?.toString() ?: "none"),
+            "native-player-created" to (entry.player != null).toString(),
+            "active-view-id" to (entry.activeView?.platformViewId?.toString() ?: "none"),
+            "active-view-attached" to (entry.activeView?.attached == true).toString(),
+            "active-view-window-visible" to (entry.activeView?.windowVisible == true).toString(),
+            "active-view-presentable" to (entry.activeView?.presentable == true).toString(),
             "native-is-playing" to (entry.player?.isPlaying?.toString() ?: "false"),
             "native-player-state" to (entry.player?.playerState?.toString() ?: "unopened"),
+            "subtitle-track-intent" to (entry.selectedSubtitleTrack?.toString() ?: "automatic"),
+            "subtitle-track-actual" to (entry.player?.spuTrack?.toString() ?: "unopened"),
+            "subtitle-track-ids" to (entry.player?.let { player ->
+                player.spuTracks?.joinToString(prefix = "[", postfix = "]") { it.id.toString() } ?: "unavailable"
+            } ?: "unopened"),
             "presentation-allowed" to entry.allowed.toString(),
             "play-requested" to entry.wantsPlay.toString(),
             "viewport-presentable" to entry.viewportAttached.toString(),
@@ -1203,6 +1260,17 @@ class LibVlcPlayerHost(
             result["demux-bitrate"] = stats.demuxBitrate.toString()
         }
         return result
+    }
+
+    /** Lifecycle boundaries only: no file names, URIs, or per-frame logging. */
+    private fun trace(entry: Entry, action: String) {
+        val view = entry.activeView
+        Log.i(TAG, "$action id=${entry.id} view=${view?.platformViewId} " +
+            "allowed=${entry.allowed} wanted=${entry.wantsPlay} playing=${entry.playing} " +
+            "created=${entry.player != null} shown=${view?.presentable} window=${view?.windowVisible} " +
+            "ready=${entry.surfacesReady} generation=${entry.surfaceGeneration} " +
+            "reopen=${entry.inputReopenCount} pending=${entry.pendingPosition} " +
+            "request=${entry.frameRequestGeneration}")
     }
 
     private fun emit(entry: Entry, event: Map<String, Any?>) {
