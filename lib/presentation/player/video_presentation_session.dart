@@ -29,7 +29,28 @@ mixin VideoPresentationSession<T extends ConsumerStatefulWidget>
     _playbackOwner = ref.read(pictureInPictureControllerProvider.notifier);
   }
 
-  bool get videoMayAdvance => mounted && _playbackOwner.canAdvance;
+  final _seekInteractions = <Object>{};
+  DateTime? _seekCooldownUntil;
+
+  bool get videoMayAdvance =>
+      mounted &&
+      _playbackOwner.canAdvance &&
+      _seekInteractions.isEmpty &&
+      (_seekCooldownUntil == null ||
+          DateTime.now().isAfter(_seekCooldownUntil!));
+
+  /// Keep a playing video on its route while a gesture or exact seek is active.
+  VoidCallback beginVideoSeek(VideoPlayerController controller) {
+    if (!identical(_presentationVideo, controller)) return () {};
+    final token = Object();
+    _seekInteractions.add(token);
+    return () {
+      if (_seekInteractions.remove(token)) {
+        _seekCooldownUntil =
+            DateTime.now().add(const Duration(milliseconds: 800));
+      }
+    };
+  }
 
   Future<bool> playVideoWhenAllowed(
     VideoPlayerController controller,
@@ -104,6 +125,8 @@ mixin VideoPresentationSession<T extends ConsumerStatefulWidget>
   }
 
   void detachVideoPresentation() {
+    _seekInteractions.clear();
+    _seekCooldownUntil = null;
     videoAdvanced?.dispose();
     videoAdvanced = null;
     _preview?.dispose();
@@ -133,8 +156,17 @@ mixin VideoPresentationSession<T extends ConsumerStatefulWidget>
     );
   }
 
-  Future<Uint8List?> videoPreviewFrame(Duration position) async =>
-      _preview?.requestFrame(position);
+  Future<Uint8List?> videoPreviewFrame(
+    VideoPlayerController controller,
+    Duration position,
+  ) async =>
+      identical(_presentationVideo, controller)
+          ? _preview?.requestFrame(position)
+          : null;
+
+  void clearVideoPreview(VideoPlayerController controller) {
+    if (identical(_presentationVideo, controller)) _preview?.clear();
+  }
 
   Future<void> _applyVideoOrientation(String mode) {
     if (defaultTargetPlatform == TargetPlatform.android) {
@@ -234,6 +266,7 @@ mixin VideoPresentationSession<T extends ConsumerStatefulWidget>
     required String mediaId,
     required VideoFitMode fitMode,
     required VoidCallback onTap,
+    required VoidCallback onFastForwardStarted,
     VoidCallback? onUserSeek,
   }) =>
       VideoPlaybackLifecycle(
@@ -247,6 +280,7 @@ mixin VideoPresentationSession<T extends ConsumerStatefulWidget>
               ref.watch(settingsControllerProvider).playerDragSeekSeconds,
           onTap: onTap,
           onUserSeek: onUserSeek,
+          onSeekStarted: () => beginVideoSeek(controller),
           onResume: () async {
             await playVideoWhenAllowed(
               controller,
@@ -254,7 +288,10 @@ mixin VideoPresentationSession<T extends ConsumerStatefulWidget>
               isCurrent: () => identical(_presentationVideo, controller),
             );
           },
-          onPreviewFrameRequested: videoPreviewFrame,
+          onFastForwardStarted: () {
+            clearVideoPreview(controller);
+            onFastForwardStarted();
+          },
           child: ValueListenableBuilder<AdvancedVideoState>(
             valueListenable: videoAdvanced!,
             builder: (context, state, _) => VideoViewport(

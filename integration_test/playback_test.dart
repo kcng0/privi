@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
+import 'package:media_kit/media_kit.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:photo_manager/photo_manager.dart';
 import 'package:privi/app.dart';
@@ -29,6 +30,8 @@ import 'package:video_player_platform_interface/video_player_platform_interface.
 void main() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   installVaultVideoPlayer();
+  final playback = _InteractionPlaybackPlatform();
+  VideoPlayerPlatform.instance = playback;
   final metrics = <String, dynamic>{};
   final files = <String, File>{};
   late Directory fixtures;
@@ -442,6 +445,61 @@ void main() {
         expect(controller.value.isLooping, isTrue);
         await controller.seekTo(Duration.zero);
         await controller.play();
+        final playerId = controller.playerId;
+        final port =
+            playback.advancedPortFor(playerId) as MediaKitAdvancedVideoPort;
+        final native = port.player.platform as NativePlayer;
+        expect(await native.getProperty('hr-seek-framedrop'), 'yes');
+        int rates() =>
+            playback.rates.where((entry) => entry.$1 == playerId).length;
+        int seeks() =>
+            playback.seeks.where((entry) => entry.$1 == playerId).length;
+        int pauses() => playback.pauses.where((id) => id == playerId).length;
+        final originalSpeed = controller.value.playbackSpeed;
+        final initialRates = rates();
+        final initialSeeks = seeks();
+        final initialPauses = pauses();
+        final touchPoint =
+            tester.getRect(find.byType(VideoGestureSurface)).centerLeft +
+                const Offset(24, 0);
+        final hold = await tester.startGesture(touchPoint);
+        await waitFor(
+          () => port.player.state.rate == 2 && rates() == initialRates + 1,
+          'Long press must apply one native speed command',
+        );
+        expect(find.text('2x'), findsOneWidget);
+        expect(find.byTooltip('Player settings'), findsNothing);
+        expect(double.parse(await native.getProperty('speed')), 2);
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+        expect(rates(), initialRates + 1);
+        expect(seeks(), initialSeeks);
+        expect(controller.value.isPlaying, isTrue);
+        await hold.up();
+        await waitFor(
+          () =>
+              port.player.state.rate == originalSpeed &&
+              rates() == initialRates + 2,
+          'Releasing long press must restore the previous native speed once',
+        );
+        expect(double.parse(await native.getProperty('speed')), originalSpeed);
+        final swipe = await tester.startGesture(touchPoint);
+        await swipe.moveBy(const Offset(-60, 0));
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+        expect(controller.value.isPlaying, isTrue);
+        expect(pauses(), initialPauses);
+        expect(seeks(), initialSeeks);
+        await swipe.moveBy(const Offset(-20, 0));
+        await swipe.up();
+        await waitFor(
+          () => seeks() == initialSeeks + 1,
+          'Releasing a swipe must submit one final native seek',
+        );
+        expect(controller.value.isPlaying, isTrue);
+        metrics['interaction_commands'] = {
+          'hold_speed_commands': rates() - initialRates,
+          'hold_and_swipe_seek_commands': seeks() - initialSeeks,
+          'hold_and_swipe_pause_commands': pauses() - initialPauses,
+        };
         for (final direction in ['portrait', 'landscape']) {
           await PlaybackOrientationService.instance.setMode(direction);
           await waitFor(
@@ -578,6 +636,31 @@ void main() {
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );
+}
+
+/// Counts calls at the real bridge, rather than video_player's optimistic value.
+class _InteractionPlaybackPlatform extends MediaKitVideoPlayerPlatform {
+  final rates = <(int, double)>[];
+  final seeks = <(int, Duration)>[];
+  final pauses = <int>[];
+
+  @override
+  Future<void> setPlaybackSpeed(int playerId, double speed) {
+    rates.add((playerId, speed));
+    return super.setPlaybackSpeed(playerId, speed);
+  }
+
+  @override
+  Future<void> seekTo(int playerId, Duration position) {
+    seeks.add((playerId, position));
+    return super.seekTo(playerId, position);
+  }
+
+  @override
+  Future<void> pause(int playerId) {
+    pauses.add(playerId);
+    return super.pause(playerId);
+  }
 }
 
 /// Authentication itself is covered by lock tests; this harness exercises the

@@ -7,13 +7,142 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:privi/application/player/video_preview_coordinator.dart';
 import 'package:privi/core/theme/app_theme.dart';
 import 'package:privi/data/services/playback_display_service.dart';
+import 'package:privi/domain/models/video_playback_settings.dart';
 import 'package:privi/l10n/app_localizations.dart';
 import 'package:privi/presentation/common/heart_rating_bar.dart';
 import 'package:privi/presentation/player/video_player_controls.dart';
 import 'package:privi/presentation/player/video_player_surface.dart';
 import 'package:video_player/video_player.dart';
+import 'package:video_player_platform_interface/video_player_platform_interface.dart';
 
 const _longPressDuration = Duration(milliseconds: 500);
+
+class _GestureVideoPlatform extends VideoPlayerPlatform {
+  int _nextId = 0;
+  final rates = <(int, double)>[];
+  final appliedRates = <(int, double)>[];
+  final seeks = <(int, Duration)>[];
+  final plays = <int>[];
+  final pauses = <int>[];
+  final positions = <int, Duration>{};
+  Completer<void>? nextRate;
+  Completer<void>? nextSeek;
+
+  @override
+  Future<void> init() async {}
+  @override
+  Future<void> setMixWithOthers(bool mixWithOthers) async {}
+  @override
+  Future<int> createWithOptions(VideoCreationOptions options) async =>
+      _nextId++;
+  @override
+  Stream<VideoEvent> videoEventsFor(int playerId) => Stream.value(
+        VideoEvent(
+          eventType: VideoEventType.initialized,
+          duration: const Duration(minutes: 2),
+          size: const Size(1920, 1080),
+        ),
+      );
+  @override
+  Future<void> dispose(int playerId) async {}
+  @override
+  Future<void> setLooping(int playerId, bool looping) async {}
+  @override
+  Future<void> setVolume(int playerId, double volume) async {}
+  @override
+  Future<void> setPreventsDisplaySleepDuringVideoPlayback(
+    int playerId,
+    bool preventsDisplaySleepDuringVideoPlayback,
+  ) async {}
+  @override
+  Future<void> setPlaybackSpeed(int playerId, double speed) async {
+    rates.add((playerId, speed));
+    final pending = nextRate;
+    nextRate = null;
+    if (pending != null) await pending.future;
+    appliedRates.add((playerId, speed));
+  }
+
+  @override
+  Future<void> play(int playerId) async => plays.add(playerId);
+  @override
+  Future<void> pause(int playerId) async => pauses.add(playerId);
+  @override
+  Future<void> seekTo(int playerId, Duration position) async {
+    seeks.add((playerId, position));
+    final pending = nextSeek;
+    nextSeek = null;
+    if (pending != null) await pending.future;
+    positions[playerId] = position;
+  }
+
+  @override
+  Future<Duration> getPosition(int playerId) async =>
+      positions[playerId] ?? Duration.zero;
+
+  void clearCalls() {
+    rates.clear();
+    appliedRates.clear();
+    seeks.clear();
+    plays.clear();
+    pauses.clear();
+  }
+}
+
+_GestureVideoPlatform _installGesturePlatform() {
+  final original = VideoPlayerPlatform.instance;
+  final platform = _GestureVideoPlatform();
+  VideoPlayerPlatform.instance = platform;
+  addTearDown(() => VideoPlayerPlatform.instance = original);
+  return platform;
+}
+
+Future<VideoPlayerController> _playingVideo(
+  _GestureVideoPlatform platform, {
+  double speed = 1.25,
+}) async {
+  final video = VideoPlayerController.networkUrl(
+    Uri.parse('https://example.com/video.mp4'),
+  );
+  addTearDown(() => unawaited(video.dispose()));
+  await video.initialize();
+  await video.seekTo(const Duration(seconds: 15));
+  await video.setPlaybackSpeed(speed);
+  await video.play();
+  platform.clearCalls();
+  return video;
+}
+
+Future<void> _disposeVideo(
+  WidgetTester tester,
+  VideoPlayerController video,
+) async {
+  await tester.runAsync(video.dispose);
+  await tester.pump();
+}
+
+Widget _gestureApp(
+  VideoPlayerController controller, {
+  bool enabled = true,
+  VoidCallback? onFastForwardStarted,
+  VoidCallback? onUserSeek,
+  VoidCallback Function()? onSeekStarted,
+  Future<void> Function()? onResume,
+  Widget child = const ColoredBox(color: Colors.black),
+}) =>
+    MaterialApp(
+      home: VideoGestureSurface(
+        controller: controller,
+        seekSeconds: 3,
+        onTap: () {},
+        enabled: enabled,
+        onFastForwardStarted: onFastForwardStarted,
+        onUserSeek: onUserSeek,
+        onSeekStarted: onSeekStarted,
+        onResume: onResume,
+        child: child,
+      ),
+    );
 
 class _FakeDisplayControls implements VideoDisplayControls {
   _FakeDisplayControls({this.brightness = 0.4, this.volume = 0.6});
@@ -349,107 +478,519 @@ void main() {
     expect(VideoFitMode.fromStored('fit'), VideoFitMode.bestFit);
   });
 
-  testWidgets('long press fast-forwards at 2x until release', (tester) async {
-    final controller = VideoPlayerController.networkUrl(
-      Uri.parse('https://example.com/video.mp4'),
-    );
-    addTearDown(controller.dispose);
-    await controller.setPlaybackSpeed(1.25);
-
+  testWidgets('long press changes native rate once and restores once',
+      (tester) async {
+    final platform = _installGesturePlatform();
+    final video = await _playingVideo(platform);
+    var starts = 0;
+    var childBuilds = 0;
     await tester.pumpWidget(
-      MaterialApp(
-        home: VideoGestureSurface(
-          controller: controller,
-          seekSeconds: 3,
-          onTap: () {},
-          child: const ColoredBox(color: Colors.black),
+      _gestureApp(
+        video,
+        onFastForwardStarted: () {
+          starts++;
+          expect(platform.rates, isEmpty);
+        },
+        child: Builder(
+          builder: (_) {
+            childBuilds++;
+            return const ColoredBox(color: Colors.black);
+          },
         ),
       ),
     );
-
-    final gesture = await tester.startGesture(
-      tester.getCenter(find.byType(VideoGestureSurface)),
-    );
+    final gesture = await tester.startGesture(const Offset(400, 250));
     await tester.pump(_longPressDuration);
-
-    expect(controller.value.playbackSpeed, 2);
+    await tester.pump(const Duration(seconds: 2));
+    expect(starts, 1);
+    expect(platform.rates, [(video.playerId, 2.0)]);
+    expect(platform.seeks, isEmpty);
+    expect(platform.plays, isEmpty);
+    expect(platform.pauses, isEmpty);
+    expect(video.value.isPlaying, isTrue);
     expect(find.text('2x'), findsOneWidget);
-
+    expect(childBuilds, 1);
     await gesture.up();
     await tester.pump();
-
-    expect(controller.value.playbackSpeed, 1.25);
+    expect(platform.rates, [(video.playerId, 2.0), (video.playerId, 1.25)]);
+    expect(video.value.playbackSpeed, 1.25);
     expect(find.text('2x'), findsNothing);
+    expect(childBuilds, 1);
+    await _disposeVideo(tester, video);
   });
 
-  testWidgets('cancelled long press restores playback speed', (tester) async {
-    final controller = VideoPlayerController.networkUrl(
-      Uri.parse('https://example.com/video.mp4'),
-    );
-    addTearDown(controller.dispose);
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: VideoGestureSurface(
-          controller: controller,
-          seekSeconds: 3,
-          onTap: () {},
-          child: const ColoredBox(color: Colors.black),
-        ),
-      ),
-    );
-
-    final gesture = await tester.startGesture(
-      tester.getCenter(find.byType(VideoGestureSurface)),
-    );
+  testWidgets('cancelled long press restores native playback speed',
+      (tester) async {
+    final platform = _installGesturePlatform();
+    final video = await _playingVideo(platform);
+    await tester.pumpWidget(_gestureApp(video));
+    final gesture = await tester.startGesture(const Offset(400, 250));
     await tester.pump(_longPressDuration);
-    expect(controller.value.playbackSpeed, 2);
-
     await gesture.cancel();
     await tester.pump();
-
-    expect(controller.value.playbackSpeed, 1);
+    expect(platform.rates, [(video.playerId, 2.0), (video.playerId, 1.25)]);
+    expect(video.value.playbackSpeed, 1.25);
     expect(find.text('2x'), findsNothing);
+    await _disposeVideo(tester, video);
   });
 
-  testWidgets('drag feedback does not rebuild the video child', (tester) async {
-    final controller = VideoPlayerController.networkUrl(
-      Uri.parse('https://example.com/video.mp4'),
-    );
-    addTearDown(controller.dispose);
-    controller.value = const VideoPlayerValue(
-      duration: Duration(minutes: 2),
-      position: Duration(seconds: 15),
-    );
-    var childBuilds = 0;
+  testWidgets('rapid release and another hold serialize delayed native rates',
+      (tester) async {
+    final platform = _installGesturePlatform();
+    final video = await _playingVideo(platform);
+    final delayedRate = Completer<void>();
+    platform.nextRate = delayedRate;
+    await tester.pumpWidget(_gestureApp(video));
+    final first = await tester.startGesture(const Offset(400, 250));
+    await tester.pump(_longPressDuration);
+    await first.up();
+    await tester.pump();
+    final second = await tester.startGesture(const Offset(400, 250));
+    await tester.pump(_longPressDuration);
+    expect(platform.rates, [(video.playerId, 2.0)]);
+    expect(platform.appliedRates, isEmpty);
+    delayedRate.complete();
+    await tester.pump();
+    expect(platform.rates, [(video.playerId, 2.0)]);
+    expect(video.value.playbackSpeed, 2);
+    expect(find.text('2x'), findsOneWidget);
+    await second.up();
+    await tester.pump();
+    expect(platform.rates.last, (video.playerId, 1.25));
+    expect(platform.appliedRates, platform.rates);
+    expect(platform.rates.length, 2);
+    expect(video.value.playbackSpeed, 1.25);
+    expect(platform.seeks, isEmpty);
+    await _disposeVideo(tester, video);
+  });
 
+  testWidgets('pending hold restoration stays with the previous controller',
+      (tester) async {
+    final platform = _installGesturePlatform();
+    final first = await _playingVideo(platform);
+    final second = await _playingVideo(platform, speed: 1.5);
+    final delayedRate = Completer<void>();
+    platform.nextRate = delayedRate;
+    await tester.pumpWidget(_gestureApp(first));
+    final firstHold = await tester.startGesture(const Offset(400, 250));
+    await tester.pump(_longPressDuration);
+    await tester.pumpWidget(_gestureApp(second));
+    await _disposeVideo(tester, first);
+    await firstHold.up();
+    final secondHold = await tester.startGesture(const Offset(400, 250));
+    await tester.pump(_longPressDuration);
+    expect(platform.rates, [(first.playerId, 2.0), (second.playerId, 2.0)]);
+    delayedRate.complete();
+    await tester.pump();
+    expect(first.value.playbackSpeed, 2);
+    expect(second.value.playbackSpeed, 2);
+    expect(find.text('2x'), findsOneWidget);
+    await secondHold.up();
+    await tester.pump();
+    expect(platform.rates, [
+      (first.playerId, 2.0),
+      (second.playerId, 2.0),
+      (second.playerId, 1.5),
+    ]);
+    expect(second.value.playbackSpeed, 1.5);
+    expect(platform.seeks, isEmpty);
+    await _disposeVideo(tester, first);
+    await _disposeVideo(tester, second);
+  });
+
+  testWidgets(
+      'three holds pending one native write converge to the normal rate',
+      (tester) async {
+    final platform = _installGesturePlatform();
+    final video = await _playingVideo(platform);
+    final delayedRate = Completer<void>();
+    platform.nextRate = delayedRate;
+    await tester.pumpWidget(_gestureApp(video));
+    for (var i = 0; i < 3; i++) {
+      final gesture = await tester.startGesture(const Offset(400, 250));
+      await tester.pump(_longPressDuration);
+      await gesture.up();
+      await tester.pump();
+    }
+    expect(platform.rates, [(video.playerId, 2.0)]);
+    delayedRate.complete();
+    await tester.pump();
+    expect(platform.rates, [(video.playerId, 2.0), (video.playerId, 1.25)]);
+    expect(platform.appliedRates, platform.rates);
+    expect(video.value.playbackSpeed, 1.25);
+    expect(find.text('2x'), findsNothing);
+    await _disposeVideo(tester, video);
+  });
+
+  testWidgets(
+      'route disposal retires pending rate writes without setter errors',
+      (tester) async {
+    final platform = _installGesturePlatform();
+    final video = await _playingVideo(platform);
+    final delayedRate = Completer<void>();
+    platform.nextRate = delayedRate;
+    await tester.pumpWidget(_gestureApp(video));
+    final gesture = await tester.startGesture(const Offset(400, 250));
+    await tester.pump(_longPressDuration);
+    await gesture.up();
+    await tester.pumpWidget(const SizedBox.shrink());
+    await _disposeVideo(tester, video);
+    delayedRate.complete();
+    await tester.pump();
+    expect(platform.rates, [(video.playerId, 2.0)]);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'disabling a pending hold restores speed without resuming playback',
+      (tester) async {
+    final platform = _installGesturePlatform();
+    final video = await _playingVideo(platform);
+    final delayedRate = Completer<void>();
+    platform.nextRate = delayedRate;
+    await tester.pumpWidget(_gestureApp(video));
+    final gesture = await tester.startGesture(const Offset(400, 250));
+    await tester.pump(_longPressDuration);
+    await video.pause();
+    await tester.pumpWidget(_gestureApp(video, enabled: false));
+    await gesture.up();
+    delayedRate.complete();
+    await tester.pump();
+    // video_player updates the normal facade speed while paused; it sends the
+    // restored rate to native only when the lifecycle owner next allows play.
+    expect(video.value.playbackSpeed, 1.25);
+    expect(video.value.isPlaying, isFalse);
+    expect(platform.plays, isEmpty);
+    expect(platform.pauses.length, greaterThanOrEqualTo(2));
+    expect(tester.takeException(), isNull);
+    await _disposeVideo(tester, video);
+  });
+
+  testWidgets(
+      'rejected native hold rate is diagnosed and restores normal speed',
+      (tester) async {
+    final platform = _installGesturePlatform();
+    final video = await _playingVideo(platform);
+    final rejectedRate = Completer<void>();
+    platform.nextRate = rejectedRate;
+    await tester.pumpWidget(_gestureApp(video));
+    final gesture = await tester.startGesture(const Offset(400, 250));
+    await tester.pump(_longPressDuration);
+    rejectedRate.completeError(StateError('Native hold rate rejected'));
+    await tester.pump();
+    expect(tester.takeException(), isA<StateError>());
+    await tester.pump();
+    expect(platform.rates, [(video.playerId, 2.0), (video.playerId, 1.25)]);
+    expect(video.value.playbackSpeed, 1.25);
+    expect(find.text('2x'), findsNothing);
+    await gesture.up();
+    await tester.pump();
+    expect(platform.rates.length, 2);
+    await _disposeVideo(tester, video);
+  });
+
+  testWidgets(
+      'drag only updates feedback while playing and seeks once on release',
+      (tester) async {
+    final platform = _installGesturePlatform();
+    final video = await _playingVideo(platform);
+    var childBuilds = 0;
+    var userSeeks = 0;
+    var resumeRequests = 0;
     await tester.pumpWidget(
-      MaterialApp(
-        home: VideoGestureSurface(
-          controller: controller,
-          seekSeconds: 3,
-          onTap: () {},
-          child: Builder(
-            builder: (_) {
-              childBuilds++;
-              return const ColoredBox(color: Colors.black);
-            },
-          ),
+      _gestureApp(
+        video,
+        onUserSeek: () {
+          userSeeks++;
+          expect(platform.seeks, isEmpty);
+        },
+        onResume: () async => resumeRequests++,
+        child: Builder(
+          builder: (_) {
+            childBuilds++;
+            return const ColoredBox(color: Colors.black);
+          },
         ),
       ),
     );
-
-    final gesture = await tester.startGesture(
-      tester.getCenter(find.byType(VideoGestureSurface)),
+    final detector = tester.widget<GestureDetector>(
+      find.descendant(
+        of: find.byType(VideoGestureSurface),
+        matching: find.byType(GestureDetector),
+      ),
     );
-    await gesture.moveBy(const Offset(80, 0));
-    await tester.pump();
-
+    detector.onHorizontalDragStart!(DragStartDetails());
+    for (final delta in [80.0, 40.0, 50.0]) {
+      detector.onHorizontalDragUpdate!(
+        DragUpdateDetails(
+          delta: Offset(delta, 0),
+          primaryDelta: delta,
+          globalPosition: Offset.zero,
+        ),
+      );
+      await tester.pump();
+      expect(platform.seeks, isEmpty);
+      expect(platform.pauses, isEmpty);
+      expect(platform.plays, isEmpty);
+      expect(video.value.isPlaying, isTrue);
+    }
+    expect(find.byKey(const Key('video-frame-preview')), findsNothing);
     expect(childBuilds, 1);
-
-    await gesture.up();
-    await tester.pumpAndSettle();
+    final expected = const Duration(seconds: 15) +
+        videoSwipeSeekDelta(
+          horizontalDelta: 170,
+          duration: video.value.duration,
+          fullSwipeSeconds: defaultPlayerDragSeekSeconds,
+        );
+    expect(find.textContaining(formatVideoTime(expected)), findsOneWidget);
+    detector.onHorizontalDragEnd!(DragEndDetails());
+    await tester.pump();
+    expect(platform.seeks, [(video.playerId, expected)]);
+    expect(userSeeks, 1);
+    expect(resumeRequests, 0);
+    expect(platform.pauses, isEmpty);
+    expect(platform.plays, isEmpty);
+    expect(video.value.isPlaying, isTrue);
+    expect(childBuilds, 1);
+    await tester.pump(const Duration(seconds: 1));
+    await _disposeVideo(tester, video);
   });
+
+  testWidgets('cancelled swipe leaves playing video and position unchanged',
+      (tester) async {
+    final platform = _installGesturePlatform();
+    final video = await _playingVideo(platform);
+    var userSeeks = 0;
+    await tester.pumpWidget(_gestureApp(video, onUserSeek: () => userSeeks++));
+    final gesture = await tester.startGesture(const Offset(300, 250));
+    await gesture.moveBy(const Offset(30, 0));
+    await gesture.moveBy(const Offset(100, 0));
+    await tester.pump();
+    await gesture.cancel();
+    await tester.pump(const Duration(seconds: 1));
+    expect(platform.seeks, isEmpty);
+    expect(platform.pauses, isEmpty);
+    expect(platform.plays, isEmpty);
+    expect(userSeeks, 0);
+    expect(video.value.position, const Duration(seconds: 15));
+    expect(video.value.isPlaying, isTrue);
+    await _disposeVideo(tester, video);
+  });
+
+  testWidgets('cancelling a second pointer does not cancel the active swipe',
+      (tester) async {
+    final platform = _installGesturePlatform();
+    final video = await _playingVideo(platform);
+    await tester.pumpWidget(_gestureApp(video));
+    final first =
+        await tester.startGesture(const Offset(300, 250), pointer: 11);
+    await first.moveBy(const Offset(30, 0));
+    await first.moveBy(const Offset(100, 0));
+    final second =
+        await tester.startGesture(const Offset(500, 250), pointer: 12);
+    await second.cancel();
+    await tester.pump();
+    expect(platform.seeks, isEmpty);
+    await first.up();
+    await tester.pump(const Duration(seconds: 1));
+    expect(platform.seeks.length, 1);
+    expect(video.value.isPlaying, isTrue);
+    await _disposeVideo(tester, video);
+  });
+
+  for (final interruption in ['disabled', 'unmounted', 'replaced']) {
+    testWidgets(
+        'late seek after $interruption never resumes or affects new video',
+        (tester) async {
+      final platform = _installGesturePlatform();
+      final first = await _playingVideo(platform);
+      final second = await _playingVideo(platform, speed: 1.5);
+      var oldUserSeeks = 0;
+      var newUserSeeks = 0;
+      var activeSeeks = 0;
+      var releases = 0;
+      await tester.pumpWidget(
+        _gestureApp(
+          first,
+          onUserSeek: () => oldUserSeeks++,
+          onSeekStarted: () {
+            activeSeeks++;
+            return () {
+              activeSeeks--;
+              releases++;
+            };
+          },
+        ),
+      );
+      final delayedSeek = Completer<void>();
+      platform.nextSeek = delayedSeek;
+      await tester.dragFrom(const Offset(300, 250), const Offset(130, 0));
+      await tester.pump();
+      expect(platform.seeks.length, 1);
+      expect(oldUserSeeks, 1);
+      expect(activeSeeks, 1);
+      await first.pause();
+      if (interruption == 'unmounted') {
+        await tester.pumpWidget(const SizedBox.shrink());
+      } else {
+        await tester.pumpWidget(
+          _gestureApp(
+            interruption == 'replaced' ? second : first,
+            enabled: interruption != 'disabled',
+            onUserSeek: () => newUserSeeks++,
+          ),
+        );
+      }
+      expect(activeSeeks, 0);
+      delayedSeek.complete();
+      await tester.pump(const Duration(seconds: 1));
+      expect(platform.seeks.length, 1);
+      expect(platform.seeks.single.$1, first.playerId);
+      expect(platform.plays, isEmpty);
+      expect(first.value.isPlaying, isFalse);
+      expect(second.value.position, const Duration(seconds: 15));
+      expect(newUserSeeks, 0);
+      expect(activeSeeks, 0);
+      expect(releases, 1);
+      expect(tester.takeException(), isNull);
+      await _disposeVideo(tester, first);
+      await _disposeVideo(tester, second);
+    });
+  }
+
+  testWidgets('disabling an active swipe cancels it without seeking',
+      (tester) async {
+    final platform = _installGesturePlatform();
+    final video = await _playingVideo(platform);
+    await tester.pumpWidget(_gestureApp(video));
+    final gesture = await tester.startGesture(const Offset(300, 250));
+    await gesture.moveBy(const Offset(100, 0));
+    await tester.pump();
+    await tester.pumpWidget(_gestureApp(video, enabled: false));
+    await gesture.up();
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(platform.seeks, isEmpty);
+    expect(platform.plays, isEmpty);
+    expect(platform.pauses, isEmpty);
+    await _disposeVideo(tester, video);
+  });
+
+  testWidgets(
+      'seek scope spans drag and native seek without releasing newer drag',
+      (tester) async {
+    final platform = _installGesturePlatform();
+    final video = await _playingVideo(platform);
+    var activeSeeks = 0;
+    var releases = 0;
+    await tester.pumpWidget(
+      _gestureApp(
+        video,
+        onSeekStarted: () {
+          activeSeeks++;
+          return () {
+            activeSeeks--;
+            releases++;
+          };
+        },
+      ),
+    );
+    final detector = tester.widget<GestureDetector>(
+      find.descendant(
+        of: find.byType(VideoGestureSurface),
+        matching: find.byType(GestureDetector),
+      ),
+    );
+    detector.onHorizontalDragStart!(DragStartDetails());
+    await tester.pump(const Duration(seconds: 2));
+    expect(activeSeeks, 1);
+    final pending = Completer<void>();
+    platform.nextSeek = pending;
+    detector.onHorizontalDragEnd!(DragEndDetails());
+    await tester.pump();
+    expect(activeSeeks, 1);
+    detector.onHorizontalDragStart!(DragStartDetails());
+    expect(activeSeeks, 2);
+    pending.complete();
+    await tester.pump();
+    expect(activeSeeks, 1);
+    detector.onHorizontalDragCancel!();
+    expect(activeSeeks, 0);
+    expect(releases, 2);
+    await _disposeVideo(tester, video);
+  });
+
+  testWidgets('double-tap seek owns a scope until native completion',
+      (tester) async {
+    final platform = _installGesturePlatform();
+    final video = await _playingVideo(platform);
+    var activeSeeks = 0;
+    await tester.pumpWidget(
+      _gestureApp(
+        video,
+        onSeekStarted: () {
+          activeSeeks++;
+          return () => activeSeeks--;
+        },
+      ),
+    );
+    final pending = Completer<void>();
+    platform.nextSeek = pending;
+    await tester.tapAt(const Offset(500, 250));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tapAt(const Offset(500, 250));
+    await tester.pump();
+    expect(platform.seeks, [(video.playerId, const Duration(seconds: 18))]);
+    expect(activeSeeks, 1);
+    pending.complete();
+    await tester.pump();
+    expect(activeSeeks, 0);
+    expect(platform.plays, isEmpty);
+    await tester.pump(const Duration(milliseconds: 50));
+    await _disposeVideo(tester, video);
+  });
+
+  for (final disabled in [false, true]) {
+    testWidgets('natural end during drag resumes only while allowed: $disabled',
+        (tester) async {
+      final platform = _installGesturePlatform();
+      final video = await _playingVideo(platform);
+      var resumeRequests = 0;
+      Future<void> resume() async {
+        resumeRequests++;
+        await video.play();
+      }
+
+      await tester.pumpWidget(_gestureApp(video, onResume: resume));
+      final detector = tester.widget<GestureDetector>(
+        find.descendant(
+          of: find.byType(VideoGestureSurface),
+          matching: find.byType(GestureDetector),
+        ),
+      );
+      detector.onHorizontalDragStart!(DragStartDetails());
+      await video.pause();
+      video.value = video.value.copyWith(
+        isCompleted: true,
+        position: video.value.duration,
+      );
+      final pending = Completer<void>();
+      platform.nextSeek = pending;
+      detector.onHorizontalDragEnd!(DragEndDetails());
+      await tester.pump();
+      if (disabled) {
+        await tester
+            .pumpWidget(_gestureApp(video, enabled: false, onResume: resume));
+      }
+      expect(resumeRequests, 0);
+      pending.complete();
+      await tester.pump();
+      expect(resumeRequests, disabled ? 0 : 1);
+      expect(platform.plays.length, disabled ? 0 : 1);
+      expect(video.value.isPlaying, !disabled);
+      expect(platform.seeks, [(video.playerId, const Duration(seconds: 15))]);
+      await _disposeVideo(tester, video);
+    });
+  }
 
   testWidgets('progress scrub seeks once when released', (tester) async {
     final seeks = <Duration>[];
@@ -821,38 +1362,6 @@ void main() {
     await tester.pump();
 
     expect(rating, 0);
-  });
-
-  testWidgets('seek release delegates resume to the lifecycle owner',
-      (tester) async {
-    final video = VideoPlayerController.networkUrl(
-      Uri.parse('https://example.com/video.mp4'),
-    );
-    video.value = video.value.copyWith(
-      duration: const Duration(minutes: 2),
-      position: const Duration(seconds: 30),
-      isPlaying: true,
-    );
-    addTearDown(video.dispose);
-    var resumeRequests = 0;
-    await tester.pumpWidget(
-      MaterialApp(
-        home: VideoGestureSurface(
-          controller: video,
-          seekSeconds: 3,
-          onTap: () {},
-          onResume: () async {
-            resumeRequests++;
-          },
-          child: const SizedBox.expand(),
-        ),
-      ),
-    );
-    await tester.dragFrom(const Offset(200, 250), const Offset(100, 0));
-    await tester.pump();
-    expect(resumeRequests, 1);
-    expect(video.value.isPlaying, isFalse);
-    await tester.pump(const Duration(seconds: 1));
   });
 
   testWidgets('touch lock blocks seek, volume, brightness and long press',

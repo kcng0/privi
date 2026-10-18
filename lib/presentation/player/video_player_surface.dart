@@ -316,9 +316,10 @@ class VideoGestureSurface extends StatefulWidget {
     required this.onTap,
     required this.child,
     this.dragSeekSeconds = defaultPlayerDragSeekSeconds,
-    this.onPreviewFrameRequested,
     this.onUserSeek,
+    this.onSeekStarted,
     this.onResume,
+    this.onFastForwardStarted,
     this.displayControls,
     this.enabled = true,
   });
@@ -329,13 +330,24 @@ class VideoGestureSurface extends StatefulWidget {
   final int dragSeekSeconds;
   final VoidCallback onTap;
   final Widget child;
-  final Future<Uint8List?> Function(Duration position)? onPreviewFrameRequested;
   final VoidCallback? onUserSeek;
+  final VoidCallback Function()? onSeekStarted;
   final Future<void> Function()? onResume;
+  final VoidCallback? onFastForwardStarted;
   final VideoDisplayControls? displayControls;
 
   @override
   State<VideoGestureSurface> createState() => _VideoGestureSurfaceState();
+}
+
+class _FastForwardRate {
+  _FastForwardRate(this.normalSpeed) : appliedSpeed = normalSpeed;
+
+  final double normalSpeed;
+  double? appliedSpeed;
+  Future<void> pending = Future<void>.value();
+  int revision = 0;
+  bool retired = false;
 }
 
 class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
@@ -345,8 +357,16 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
   Duration? _dragStartPosition;
   Duration? _dragTarget;
   double _dragPixels = 0;
-  bool _resumeAfterDrag = false;
-  double? _speedBeforeFastForward;
+  VideoPlayerController? _dragController;
+  final _pointers = <int>{};
+  int? _dragPointer;
+  bool _dragWasPlaying = false;
+  VoidCallback? _dragSeekRelease;
+  final _seekReleases = <VoidCallback>{};
+  int _interaction = 0;
+  VideoPlayerController? _fastForwardController;
+  final _rates = <VideoPlayerController, _FastForwardRate>{};
+  final _fastForwardNotifier = ValueNotifier<bool>(false);
   _VerticalAdjustKind? _verticalKind;
   double? _verticalStartValue;
   double _verticalPixels = 0;
@@ -358,66 +378,213 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
 
   VideoDisplayControls get _displayControls =>
       widget.displayControls ?? PlaybackDisplayService.instance;
-  Uint8List? _previewFrame;
-  Duration? _previewPosition;
-  int _previewGeneration = 0;
 
   @override
   void didUpdateWidget(VideoGestureSurface oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.controller != widget.controller) {
-      _restorePlaybackSpeed(oldWidget.controller);
+    if (oldWidget.controller != widget.controller ||
+        (oldWidget.enabled && !widget.enabled)) {
+      if (oldWidget.controller != widget.controller) {
+        _retirePlaybackSpeed(oldWidget.controller);
+      } else {
+        _stopFastForward();
+      }
+      _interaction++;
       _feedbackTimer?.cancel();
       _feedbackNotifier.value = null;
-      _dragStartPosition = null;
-      _dragTarget = null;
-      _dragPixels = 0;
-      _resumeAfterDrag = false;
+      _levelNotifier.value = null;
+      _doubleTapPosition = null;
+      _pointers.clear();
+      _releaseSeekScopes();
+      _resetDrag();
       _resetVerticalAdjust();
-      _clearPreview();
     }
   }
 
   @override
   void dispose() {
-    _restorePlaybackSpeed(widget.controller);
+    _releaseSeekScopes();
+    _retirePlaybackSpeed(widget.controller);
     _feedbackTimer?.cancel();
+    _fastForwardNotifier.dispose();
     _feedbackNotifier.dispose();
     _levelNotifier.dispose();
     super.dispose();
   }
 
   void _startFastForward(LongPressStartDetails details) {
-    if (_speedBeforeFastForward != null) return;
-    _speedBeforeFastForward = widget.controller.value.playbackSpeed;
-    unawaited(widget.controller.setPlaybackSpeed(_fastForwardSpeed));
-    setState(() {});
+    final controller = widget.controller;
+    if (!widget.enabled ||
+        !controller.value.isInitialized ||
+        _fastForwardController != null) {
+      return;
+    }
+    widget.onFastForwardStarted?.call();
+    if (!mounted || !widget.enabled || controller != widget.controller) return;
+    _fastForwardController = controller;
+    _fastForwardNotifier.value = true;
+    _queuePlaybackSpeed(controller, fastForward: true);
   }
 
   void _stopFastForward() {
-    _restorePlaybackSpeed(widget.controller);
-    if (mounted) setState(() {});
+    final controller = _fastForwardController;
+    if (controller == null) return;
+    _fastForwardController = null;
+    _fastForwardNotifier.value = false;
+    _queuePlaybackSpeed(controller, fastForward: false);
   }
 
-  void _restorePlaybackSpeed(VideoPlayerController controller) {
-    final speed = _speedBeforeFastForward;
-    if (speed == null) return;
-    _speedBeforeFastForward = null;
-    unawaited(controller.setPlaybackSpeed(speed));
+  void _retirePlaybackSpeed(VideoPlayerController controller) {
+    // The route owns releasing replaced/disposed engines. Do not issue a late
+    // facade setter after that owner may already have disposed this controller.
+    _rates.remove(controller)?.retired = true;
+    if (identical(_fastForwardController, controller)) {
+      _fastForwardController = null;
+      _fastForwardNotifier.value = false;
+    }
+  }
+
+  void _queuePlaybackSpeed(
+    VideoPlayerController controller, {
+    required bool fastForward,
+  }) {
+    // Keep the baseline until the final restore completes. A second hold can
+    // begin while the facade still optimistically reports the previous 2x.
+    final rate = _rates.putIfAbsent(
+      controller,
+      () => _FastForwardRate(controller.value.playbackSpeed),
+    );
+    final revision = ++rate.revision;
+    rate.pending = rate.pending.then((_) async {
+      if (rate.retired || rate.revision != revision) return;
+      final target = fastForward ? _fastForwardSpeed : rate.normalSpeed;
+      var failed = false;
+      try {
+        if (rate.appliedSpeed != target) {
+          await controller.setPlaybackSpeed(target);
+          rate.appliedSpeed = target;
+          if (!rate.retired && !controller.value.isPlaying) {
+            // Native rate application may finish after the lifecycle owner
+            // paused playback; never let that delayed operation resume it.
+            await controller.pause();
+          }
+        }
+      } catch (error, stack) {
+        failed = true;
+        rate.appliedSpeed = null;
+        _reportGestureError(error, stack, 'changing long-press playback speed');
+        if (mounted &&
+            rate.revision == revision &&
+            identical(_fastForwardController, controller)) {
+          _fastForwardController = null;
+          _fastForwardNotifier.value = false;
+        }
+        if (fastForward && !rate.retired && rate.revision == revision) {
+          try {
+            await controller.setPlaybackSpeed(rate.normalSpeed);
+          } catch (error, stack) {
+            _reportGestureError(error, stack, 'restoring playback speed');
+          }
+        }
+      }
+      if (identical(_rates[controller], rate) &&
+          rate.revision == revision &&
+          (!fastForward || failed)) {
+        _rates.remove(controller);
+      }
+    });
+  }
+
+  void _reportGestureError(Object error, StackTrace stack, String action) {
+    FlutterError.reportError(
+      FlutterErrorDetails(
+        exception: error,
+        stack: stack,
+        library: 'Privi video gestures',
+        context: ErrorDescription(action),
+      ),
+    );
+  }
+
+  bool _isCurrentInteraction(
+    VideoPlayerController controller,
+    int interaction,
+  ) =>
+      mounted &&
+      widget.enabled &&
+      identical(widget.controller, controller) &&
+      _interaction == interaction;
+
+  VoidCallback _beginSeekScope() {
+    final onRelease = widget.onSeekStarted?.call();
+    var released = false;
+    late final VoidCallback release;
+    release = () {
+      if (released) return;
+      released = true;
+      _seekReleases.remove(release);
+      onRelease?.call();
+    };
+    _seekReleases.add(release);
+    return release;
+  }
+
+  void _releaseSeekScopes() {
+    for (final release in _seekReleases.toList()) {
+      release();
+    }
+  }
+
+  Future<bool> _seek(
+    VideoPlayerController controller,
+    Duration target,
+    int interaction, {
+    bool wasPlaying = false,
+  }) async {
+    if (!_isCurrentInteraction(controller, interaction)) return false;
+    // Suppress natural-end advancement before seek updates the video value.
+    widget.onUserSeek?.call();
+    if (!_isCurrentInteraction(controller, interaction)) return false;
+    final resumeAfterCompletion = wasPlaying &&
+        !controller.value.isPlaying &&
+        controller.value.isCompleted &&
+        target < controller.value.duration;
+    try {
+      await controller.seekTo(target);
+      if (resumeAfterCompletion &&
+          _isCurrentInteraction(controller, interaction)) {
+        // Playback continued during the drag and reached its natural end.
+        // Only the lifecycle owner can permit restarting at the chosen target.
+        await widget.onResume?.call();
+      }
+      return _isCurrentInteraction(controller, interaction);
+    } catch (error, stack) {
+      _reportGestureError(error, stack, 'seeking video');
+      return false;
+    }
   }
 
   Future<void> _handleDoubleTap() async {
     final width = context.size?.width ?? 0;
     final tap = _doubleTapPosition;
     if (width <= 0 || tap == null) return;
+    final controller = widget.controller;
+    if (!widget.enabled || !controller.value.isInitialized) return;
+    final interaction = ++_interaction;
     final direction = tap.dx < width / 2 ? -1 : 1;
     final delta = Duration(seconds: direction * widget.seekSeconds);
     final target = clampVideoPosition(
-      widget.controller.value.position + delta,
-      widget.controller.value.duration,
+      controller.value.position + delta,
+      controller.value.duration,
     );
-    await widget.controller.seekTo(target);
-    widget.onUserSeek?.call();
+    final release = _beginSeekScope();
+    bool sought;
+    try {
+      sought = await _seek(controller, target, interaction);
+    } finally {
+      release();
+    }
+    if (!sought) return;
     _showFeedback(
       _SeekFeedback(
         delta: delta,
@@ -431,32 +598,37 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
   }
 
   void _handleDragStart(DragStartDetails details) {
+    final controller = widget.controller;
+    if (!widget.enabled || !controller.value.isInitialized) return;
+    _interaction++;
     _feedbackTimer?.cancel();
-    _dragStartPosition = widget.controller.value.position;
+    _dragSeekRelease?.call();
+    _dragSeekRelease = _beginSeekScope();
+    _dragController = controller;
+    _dragPointer = _pointers.firstOrNull;
+    _dragWasPlaying = controller.value.isPlaying;
+    _dragStartPosition = controller.value.position;
     _dragTarget = _dragStartPosition;
     _dragPixels = 0;
-    _resumeAfterDrag = widget.controller.value.isPlaying;
-    _clearPreviewAndRebuild();
-    if (_resumeAfterDrag) unawaited(widget.controller.pause());
   }
 
   void _handleDragUpdate(DragUpdateDetails details) {
+    final controller = _dragController;
     final start = _dragStartPosition;
-    final width = context.size?.width ?? 0;
-    if (start == null || width <= 0) return;
+    if (controller == null ||
+        start == null ||
+        !_isCurrentInteraction(controller, _interaction)) {
+      return;
+    }
     _dragPixels += details.primaryDelta ?? 0;
     final delta = videoSwipeSeekDelta(
       horizontalDelta: _dragPixels,
-      duration: widget.controller.value.duration,
+      duration: controller.value.duration,
       fullSwipeSeconds: widget.dragSeekSeconds,
       minimumSeconds: widget.seekSeconds,
     );
-    final target = clampVideoPosition(
-      start + delta,
-      widget.controller.value.duration,
-    );
+    final target = clampVideoPosition(start + delta, controller.value.duration);
     _dragTarget = target;
-    _schedulePreview(target);
     _showFeedback(
       _SeekFeedback(
         delta: target - start,
@@ -467,30 +639,42 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
     );
   }
 
-  Future<void> _handleDragEnd(DragEndDetails details) async {
-    final target = _dragTarget;
+  void _resetDrag({bool release = true}) {
+    if (release) _dragSeekRelease?.call();
+    _dragSeekRelease = null;
+    _dragController = null;
+    _dragPointer = null;
+    _dragWasPlaying = false;
     _dragStartPosition = null;
     _dragTarget = null;
     _dragPixels = 0;
-    final resume = _resumeAfterDrag;
-    _resumeAfterDrag = false;
-    _clearPreviewAndRebuild();
-    if (target != null) {
-      await widget.controller.seekTo(target);
-      widget.onUserSeek?.call();
+  }
+
+  Future<void> _handleDragEnd(DragEndDetails details) async {
+    final controller = _dragController;
+    final target = _dragTarget;
+    final interaction = _interaction;
+    final release = _dragSeekRelease;
+    final wasPlaying = _dragWasPlaying;
+    _resetDrag(release: false);
+    try {
+      if (controller == null || target == null) return;
+      if (await _seek(
+        controller,
+        target,
+        interaction,
+        wasPlaying: wasPlaying,
+      )) {
+        _scheduleFeedbackHide();
+      }
+    } finally {
+      release?.call();
     }
-    if (resume) await (widget.onResume?.call() ?? widget.controller.play());
-    _scheduleFeedbackHide();
   }
 
   void _handleDragCancel() {
-    _dragStartPosition = null;
-    _dragTarget = null;
-    _dragPixels = 0;
-    final resume = _resumeAfterDrag;
-    _resumeAfterDrag = false;
-    _clearPreviewAndRebuild();
-    if (resume) unawaited(widget.onResume?.call() ?? widget.controller.play());
+    _interaction++;
+    _resetDrag();
     _scheduleFeedbackHide();
   }
 
@@ -567,182 +751,118 @@ class _VideoGestureSurfaceState extends State<VideoGestureSurface> {
     });
   }
 
-  void _schedulePreview(Duration position) {
-    final request = widget.onPreviewFrameRequested;
-    if (request == null) return;
-
-    final generation = ++_previewGeneration;
-    unawaited(() async {
-      try {
-        final frame = await request(position);
-        if (!mounted || generation != _previewGeneration) return;
-        setState(() {
-          _previewFrame = frame;
-          _previewPosition = frame == null ? null : position;
-        });
-      } catch (error, stackTrace) {
-        // Preview failure must not interrupt seeking or the playing engine.
-        FlutterError.reportError(
-          FlutterErrorDetails(
-            exception: error,
-            stack: stackTrace,
-            library: 'Privi video preview',
-          ),
-        );
-      }
-    }());
-  }
-
-  void _clearPreview() {
-    _previewGeneration++;
-    _previewFrame = null;
-    _previewPosition = null;
-  }
-
-  void _clearPreviewAndRebuild() {
-    final hadPreview = _previewFrame != null;
-    _clearPreview();
-    if (hadPreview && mounted) setState(() {});
-  }
-
   @override
   Widget build(BuildContext context) {
     if (!widget.enabled) return AbsorbPointer(child: widget.child);
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: widget.onTap,
-      onDoubleTapDown: (details) => _doubleTapPosition = details.localPosition,
-      onDoubleTap: () => unawaited(_handleDoubleTap()),
-      onLongPressStart: _startFastForward,
-      onLongPressEnd: (_) => _stopFastForward(),
-      onLongPressCancel: _stopFastForward,
-      onHorizontalDragStart: _handleDragStart,
-      onHorizontalDragUpdate: _handleDragUpdate,
-      onHorizontalDragEnd: (details) => unawaited(_handleDragEnd(details)),
-      onHorizontalDragCancel: _handleDragCancel,
-      onVerticalDragStart: (details) =>
-          unawaited(_handleVerticalDragStart(details)),
-      onVerticalDragUpdate: _handleVerticalDragUpdate,
-      onVerticalDragEnd: _handleVerticalDragEnd,
-      onVerticalDragCancel: _handleVerticalDragCancel,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          widget.child,
-          if (_previewFrame != null && _previewPosition != null)
-            IgnorePointer(
-              child: Align(
-                alignment: Alignment.center,
-                child: Padding(
-                  padding: const EdgeInsets.only(bottom: 92),
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: const Color(0xE61C1C1E),
-                      border: Border.all(color: Colors.white54),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
+    return Listener(
+      onPointerDown: (event) => _pointers.add(event.pointer),
+      onPointerUp: (event) {
+        _pointers.remove(event.pointer);
+        if (_dragPointer == event.pointer) {
+          _dragPointer = _pointers.firstOrNull;
+        }
+      },
+      onPointerCancel: (event) {
+        // An accepted Flutter drag can report PointerCancel as a drag end.
+        // Clear the target before that end callback can submit a seek.
+        _pointers.remove(event.pointer);
+        if (_dragPointer == event.pointer) _handleDragCancel();
+      },
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.onTap,
+        onDoubleTapDown: (details) =>
+            _doubleTapPosition = details.localPosition,
+        onDoubleTap: () => unawaited(_handleDoubleTap()),
+        onLongPressStart: _startFastForward,
+        onLongPressEnd: (_) => _stopFastForward(),
+        onLongPressCancel: _stopFastForward,
+        onHorizontalDragStart: _handleDragStart,
+        onHorizontalDragUpdate: _handleDragUpdate,
+        onHorizontalDragEnd: (details) => unawaited(_handleDragEnd(details)),
+        onHorizontalDragCancel: _handleDragCancel,
+        onVerticalDragStart: (details) =>
+            unawaited(_handleVerticalDragStart(details)),
+        onVerticalDragUpdate: _handleVerticalDragUpdate,
+        onVerticalDragEnd: _handleVerticalDragEnd,
+        onVerticalDragCancel: _handleVerticalDragCancel,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            widget.child,
+            ValueListenableBuilder<bool>(
+              valueListenable: _fastForwardNotifier,
+              builder: (context, active, child) =>
+                  active ? child! : const SizedBox.shrink(),
+              child: const IgnorePointer(
+                child: Align(
+                  alignment: Alignment.topCenter,
+                  child: SafeArea(
                     child: Padding(
-                      padding: const EdgeInsets.all(3),
-                      child: Column(
+                      padding: EdgeInsets.only(top: 16),
+                      child: _FastForwardFeedback(),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            ValueListenableBuilder<_SeekFeedback?>(
+              valueListenable: _feedbackNotifier,
+              builder: (context, feedback, _) {
+                if (feedback == null) return const SizedBox.shrink();
+                return IgnorePointer(
+                  child: Align(
+                    alignment: feedback.alignment,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xE61C1C1E),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Image.memory(
-                            _previewFrame!,
-                            key: const Key('video-frame-preview'),
-                            width: 220,
-                            height: 124,
-                            fit: BoxFit.cover,
-                            gaplessPlayback: true,
+                          Icon(
+                            feedback.delta.isNegative
+                                ? Icons.fast_rewind
+                                : Icons.fast_forward,
+                            color: Colors.white,
+                            size: 22,
                           ),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 3),
-                            child: Text(
-                              formatVideoProgress(
-                                _previewPosition!,
-                                widget.controller.value.duration,
-                              ),
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 12,
-                                fontFeatures: [FontFeature.tabularFigures()],
-                              ),
+                          const SizedBox(width: 8),
+                          Text(
+                            '${formatVideoDelta(feedback.delta)}  '
+                            '${formatVideoProgress(feedback.target, widget.controller.value.duration)}',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 14,
+                              fontFeatures: [FontFeature.tabularFigures()],
                             ),
                           ),
                         ],
                       ),
                     ),
                   ),
-                ),
-              ),
+                );
+              },
             ),
-          if (_speedBeforeFastForward != null)
-            const IgnorePointer(
-              child: Align(
-                alignment: Alignment.topCenter,
-                child: SafeArea(
-                  child: Padding(
-                    padding: EdgeInsets.only(top: 16),
-                    child: _FastForwardFeedback(),
+            ValueListenableBuilder<_LevelFeedback?>(
+              valueListenable: _levelNotifier,
+              builder: (context, feedback, _) {
+                if (feedback == null) return const SizedBox.shrink();
+                return IgnorePointer(
+                  child: Align(
+                    alignment: Alignment.center,
+                    child: _LevelFeedbackBadge(feedback: feedback),
                   ),
-                ),
-              ),
+                );
+              },
             ),
-          ValueListenableBuilder<_SeekFeedback?>(
-            valueListenable: _feedbackNotifier,
-            builder: (context, feedback, _) {
-              if (feedback == null) return const SizedBox.shrink();
-              return IgnorePointer(
-                child: Align(
-                  alignment: feedback.alignment,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 10,
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0xE61C1C1E),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          feedback.delta.isNegative
-                              ? Icons.fast_rewind
-                              : Icons.fast_forward,
-                          color: Colors.white,
-                          size: 22,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          '${formatVideoDelta(feedback.delta)}  '
-                          '${formatVideoProgress(feedback.target, widget.controller.value.duration)}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 14,
-                            fontFeatures: [FontFeature.tabularFigures()],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
-          ValueListenableBuilder<_LevelFeedback?>(
-            valueListenable: _levelNotifier,
-            builder: (context, feedback, _) {
-              if (feedback == null) return const SizedBox.shrink();
-              return IgnorePointer(
-                child: Align(
-                  alignment: Alignment.center,
-                  child: _LevelFeedbackBadge(feedback: feedback),
-                ),
-              );
-            },
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

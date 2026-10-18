@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:drift/drift.dart' show Value;
@@ -27,13 +26,11 @@ import 'package:privi/domain/models/group_view.dart';
 import 'package:privi/domain/models/media_item.dart';
 import 'package:privi/domain/models/shelf_entry.dart';
 import 'package:privi/domain/models/video_playback_settings.dart';
-import 'package:privi/l10n/app_localizations.dart';
-import 'package:privi/presentation/common/floating_action_capsule.dart';
 import 'package:privi/presentation/grid/thumbnail_tile.dart';
 import 'package:privi/presentation/home/home_shell.dart';
 import 'package:privi/presentation/lock/lock_screen.dart';
-import 'package:privi/presentation/settings/settings_screen.dart';
 import 'package:privi/presentation/player/video_player_controls.dart';
+import 'package:privi/presentation/settings/settings_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
 
@@ -48,75 +45,79 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(_loadScreenshotFonts);
 
-  testWidgets('capture current home, album, and settings screens', (
-    tester,
-  ) async {
-    tester.view.physicalSize = const Size(1080, 2400);
-    tester.view.devicePixelRatio = 3.0;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-
-    final covers = _createCovers();
-    final harness = await _createHarness(covers);
-    addTearDown(() async {
-      harness.container.dispose();
-      await harness.database.close();
-      await covers.directory.delete(recursive: true);
-    });
-
-    await _precacheCovers(tester, covers);
-    await _pumpApp(tester, harness.container);
-    await _tap(tester, find.text('Visible'));
-    await _capture(tester, '01_visible_mosaic.png');
-    await _tap(tester, find.byTooltip('List'));
-    await _capture(tester, '02_visible_list.png');
-
-    await _tap(tester, find.text('Invisible'));
-    await _capture(tester, '03_invisible_mosaic.png');
-    await _tap(tester, find.text('Berlin Vol. 1'));
-    await _capture(tester, '08_album_mosaic.png');
-    await tester.longPress(find.byType(ThumbnailTile).first);
-    await _settle(tester);
-    await _capture(tester, '09_album_selection.png');
-    tester.state<NavigatorState>(find.byType(Navigator)).pop();
-    await _settle(tester);
-
-    await _tap(tester, find.byTooltip('List'));
-    await _capture(tester, '04_invisible_list.png');
-
-    await _tap(tester, find.text('City stories'));
-    await _capture(tester, '05_collection_mosaic.png');
-    await _tap(tester, find.byTooltip('List'));
-    await _capture(tester, '06_collection_list.png');
-    await _tap(
+  testWidgets(
+    'capture current home, album, and settings screens',
+    (
       tester,
-      find.descendant(
-        of: find.byType(AppBar),
-        matching: find.byTooltip('More'),
-      ),
-    );
-    await _capture(tester, '07_collection_management.png');
-    Navigator.of(tester.element(find.text('Add albums'))).pop();
-    await _settle(tester);
-    Navigator.of(tester.element(find.text('City stories').first)).pop();
-    await _settle(tester);
-    await _tap(tester, find.byTooltip('More').first);
-    await _tap(tester, find.text('Settings'));
-    await _capture(tester, '12_settings.png');
-    await tester.scrollUntilVisible(find.text('STORAGE'), 40);
-    final settingsList = find.descendant(
-      of: find.byType(SettingsScreen),
-      matching: find.byType(Scrollable),
-    );
-    final storageTop = tester.getTopLeft(find.text('STORAGE')).dy;
-    final viewportTop = tester.getTopLeft(settingsList).dy;
-    final overlap = storageTop - viewportTop;
-    if (overlap > 1) {
-      await tester.drag(settingsList, Offset(0, -overlap));
-      await tester.pump();
-    }
-    await _capture(tester, '13_vault_backup.png');
-  }, timeout: const Timeout(Duration(minutes: 2)));
+    ) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 3.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final covers = _createCovers();
+      final harness = await _createHarness(covers);
+      addTearDown(() async {
+        harness.container.dispose();
+        await harness.database.close();
+        await covers.directory.delete(recursive: true);
+      });
+
+      await _precacheCovers(tester, covers);
+      await _pumpApp(tester, harness.container);
+      await _tap(tester, find.text('Visible'));
+      await _capture(tester, '01_visible_mosaic.png');
+      await _tap(tester, find.byTooltip('List'));
+      await _capture(tester, '02_visible_list.png');
+
+      await _tap(tester, find.text('Invisible'));
+      await _capture(tester, '03_invisible_mosaic.png');
+      await _tap(tester, find.text('Berlin Vol. 1'));
+      await _capture(tester, '08_album_mosaic.png');
+      await tester.longPress(find.byType(ThumbnailTile).first);
+      await _settle(tester);
+      await _capture(tester, '09_album_selection.png');
+      tester.state<NavigatorState>(find.byType(Navigator)).pop();
+      await _settle(tester);
+
+      await _tap(tester, find.byTooltip('List'));
+      await _capture(tester, '04_invisible_list.png');
+
+      await _tap(tester, find.text('City stories'));
+      await _capture(tester, '05_collection_mosaic.png');
+      await _tap(tester, find.byTooltip('List'));
+      await _capture(tester, '06_collection_list.png');
+      await _tap(
+        tester,
+        find.descendant(
+          of: find.byType(AppBar),
+          matching: find.byTooltip('More'),
+        ),
+      );
+      await _capture(tester, '07_collection_management.png');
+      Navigator.of(tester.element(find.text('Add albums'))).pop();
+      await _settle(tester);
+      Navigator.of(tester.element(find.text('City stories').first)).pop();
+      await _settle(tester);
+      await _tap(tester, find.byTooltip('More').first);
+      await _tap(tester, find.text('Settings'));
+      await _capture(tester, '12_settings.png');
+      await tester.scrollUntilVisible(find.text('STORAGE'), 40);
+      final settingsList = find.descendant(
+        of: find.byType(SettingsScreen),
+        matching: find.byType(Scrollable),
+      );
+      final storageTop = tester.getTopLeft(find.text('STORAGE')).dy;
+      final viewportTop = tester.getTopLeft(settingsList).dy;
+      final overlap = storageTop - viewportTop;
+      if (overlap > 1) {
+        await tester.drag(settingsList, Offset(0, -overlap));
+        await tester.pump();
+      }
+      await _capture(tester, '13_vault_backup.png');
+    },
+    timeout: const Timeout(Duration(minutes: 2)),
+  );
 
   testWidgets('capture current lock setup screen', (tester) async {
     tester.view.physicalSize = const Size(1080, 2400);
@@ -139,32 +140,36 @@ void main() {
     await _capture(tester, '14_lock_setup.png');
   });
 
-  testWidgets('capture current built-in player controls', (tester) async {
-    tester.view.physicalSize = const Size(1080, 2400);
-    tester.view.devicePixelRatio = 3.0;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+  testWidgets(
+    'capture current built-in player controls',
+    (tester) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 3.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
 
-    final covers = _createCovers();
-    addTearDown(() => covers.directory.delete(recursive: true));
-    final frame = await tester.runAsync(
-      () => decodeImageFromList(
-        File(covers.playerFramePath).readAsBytesSync(),
-      ),
-    );
-    if (frame == null) {
-      throw StateError('Could not decode the player frame');
-    }
-    addTearDown(frame.dispose);
+      final covers = _createCovers();
+      addTearDown(() => covers.directory.delete(recursive: true));
+      final frame = await tester.runAsync(
+        () => decodeImageFromList(
+          File(covers.playerFramePath).readAsBytesSync(),
+        ),
+      );
+      if (frame == null) {
+        throw StateError('Could not decode the player frame');
+      }
+      addTearDown(frame.dispose);
 
-    await _pumpSurface(
-      tester,
-      home: _ReadmePlayerChrome(frame: frame),
-    );
-    await _capture(tester, '10_player.png');
-    await _tap(tester, find.byTooltip('Player settings'));
-    await _capture(tester, '11_player_settings.png');
-  }, timeout: const Timeout(Duration(minutes: 1)));
+      await _pumpSurface(
+        tester,
+        home: _ReadmePlayerChrome(frame: frame),
+      );
+      await _capture(tester, '10_player.png');
+      await _tap(tester, find.byTooltip('Player settings'));
+      await _capture(tester, '11_player_settings.png');
+    },
+    timeout: const Timeout(Duration(minutes: 1)),
+  );
 }
 
 Future<void> _loadScreenshotFonts() async {
@@ -724,8 +729,8 @@ class _ReadmePlayerChrome extends StatelessWidget {
                   height: kToolbarHeight,
                   child: Row(
                     children: [
-                      IconButton(
-                        icon: const Icon(Icons.arrow_back, color: Colors.white),
+                      const IconButton(
+                        icon: Icon(Icons.arrow_back, color: Colors.white),
                         onPressed: _noop,
                       ),
                       const Expanded(

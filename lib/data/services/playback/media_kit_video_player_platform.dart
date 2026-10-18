@@ -269,6 +269,9 @@ class MediaKitVideoPlayerPlatform extends VideoPlayerPlatform {
       final native = player.platform;
       if (native is NativePlayer) {
         await native.setProperty('vd-lavc-software-fallback', 'yes');
+        // Keep exact seek targets while restoring mpv's default of dropping
+        // decoder frames before the target.
+        await advanced._writeVerified('hr-seek-framedrop', 'yes');
       }
       phase = 'open';
       trace(phase);
