@@ -683,6 +683,14 @@ class LibVlcPlayerHost(
             val generation = entry.surfaceGeneration
             if (entry.queuedPlayGeneration == generation) return
             check(requestFocus(entry)) { "Audio focus was denied" }
+            if (entry.nativeEnded && entry.pendingPosition == 0L) {
+                // video_player seeks to zero before replaying an ended item.
+                // The replacement input starts there already; flushing it on
+                // Playing repeats the same startup seek as an automatic loop.
+                // A running input still handles seekTo(0) through setTime.
+                entry.pendingPosition = null
+                trace(entry, "reopen-satisfies-seek-zero")
+            }
             if (entry.playerTimeout == null) {
                 entry.playerTimeout = Runnable {
                     if (!entry.playing && entry.wantsPlay) fail(entry, "playback_timeout", "LibVLC did not start playback in time")
