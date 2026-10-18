@@ -4,6 +4,16 @@ name: Build fixed-source LibVLC SDK
 # publish libvlc-sdk.tar.xz and its checksum alongside the APK before public use.
 on:
   workflow_dispatch:
+  # A new workflow cannot be manually dispatched before it is registered on
+  # the default branch. Bootstrap this branch without changing main; UI-only
+  # pushes do not rebuild the SDK.
+  push:
+    branches: [codex/fix-video-rate-performance]
+    paths:
+      - '.github/workflows/libvlc-sdk.yml'
+      - 'scripts/build-libvlc-sdk.sh'
+      - 'third_party/libvlc/source-lock.json'
+      - 'third_party/libvlc/patches/**'
 
 permissions:
   contents: read
