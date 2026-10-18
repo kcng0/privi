@@ -443,6 +443,10 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     ref.watch(pictureInPictureControllerProvider);
     final item = _current;
     final landscape = _isLandscape(context);
+    final videoControlsAllowed = item.isVideo &&
+        videoChromeAllowed &&
+        ref.watch(lockControllerProvider.select((lock) => lock.status)) ==
+            LockStatus.unlocked;
     final immersive = shouldHideSystemUiForBuiltInVideo(item.isVideo);
     _syncSystemUi(immersive);
     if (item.isVideo &&
@@ -482,18 +486,26 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
                   itemBuilder: (context, index) =>
                       _mediaPage(widget.items[index], index == _index),
                 ),
-                if (_chrome &&
-                    videoChromeAllowed &&
-                    item.isVideo &&
-                    _video != null &&
-                    _videoId == item.id &&
-                    _video!.value.isInitialized)
-                  _centerVideoControls(),
+                if (videoControlsAllowed)
+                  VideoControlsTransition(
+                    key: ObjectKey(_video),
+                    visible: _chrome,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        if (_video != null &&
+                            _videoId == item.id &&
+                            _video!.value.isInitialized)
+                          _centerVideoControls(),
+                        _topBar(item),
+                        _videoBottomBar(item, landscape),
+                      ],
+                    ),
+                  ),
                 if (videoTouchLocked && !videoPipGranted) videoUnlockControl(),
-                if (_chrome && videoChromeAllowed) _topBar(item),
-                if (_chrome && videoChromeAllowed && item.isVideo)
-                  _videoBottomBar(item, landscape)
-                else if (_chrome && videoChromeAllowed)
+                if (!item.isVideo && _chrome && videoChromeAllowed)
+                  _topBar(item),
+                if (!item.isVideo && _chrome && videoChromeAllowed)
                   _imageBottomBar(item, landscape),
               ],
             ),

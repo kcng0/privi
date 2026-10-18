@@ -19,6 +19,62 @@ String formatPlaybackSpeed(double speed) {
 
 const videoControlsAutoHideDelay = Duration(seconds: 3);
 
+/// Fades the Flutter chrome in and removes it immediately when hidden.
+/// The native video viewport remains a sibling.
+/// Callers remove this widget immediately when presentation is not permitted.
+class VideoControlsTransition extends StatefulWidget {
+  const VideoControlsTransition({
+    super.key,
+    required this.visible,
+    required this.child,
+  });
+
+  final bool visible;
+  final Widget child;
+
+  @override
+  State<VideoControlsTransition> createState() =>
+      _VideoControlsTransitionState();
+}
+
+class _VideoControlsTransitionState extends State<VideoControlsTransition>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _opacity;
+
+  @override
+  void initState() {
+    super.initState();
+    _opacity = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 180),
+    );
+    if (widget.visible) _opacity.forward();
+  }
+
+  @override
+  void didUpdateWidget(covariant VideoControlsTransition oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.visible == oldWidget.visible) return;
+    if (widget.visible) {
+      _opacity.forward();
+    } else {
+      _opacity.reset();
+    }
+  }
+
+  @override
+  void dispose() {
+    _opacity.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!widget.visible) return const SizedBox.shrink();
+    return FadeTransition(opacity: _opacity, child: widget.child);
+  }
+}
+
 /// Keeps visible video controls on screen while a pointer is down, then hides
 /// them after [delay] without interaction.
 class AutoHideVideoControls extends StatefulWidget {

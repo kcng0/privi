@@ -1171,9 +1171,10 @@ class ReleaseSmoke:
         left, top, right, bottom = self.last_video
         return round((left + right) / 2), round(top + (bottom - top) * .45)
 
-    def controls(self, visible):
+    def controls(self, visible, *, capture_reveal_png=True):
         deadline = time.monotonic() + 8
         shown_by_tap = None
+        tap_png_captured = False
         root = self.fast_ui("controls-before", deadline=deadline)
         while root is None:
             if time.monotonic() >= deadline:
@@ -1189,7 +1190,16 @@ class ReleaseSmoke:
             finished = time.monotonic()
             if visible:
                 shown_by_tap = started
-            self.immediate_png("controls-tap", started, finished, deadline=deadline)
+            # Presentation observation and the next button click are separate
+            # planned actions. The latter needs a fresh tree before the 3s hide,
+            # with its PNG taken only after the complete ordinary button tap.
+            if not visible or capture_reveal_png:
+                self.immediate_png("controls-tap", started, finished, deadline=deadline)
+                tap_png_captured = True
+            else:
+                self.note("controls-reveal-png-deferred", tap_started_monotonic=started,
+                          tap_finished_monotonic=finished,
+                          reason="next planned button tap uses this fresh accessibility snapshot")
             root = None
         while root is None or bool(self.matches(root, "Player settings")) != visible:
             if time.monotonic() >= deadline:
@@ -1204,6 +1214,8 @@ class ReleaseSmoke:
             self.transient_snapshot["valid_until_monotonic"] = min(
                 self.transient_snapshot["valid_until_monotonic"], shown_by_tap + 3)
         self.note("blank-tap-controls", visible=visible,
+                  capture_reveal_png=capture_reveal_png, tap_png_captured=tap_png_captured,
+                  show_input_started_monotonic=shown_by_tap,
                   evidence="accessibility only; actual PNG presentation requires review")
         return root
 
@@ -1259,7 +1271,17 @@ class ReleaseSmoke:
             time.sleep(.2)
 
     def pip_return(self, label, screen_off):
-        root = self.controls(True)
+        # A: preserve the independent blank-tap presentation observation. Its
+        # actual PNG still requires review even if the later PiP click works.
+        self.note("controls-presentation-observation", phase="start", label=label,
+                  actual_png_review_required=True)
+        self.controls(True)
+        self.note("controls-presentation-observation", phase="recorded", label=label,
+                  actual_png_review_required=True)
+        self.controls(False)
+        # B: a new planned reveal/click, without a PNG/tree round trip between
+        # showing the controls and sending the single ordinary button tap.
+        root = self.controls(True, capture_reveal_png=False)
         self.tap_snapshot(root, "Picture in picture")
         deadline = time.monotonic() + 10
         while True:
@@ -1284,7 +1306,7 @@ class ReleaseSmoke:
         save_graphics_state(label + "-locked-fullscreen")
         self.sample(label + "-locked-fullscreen", hidden=True)
         self.pattern("Draw your pattern")
-        root = self.controls(True)
+        root = self.controls(True, capture_reveal_png=False)
         self.tap_snapshot(root, "Play")
         self.controls(False)
         save_graphics_state(label + "-unlocked")

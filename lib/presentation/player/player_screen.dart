@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../application/lock/lock_controller.dart';
 import '../../application/media/rating_controller.dart';
 import '../../application/player/external_player_coordinator.dart';
 import '../../application/player/picture_in_picture_controller.dart';
@@ -12,6 +13,7 @@ import '../../application/player/player_controller.dart';
 import '../../application/settings/settings_controller.dart';
 import '../../core/l10n.dart';
 import '../../data/services/playback/vault_video_player.dart';
+import '../../domain/enums.dart';
 import '../../domain/models/media_item.dart';
 import '../common/keep_vault_unlocked.dart';
 import 'video_playback_speed.dart';
@@ -615,6 +617,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         _video != null &&
         _videoItemId == item?.id &&
         _video!.value.isInitialized;
+    final videoControlsAllowed = item?.isVideo == true &&
+        videoChromeAllowed &&
+        ref.watch(lockControllerProvider.select((lock) => lock.status)) ==
+            LockStatus.unlocked;
     final immersive = shouldHideSystemUiForBuiltInVideo(builtInVideo);
     _syncSystemUi(immersive);
     if (builtInVideo) {
@@ -662,14 +668,26 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                   _buildVideo(item, ui)
                 else
                   _buildImage(item),
-                if (_chrome && videoChromeAllowed && builtInVideo)
-                  _centerVideoControls(),
+                if (videoControlsAllowed)
+                  VideoControlsTransition(
+                    key: ObjectKey(_video),
+                    visible: _chrome,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        if (builtInVideo) _centerVideoControls(),
+                        _topBar(ui, pl?.positionDisplay ?? 0, pl?.length ?? 0),
+                        if (builtInVideo)
+                          _videoBottomBar(ui, landscape)
+                        else
+                          _bottomBar(ui, landscape),
+                      ],
+                    ),
+                  ),
                 if (videoTouchLocked && !videoPipGranted) videoUnlockControl(),
-                if (_chrome && videoChromeAllowed)
+                if (item?.isVideo != true && _chrome && videoChromeAllowed)
                   _topBar(ui, pl?.positionDisplay ?? 0, pl?.length ?? 0),
-                if (_chrome && videoChromeAllowed && builtInVideo)
-                  _videoBottomBar(ui, landscape)
-                else if (_chrome && videoChromeAllowed)
+                if (item?.isVideo != true && _chrome && videoChromeAllowed)
                   _bottomBar(ui, landscape),
               ],
             ),
