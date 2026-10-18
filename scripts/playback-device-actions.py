@@ -4,6 +4,7 @@ The app requests actions using log markers and awaits their HTTP acknowledgement
 A failed capture/assertion is returned to the integration test, never silently skipped.
 """
 import argparse
+import hashlib
 import json
 import os
 import pathlib
@@ -16,7 +17,7 @@ import uuid
 import xml.etree.ElementTree as ET
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from PIL import Image, ImageChops
+from PIL import Image, ImageChops, ImageOps
 
 OUTPUT = pathlib.Path("build/playback-validation")
 SERIAL = os.environ.get("ANDROID_SERIAL", "emulator-5554")
@@ -357,6 +358,380 @@ def stop(*_args):
     raise SystemExit(0)
 
 
+class ReleaseSmoke:
+    """Public APK UI only: no VM service, private files or credential bypass."""
+
+    def __init__(self):
+        self.sequence = 0
+        self.events = []
+        self.last_video = None
+
+    def note(self, event, **values):
+        self.events.append({"event": event, "monotonic": time.monotonic(), **values})
+        (OUTPUT / "release-smoke-events.json").write_text(json.dumps(self.events, indent=2))
+        print(json.dumps(self.events[-1]), flush=True)
+
+    def ui(self, label):
+        self.sequence += 1
+        prefix = f"release-ui-{self.sequence:03d}-{label}"
+        remote = "/sdcard/privi-release-smoke-ui.xml"
+        try:
+            shell_text("uiautomator", "dump", remote)
+            source = shell_text("cat", remote)
+            (OUTPUT / f"{prefix}.xml").write_text(source)
+            root = ET.fromstring(source)
+        finally:
+            adb("shell", "rm", "-f", remote)
+        capture(prefix)
+        windows = shell_text("dumpsys", "window")
+        (OUTPUT / f"{prefix}-window.txt").write_text(windows)
+        if "Application Not Responding:" in windows or "Application Error:" in windows:
+            raise RuntimeError(f"Android error dialog during {label}: {focus_from(windows)}")
+        return root
+
+    @staticmethod
+    def bounds(node):
+        values = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", node.get("bounds", ""))
+        if values is None:
+            raise RuntimeError(f"UI node has no physical bounds: {node.attrib}")
+        return tuple(int(value) for value in values.groups())
+
+    @staticmethod
+    def matches(root, label):
+        return [node for node in root.iter("node")
+                if node.get("enabled") != "false" and any(
+                    value == label or value.startswith(label + "\n")
+                    for value in (node.get("text", ""), node.get("content-desc", "")))]
+
+    def find(self, label, *, timeout=20, scroll=False):
+        deadline = time.monotonic() + timeout
+        swipes = 0
+        while True:
+            root = self.ui("find")
+            nodes = self.matches(root, label)
+            if nodes:
+                clickable = [node for node in nodes if node.get("clickable") == "true"]
+                candidates = clickable or nodes
+                by_bounds = {self.bounds(node): node for node in candidates}
+                if len(by_bounds) != 1:
+                    raise RuntimeError(f"Ambiguous UI label {label!r}: {list(by_bounds)}")
+                return root, next(iter(by_bounds.values()))
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"Release UI did not expose {label!r}")
+            if scroll and swipes < 6:
+                _, image = capture("release-scroll-position")
+                width, height = image.size
+                adb("shell", "input", "swipe", str(width // 2), str(height * 4 // 5),
+                    str(width // 2), str(height * 2 // 5), "350")
+                swipes += 1
+            time.sleep(.3)
+
+    def tap(self, label, **kwargs):
+        _, node = self.find(label, **kwargs)
+        left, top, right, bottom = self.bounds(node)
+        adb("shell", "input", "tap", str((left + right) // 2), str((top + bottom) // 2))
+        self.note("tap", label=label, bounds=[left, top, right, bottom])
+
+    def switch(self, label, enabled, *, scroll=False):
+        def control_for(root, node):
+            parents = {child: parent for parent in root.iter() for child in parent}
+            candidate = node
+            while candidate is not None:
+                controls = [item for item in candidate.iter("node") if item.get("checkable") == "true"]
+                if len(controls) == 1:
+                    return controls[0]
+                candidate = parents.get(candidate)
+            raise RuntimeError(f"UI switch state is unavailable for {label!r}")
+
+        root, node = self.find(label, scroll=scroll)
+        control = control_for(root, node)
+        previous = control.get("checked") == "true"
+        if previous != enabled:
+            left, top, right, bottom = self.bounds(control)
+            adb("shell", "input", "tap", str((left + right) // 2), str((top + bottom) // 2))
+            root, node = self.find(label)
+            if (control_for(root, node).get("checked") == "true") != enabled:
+                raise AssertionError(f"Actual UI switch did not change {label!r} to {enabled}")
+        self.note("switch", label=label, requested=enabled, previous=previous)
+
+    def pattern(self, title):
+        root, _ = self.find(title)
+        _, image = capture("release-pattern-layout")
+        width = image.width
+        candidates = []
+        for node in root.iter("node"):
+            if node.get("package") != "com.privi.app" or node.get("scrollable") != "true":
+                continue
+            left, top, right, bottom = self.bounds(node)
+            if .35 * width < right - left < .95 * width and .90 < (right - left) / max(1, bottom - top) < 1.10:
+                candidates.append((left, top, right, bottom))
+        if len(set(candidates)) != 1:
+            raise RuntimeError(f"Pattern grid is not uniquely exposed in actual accessibility bounds: {candidates}")
+        left, top, right, bottom = candidates[0]
+        # The public 3x3 gesture widget places dots at 12%, 50%, 88% of
+        # its actual accessible square. This is input geometry, not a video oracle.
+        points = [(round(left + (right - left) * x), round(top + (bottom - top) * y))
+                  for x, y in [(.12, .12), (.50, .12), (.50, .50), (.50, .88)]]
+        commands = [f"input motionevent DOWN {points[0][0]} {points[0][1]}"]
+        for start, end in zip(points, points[1:]):
+            for step in range(1, 13):
+                x = round(start[0] + (end[0] - start[0]) * step / 12)
+                y = round(start[1] + (end[1] - start[1]) * step / 12)
+                commands.append(f"input motionevent MOVE {x} {y}")
+        commands.append(f"input motionevent UP {points[-1][0]} {points[-1][1]}")
+        adb("shell", "; ".join(commands))
+        self.note("real-pattern-input", title=title, grid_bounds=candidates[0])
+
+    def unlock_if_needed(self):
+        if self.matches(self.ui("possible-lock"), "Draw your pattern"):
+            self.pattern("Draw your pattern")
+
+    def sample(self, label, *, compare_to=None, hidden=False):
+        identifier = f"release-action-{len(RESULTS) + 1}"
+        request = {"id": identifier, "op": "capture", "name": label}
+        if hidden:
+            _, image = capture(label + "-raw")
+            request.update({"expectNoVideo": True, "viewport": [0, 0, *image.size]})
+        else:
+            request["aspect"] = 180 / 320
+        if compare_to:
+            request["compareTo"] = compare_to
+        window = action_window(request)
+        try:
+            result = {"ok": True, "request": request, **window, **inspect_capture(request)}
+        except Exception as error:
+            RESULTS[identifier] = {"ok": False, "request": request, "error": str(error)}
+            persist()
+            raise
+        RESULTS[identifier] = result
+        persist()
+        if not hidden:
+            self.last_video = result["video_bounds"]
+        return identifier
+
+    def blank(self):
+        if self.last_video is None:
+            raise RuntimeError("Blank input requires actual fixture video bounds")
+        left, top, right, bottom = self.last_video
+        return round((left + right) / 2), round(top + (bottom - top) * .45)
+
+    def controls(self, visible):
+        root = self.ui("controls-before")
+        if bool(self.matches(root, "Player settings")) != visible:
+            x, y = self.blank()
+            adb("shell", "input", "tap", str(x), str(y))
+        deadline = time.monotonic() + 8
+        while bool(self.matches(self.ui("controls-after"), "Player settings")) != visible:
+            if time.monotonic() >= deadline:
+                raise AssertionError(f"Real blank tap did not make controls visible={visible}")
+            time.sleep(.2)
+        self.note("blank-tap-controls", visible=visible)
+
+    def motion(self, label):
+        first = self.sample(label + "-first")
+        time.sleep(2.1)
+        second = self.sample(label + "-second", compare_to=first)
+        return first, second
+
+    def badge(self, identifier, expected):
+        path = OUTPUT / RESULTS[identifier]["screenshot"]
+        with Image.open(path) as image:
+            width, height = image.size
+            # Read only the actual top-centre badge pixels. Host OCR does not
+            # connect accessibility or request an application rendering frame.
+            area = ImageOps.invert(image.crop((width // 4, 0, width * 3 // 4,
+                                               height * 3 // 10)).convert("L"))
+            area = area.resize((width, height * 6 // 10))
+        crop = OUTPUT / (path.stem + "-badge.png")
+        area.save(crop)
+        result = subprocess.run(["tesseract", str(crop), "stdout", "--psm", "11"],
+                                check=True, capture_output=True, text=True, timeout=10)
+        (OUTPUT / (path.stem + "-badge-ocr.txt")).write_text(result.stdout)
+        visible = bool(re.search(r"(?<![A-Za-z0-9])2\s*[xX×](?![A-Za-z0-9])", result.stdout))
+        if visible != expected:
+            raise AssertionError(f"Actual PNG 2x badge visible={visible}, expected={expected}: {path.name}")
+        self.note("native-png-2x-badge", screenshot=path.name, visible=visible)
+
+    def hold(self, label):
+        self.controls(False)
+        x, y = self.blank()
+        try:
+            adb("shell", "input", "motionevent", "DOWN", str(x), str(y))
+            time.sleep(.7)
+            held_frames = self.motion(label + "-2x")
+        finally:
+            adb("shell", "input", "motionevent", "UP", str(x), str(y))
+        for frame in held_frames:
+            self.badge(frame, True)
+        time.sleep(.4)
+        for frame in self.motion(label + "-released"):
+            self.badge(frame, False)
+
+    def power(self, awake):
+        deadline = time.monotonic() + 12
+        while True:
+            power = shell_text("dumpsys", "power")
+            if ("mWakefulness=Awake" if awake else "mWakefulness=Asleep") in power:
+                self.note("physical-power-state", awake=awake)
+                return
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"Physical power did not become awake={awake}")
+            time.sleep(.2)
+
+    def pip_return(self, label, screen_off):
+        self.controls(True)
+        self.tap("Picture in picture")
+        deadline = time.monotonic() + 10
+        while True:
+            activities = shell_text("dumpsys", "activity", "activities")
+            if re.search(r"(?:mode=pinned|windowingMode=2|mWindowingMode=2)", activities, re.I):
+                (OUTPUT / f"{label}-pip-activities.txt").write_text(activities)
+                break
+            if time.monotonic() >= deadline:
+                raise TimeoutError("Actual Activity did not enter pinned/PiP mode")
+            time.sleep(.2)
+        capture(label + "-pip")
+        if screen_off:
+            adb("shell", "input", "keyevent", "223")
+            self.power(False)
+            save_graphics_state(label + "-asleep")
+            capture(label + "-asleep")
+            adb("shell", "input", "keyevent", "224")
+            self.power(True)
+            adb("shell", "wm", "dismiss-keyguard")
+        adb("shell", "am", "start", "-n", "com.privi.app/.MainActivity")
+        self.find("Draw your pattern")
+        save_graphics_state(label + "-locked-fullscreen")
+        self.sample(label + "-locked-fullscreen", hidden=True)
+        self.pattern("Draw your pattern")
+        self.controls(True)
+        self.tap("Play")
+        self.controls(False)
+        save_graphics_state(label + "-unlocked")
+        self.motion(label + "-restored")
+        self.controls(True)
+        self.controls(False)
+
+
+def release_smoke(artifact_directory):
+    smoke = ReleaseSmoke()
+    report = {"passed": False, "release_run_id": os.environ.get("RELEASE_RUN_ID"),
+              "repository": os.environ.get("RELEASE_REPOSITORY")}
+    try:
+        apks = list(pathlib.Path(artifact_directory).rglob("*.apk"))
+        if len(apks) != 1:
+            raise RuntimeError(f"Expected exactly one release APK artifact, found {len(apks)}")
+        apk = apks[0]
+        digest = hashlib.sha256(apk.read_bytes()).hexdigest()
+        expected = pathlib.Path(str(apk) + ".sha256").read_text().split()[0].lower()
+        if digest != expected:
+            raise AssertionError("Downloaded release APK does not match its supplied SHA-256")
+        report.update({"apk": str(apk), "apk_sha256": digest})
+        if shell_text("pm", "list", "packages", "com.privi.app"):
+            raise RuntimeError("Release smoke requires a fresh emulator without an existing Privi installation")
+        installed = adb("install", "--no-streaming", str(apk), capture_output=True, text=True, timeout=120)
+        (OUTPUT / "release-apk-install.txt").write_text(installed.stdout + installed.stderr)
+        package = shell_text("dumpsys", "package", "com.privi.app")
+        (OUTPUT / "release-installed-package.txt").write_text(package)
+        if re.search(r"(?:pkgFlags|flags)=\[[^\]]*\bDEBUGGABLE\b", package):
+            raise AssertionError("Selected APK is debuggable rather than an actual release APK")
+        # Extend the verified 3s source by stream copying, so real setup/PiP UI
+        # cannot reach EOF while the smoke is still navigating. Geometry and
+        # motion expectations remain those of the external 180x320 source.
+        video = OUTPUT / "PriviReleaseSmoke.mp4"
+        subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                        "-stream_loop", "-1", "-i", "integration_test/fixtures/portrait.mp4",
+                        "-t", "600", "-map", "0:v:0", "-map", "0:a:0", "-c", "copy",
+                        "-movflags", "+faststart", str(video)], check=True, timeout=45)
+        probe = subprocess.run(["ffprobe", "-v", "error", "-show_streams", "-show_format",
+                                "-of", "json", str(video)], check=True, capture_output=True,
+                               text=True, timeout=15)
+        (OUTPUT / "release-synthetic-video.ffprobe.json").write_text(probe.stdout)
+        report["synthetic_video_sha256"] = hashlib.sha256(video.read_bytes()).hexdigest()
+        remote = "/sdcard/Movies/PriviReleaseSmoke/PriviReleaseSmoke.mp4"
+        adb("shell", "mkdir", "-p", "/sdcard/Movies/PriviReleaseSmoke")
+        adb("push", str(video), remote, capture_output=True, timeout=60)
+        adb("shell", "am", "broadcast", "-a", "android.intent.action.MEDIA_SCANNER_SCAN_FILE",
+            "-d", "file://" + remote, capture_output=True)
+        media_deadline = time.monotonic() + 15
+        while True:
+            media = shell_text("content", "query", "--uri", "content://media/external/video/media",
+                               "--projection", "_id:_display_name:relative_path")
+            (OUTPUT / "release-synthetic-mediastore.txt").write_text(media)
+            if "PriviReleaseSmoke.mp4" in media:
+                break
+            if time.monotonic() >= media_deadline:
+                raise TimeoutError("Synthetic video was not actually registered in MediaStore")
+            time.sleep(.3)
+        adb("shell", "am", "start", "-W", "-n", "com.privi.app/.MainActivity")
+        smoke.pattern("Draw a pattern")
+        smoke.pattern("Confirm pattern")
+        if smoke.matches(smoke.ui("after-pattern-setup"), "Not now"):
+            smoke.tap("Not now")
+        smoke.tap("More")
+        smoke.tap("Settings")
+        smoke.switch("Block screenshots", False)
+        smoke.switch("Prefer external player", False, scroll=True)
+        adb("shell", "input", "keyevent", "4")
+        smoke.tap("Visible")
+        root = smoke.ui("media-filter")
+        if smoke.matches(root, "Photos only · tap for videos"):
+            smoke.tap("Photos only · tap for videos")
+        root = smoke.ui("gallery-permission")
+        if smoke.matches(root, "Grant permission"):
+            smoke.tap("Grant permission")
+            smoke.tap("Allow")
+            smoke.unlock_if_needed()
+        _, folder = smoke.find("PriviReleaseSmoke")
+        left, top, right, bottom = smoke.bounds(folder)
+        adb("shell", "input", "swipe", str((left + right) // 2), str((top + bottom) // 2),
+            str((left + right) // 2), str((top + bottom) // 2), "1000")
+        smoke.tap("Hide")
+        root = smoke.ui("hide-access")
+        if smoke.matches(root, "Open settings"):
+            smoke.tap("Open settings")
+            smoke.switch("Allow access to manage all files", True)
+            adb("shell", "input", "keyevent", "4")
+            smoke.unlock_if_needed()
+            _, folder = smoke.find("PriviReleaseSmoke")
+            left, top, right, bottom = smoke.bounds(folder)
+            adb("shell", "input", "swipe", str((left + right) // 2), str((top + bottom) // 2),
+                str((left + right) // 2), str((top + bottom) // 2), "1000")
+            smoke.tap("Hide")
+        smoke.find("Hide folder?")
+        smoke.tap("Hide")
+        smoke.tap("Invisible")
+        smoke.tap("PriviReleaseSmoke", timeout=40)
+        smoke.tap("Play playlist")
+        smoke.tap("In order")
+        smoke.find("Player settings")
+        _, initial_image = capture("release-player-initial-controls")
+        # Only bootstrap the blank-input point from observed content. The
+        # strict geometry/motion assertion follows with the real controls hidden.
+        smoke.last_video = content_bounds(initial_image, [0, 0, *initial_image.size])
+        smoke.controls(False)
+        smoke.sample("release-player-initial")
+        for cycle in range(1, 3):
+            smoke.hold(f"release-{cycle}-hold")
+            smoke.pip_return(f"release-{cycle}-expand", False)
+            smoke.pip_return(f"release-{cycle}-screen-off", True)
+        report["passed"] = True
+        report["completed_cycles"] = 2
+    except Exception as error:
+        report["error"] = f"{type(error).__name__}: {error}"
+        save_device_state("release-smoke-failed")
+        save_graphics_state("release-smoke-failed")
+        try:
+            smoke.ui("failure")
+        except Exception as diagnostic_error:
+            report["ui_diagnostic_error"] = str(diagnostic_error)
+        raise
+    finally:
+        (OUTPUT / "release-smoke-result.json").write_text(json.dumps(report, indent=2))
+        save_device_state("release-smoke-final")
+        save_graphics_state("release-smoke-final")
+
+
 def main():
     global RECOVERY, HELD_POINT
     server = ThreadingHTTPServer(("0.0.0.0", 8766), Handler)
@@ -423,9 +798,13 @@ def main():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--preflight", action="store_true")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--preflight", action="store_true")
+    modes.add_argument("--release-smoke", metavar="ARTIFACT_DIRECTORY")
     arguments = parser.parse_args()
     if arguments.preflight:
         preflight()
+    elif arguments.release_smoke:
+        release_smoke(arguments.release_smoke)
     else:
         main()

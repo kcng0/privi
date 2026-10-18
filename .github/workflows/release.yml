@@ -26,12 +26,25 @@ on:
         description: "Release tag to create/use (e.g. v0.1.0). Leave empty to use pubspec version."
         required: false
         type: string
+      stage_only:
+        description: "Build a signed APK artifact without creating a public GitHub release or tag."
+        type: boolean
+        default: false
+      publish_run_id:
+        description: "Publish the already verified APK from a successful staged run of this workflow at this same commit."
+        required: false
+        type: string
+      release_notes:
+        description: "Release notes when publishing a staged artifact."
+        required: false
+        type: string
 
 permissions:
   contents: write
 
 jobs:
   release:
+    if: ${{ !inputs.publish_run_id }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -251,9 +264,11 @@ jobs:
           retention-days: 30
 
       - name: Create / update GitHub Release
+        if: ${{ !inputs.stage_only }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
           name: Privi ${{ steps.version.outputs.tag }}
           generate_release_notes: true
           draft: false
@@ -308,5 +323,73 @@ jobs:
             | **Signing** | permanent release keystore (CI secrets) |
             | **Min Android** | 8.0 (API 26) |
             | **targetSdk** | 36 |
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-staged:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_run_id != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify staged run and resolve version
+        id: staged
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.publish_run_id }}
+          DISPATCH_TAG: ${{ inputs.tag }}
+          STAGE_ONLY: ${{ inputs.stage_only }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]]
+          [ "$STAGE_ONLY" != true ]
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID" > "$RUNNER_TEMP/staged-run.json"
+          jq --exit-status --arg sha "$GITHUB_SHA" --arg repo "$GITHUB_REPOSITORY" '
+            .head_sha == $sha and .head_repository.full_name == $repo and
+            .path == ".github/workflows/release.yml" and
+            .status == "completed" and .conclusion == "success"
+          ' "$RUNNER_TEMP/staged-run.json" > /dev/null
+          FULL=$(awk '/^version:/ {print $2; exit}' pubspec.yaml)
+          NAME="${FULL%%+*}"
+          TAG="v${NAME}"
+          [ -z "$DISPATCH_TAG" ] || [ "$DISPATCH_TAG" = "$TAG" ]
+          {
+            echo "tag=$TAG"
+            echo "version=$NAME"
+            echo "apk=privi-${NAME}.apk"
+          } >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@v4
+        with:
+          name: privi-${{ steps.staged.outputs.version }}-release
+          run-id: ${{ inputs.publish_run_id }}
+          github-token: ${{ github.token }}
+      - name: Verify downloaded artifact integrity
+        env:
+          APK_NAME: ${{ steps.staged.outputs.apk }}
+        run: |
+          set -euo pipefail
+          test -s "$APK_NAME"
+          sha256sum -c SHA256SUMS
+          [ "$(sha256sum "$APK_NAME" | cut -d' ' -f1)" = "$(tr -d '\r\n' < "$APK_NAME.sha256")" ]
+      # GITHUB_TOKEN creates the tag at this verified commit without triggering
+      # a second tag-push build. The tested APK is uploaded without rebuilding.
+      - name: Publish verified APK
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.staged.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: Privi ${{ steps.staged.outputs.tag }}
+          draft: false
+          prerelease: ${{ contains(steps.staged.outputs.tag, '-') }}
+          generate_release_notes: true
+          body: ${{ inputs.release_notes }}
+          fail_on_unmatched_files: true
+          files: |
+            ${{ steps.staged.outputs.apk }}
+            ${{ steps.staged.outputs.apk }}.sha256
+            SHA256SUMS
+            CHECKSUMS.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

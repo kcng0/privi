@@ -18,6 +18,11 @@ test "$(adb -s "$ANDROID_SERIAL" shell settings --user current get secure immers
 # Fail before running Privi if first-boot HOME/ANR/system state is unusable.
 # Keep boot logs; never silence app errors or dismiss a system error dialog.
 timeout 150s python3 scripts/playback-device-actions.py --preflight > build/playback-validation/preflight-runner.txt 2>&1
+if [[ -n "${RELEASE_RUN_ID:-}" ]]; then
+  trap 'adb -s "$ANDROID_SERIAL" logcat -d > build/playback-validation/logcat.txt || true' EXIT
+  timeout 900s python3 scripts/playback-device-actions.py --release-smoke build/release-under-test > build/playback-validation/release-smoke-runner.txt 2>&1
+  exit
+fi
 python3 scripts/playback-device-actions.py > build/playback-validation/device-actions.txt 2>&1 &
 device_actions_pid=$!
 trap 'kill "$device_actions_pid" 2>/dev/null || true; adb -s "$ANDROID_SERIAL" logcat -d > build/playback-validation/logcat.txt || true' EXIT
