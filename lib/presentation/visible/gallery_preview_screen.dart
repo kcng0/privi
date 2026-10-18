@@ -11,6 +11,7 @@ import '../../application/player/picture_in_picture_controller.dart';
 import '../../application/settings/settings_controller.dart';
 import '../../core/l10n.dart';
 import '../../data/services/gallery_service.dart';
+import '../../data/services/playback/vault_video_player.dart';
 import '../../domain/enums.dart';
 import '../common/keep_vault_unlocked.dart';
 import '../common/zoomable_media_image.dart';
@@ -107,7 +108,7 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen>
         return;
       }
       if (item.isVideo) {
-        final c = candidate = VideoPlayerController.file(
+        final c = candidate = VaultVideoPlayerController.file(
           file,
           videoPlayerOptions: VideoPlayerOptions(allowBackgroundPlayback: true),
         );

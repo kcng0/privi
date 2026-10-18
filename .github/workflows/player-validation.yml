@@ -66,7 +66,9 @@ jobs:
           # screenshots; synthetic motion checks exclude Flutter controls/HUD.
           api-level: 33
           arch: x86_64
-          target: google_apis
+          # AOSP avoids Pixel Launcher's Google first-boot workload. The runner
+          # still requires the real PiP feature and a responsive focused HOME.
+          target: default
           profile: pixel_6
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader -no-snapshot -noaudio -no-boot-anim -camera-back none

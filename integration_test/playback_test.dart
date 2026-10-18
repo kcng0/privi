@@ -231,7 +231,7 @@ void main() {
 
   Future<VideoPlayerController> open(WidgetTester tester, String name) async {
     final watch = Stopwatch()..start();
-    final controller = VideoPlayerController.file(files[name]!);
+    final controller = VaultVideoPlayerController.file(files[name]!);
     try {
       await pumpOperation(tester, controller.initialize());
       (metrics['initialization_ms'] as List<dynamic>? ??
@@ -355,7 +355,7 @@ void main() {
     'a native opening failure can dispose and open another video',
     (tester) async {
       final platform = playback;
-      final failed = VideoPlayerController.file(files['corrupt.mp4']!);
+      final failed = VaultVideoPlayerController.file(files['corrupt.mp4']!);
       try {
         Object? openingError;
         try {

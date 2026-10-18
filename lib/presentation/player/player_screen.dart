@@ -11,6 +11,7 @@ import '../../application/player/picture_in_picture_controller.dart';
 import '../../application/player/player_controller.dart';
 import '../../application/settings/settings_controller.dart';
 import '../../core/l10n.dart';
+import '../../data/services/playback/vault_video_player.dart';
 import '../../domain/models/media_item.dart';
 import '../common/keep_vault_unlocked.dart';
 import 'video_playback_speed.dart';
@@ -408,7 +409,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     }
     if (!_isCurrentVideoRequest(request, item.id)) return;
 
-    final candidate = VideoPlayerController.file(
+    final candidate = VaultVideoPlayerController.file(
       file,
       videoPlayerOptions: VideoPlayerOptions(allowBackgroundPlayback: true),
     );
@@ -518,7 +519,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     )) {
       return;
     }
-    final candidate = VideoPlayerController.file(
+    final candidate = VaultVideoPlayerController.file(
       file,
       videoPlayerOptions: VideoPlayerOptions(allowBackgroundPlayback: true),
     );

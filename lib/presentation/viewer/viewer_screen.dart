@@ -14,6 +14,7 @@ import '../../application/providers.dart';
 import '../../application/settings/settings_controller.dart';
 import '../../core/constants.dart';
 import '../../core/l10n.dart';
+import '../../data/services/playback/vault_video_player.dart';
 import '../../domain/enums.dart';
 import '../../domain/models/media_item.dart';
 import '../common/heart_rating_bar.dart';
@@ -133,7 +134,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
       return;
     }
     if (!mounted || request != _videoRequest) return;
-    final c = VideoPlayerController.file(
+    final c = VaultVideoPlayerController.file(
       file,
       videoPlayerOptions: VideoPlayerOptions(allowBackgroundPlayback: true),
     );

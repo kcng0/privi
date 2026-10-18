@@ -12,7 +12,9 @@ adb -s "$ANDROID_SERIAL" shell getprop ro.build.fingerprint > build/playback-val
 # This setting applies only to the disposable CI emulator.
 adb -s "$ANDROID_SERIAL" shell settings --user current put secure immersive_mode_confirmations confirmed
 test "$(adb -s "$ANDROID_SERIAL" shell settings --user current get secure immersive_mode_confirmations | tr -d '\r')" = confirmed
-adb -s "$ANDROID_SERIAL" logcat -c
+# Fail before running Privi if first-boot HOME/ANR/system state is unusable.
+# Keep boot logs; never silence app errors or dismiss a system error dialog.
+timeout 150s python3 scripts/playback-device-actions.py --preflight > build/playback-validation/preflight-runner.txt 2>&1
 python3 scripts/playback-device-actions.py > build/playback-validation/device-actions.txt 2>&1 &
 device_actions_pid=$!
 trap 'kill "$device_actions_pid" 2>/dev/null || true; adb -s "$ANDROID_SERIAL" logcat -d > build/playback-validation/logcat.txt || true' EXIT
