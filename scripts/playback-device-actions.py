@@ -17,7 +17,7 @@ import uuid
 import xml.etree.ElementTree as ET
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from PIL import Image, ImageChops, ImageOps
+from PIL import Image, ImageChops, ImageOps, UnidentifiedImageError
 
 OUTPUT = pathlib.Path("build/playback-validation")
 SERIAL = os.environ.get("ANDROID_SERIAL", "emulator-5554")
@@ -365,6 +365,7 @@ class ReleaseSmoke:
         self.sequence = 0
         self.events = []
         self.last_video = None
+        self.screenshots_required = False
 
     def note(self, event, **values):
         self.events.append({"event": event, "monotonic": time.monotonic(), **values})
@@ -382,12 +383,55 @@ class ReleaseSmoke:
             root = ET.fromstring(source)
         finally:
             adb("shell", "rm", "-f", remote)
-        capture(prefix)
         windows = shell_text("dumpsys", "window")
         (OUTPUT / f"{prefix}-window.txt").write_text(windows)
         if "Application Not Responding:" in windows or "Application Error:" in windows:
             raise RuntimeError(f"Android error dialog during {label}: {focus_from(windows)}")
+        self.ui_capture(prefix, windows)
         return root
+
+    @staticmethod
+    def secure_window(windows):
+        blocks = [block for block in re.split(r"(?m)^  Window #", windows)[1:]
+                  if "com.privi.app/" in block.splitlines()[0]]
+        flags = [re.search(r"(?m)^\s+fl=([^\n]+)", block) for block in blocks]
+        if not flags or any(match is None for match in flags):
+            raise RuntimeError("Actual Privi window flags are unavailable")
+        return any(re.search(r"\bSECURE\b", match.group(1)) for match in flags)
+
+    def ui_capture(self, prefix, windows):
+        if self.screenshots_required:
+            capture(prefix)
+            return
+        # First-run FLAG_SECURE can make screencap return zero bytes. Preserve
+        # its actual output, but use the actual accessibility tree for setup.
+        # This exception ends permanently after the user disables protection.
+        raw = OUTPUT / f"{prefix}-screencap.bin"
+        with raw.open("wb") as target:
+            result = adb("exec-out", "screencap", "-p", stdout=target, stderr=subprocess.PIPE)
+        (OUTPUT / f"{prefix}-screencap-stderr.txt").write_bytes(result.stderr)
+        try:
+            with Image.open(raw) as image:
+                image.load()
+                if image.format != "PNG":
+                    raise UnidentifiedImageError("screencap did not return PNG")
+        except UnidentifiedImageError as error:
+            if not self.secure_window(windows):
+                raise
+            evidence = {"status": "unavailable-while-flag-secure", "raw": raw.name,
+                        "raw_bytes": raw.stat().st_size, "native_secure": True,
+                        "error": f"{type(error).__name__}: {error}"}
+            (OUTPUT / f"{prefix}-capture-unavailable.json").write_text(json.dumps(evidence, indent=2))
+            self.note("protected-setup-capture-unavailable", **evidence)
+            return
+        raw.replace(OUTPUT / f"{prefix}.png")
+
+    def require_screenshots(self):
+        if self.secure_window(shell_text("dumpsys", "window")):
+            raise AssertionError("Block screenshots UI is off but native FLAG_SECURE remains set")
+        self.screenshots_required = True
+        self.ui("screenshots-unblocked")
+        self.note("strict-native-png-required")
 
     @staticmethod
     def bounds(node):
@@ -419,10 +463,11 @@ class ReleaseSmoke:
             if time.monotonic() >= deadline:
                 raise TimeoutError(f"Release UI did not expose {label!r}")
             if scroll and swipes < 6:
-                _, image = capture("release-scroll-position")
-                width, height = image.size
-                adb("shell", "input", "swipe", str(width // 2), str(height * 4 // 5),
-                    str(width // 2), str(height * 2 // 5), "350")
+                frame = root.find("node")
+                left, top, right, bottom = self.bounds(frame)
+                x = str((left + right) // 2)
+                adb("shell", "input", "swipe", x, str(round(top + (bottom - top) * .8)),
+                    x, str(round(top + (bottom - top) * .4)), "350")
                 swipes += 1
             time.sleep(.3)
 
@@ -456,8 +501,8 @@ class ReleaseSmoke:
 
     def pattern(self, title):
         root, _ = self.find(title)
-        _, image = capture("release-pattern-layout")
-        width = image.width
+        frame_left, _, frame_right, _ = self.bounds(root.find("node"))
+        width = frame_right - frame_left
         candidates = []
         for node in root.iter("node"):
             if node.get("package") != "com.privi.app" or node.get("scrollable") != "true":
@@ -671,6 +716,7 @@ def release_smoke(artifact_directory):
         smoke.tap("More")
         smoke.tap("Settings")
         smoke.switch("Block screenshots", False)
+        smoke.require_screenshots()
         smoke.switch("Prefer external player", False, scroll=True)
         adb("shell", "input", "keyevent", "4")
         smoke.tap("Visible")
