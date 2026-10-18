@@ -212,6 +212,14 @@ nor a Flutter video Texture is on this production path. iOS keeps AVFoundation.
 expose tracks, local subtitles, audio/subtitle delays, A–B repeat and diagnostics.
 LibVLC enables audio time stretching and automatic hardware decoding with its
 software fallback; speed changes update the existing player's native rate.
+The fixed-source subtitle candidate is maintained in
+`third_party/libvlc/source-lock.json` and its ordered patches. Its SDK workflow
+rebuilds core, all modules and JNI for all three ABIs; explicit SDK inputs select
+the checked AAR instead of Maven. See `third_party/libvlc/README.md` for the
+temporary build-run and permanent release-asset paths. An explicit invalid SDK
+fails the build. Native patches require the complete new APK and corresponding
+SDK/source bundle; a Dart-only update cannot deliver them. The default Maven
+selection has not yet been cut over to a validated permanent SDK artifact.
 Android explicitly uses the fixed Flutter version's supported Skia UI renderer.
 Its Impeller GLES teardown can leave a context current on the former merged
 thread after a PiP ImageReader is abandoned on screen-off. This is a UI renderer
@@ -254,6 +262,13 @@ controller disposal so they cannot create a timer or update disposed state.
 New commands are cancelled after release starts; active errors and release
 failures remain observable. Native presentation permission is still owned by
 the root lock/PiP lifecycle, independently of controller cleanup.
+Native disposal now acknowledges completion after player, media/descriptor and
+late-open cleanup. Concurrent requests share that result, including failures.
+The serial queue reports its current player/operation/elapsed time on queue
+timeouts. A submitted play keeps its start identity until Playing or an explicit
+cancellation; returning from the asynchronous SDK play call is not readiness.
+Video chrome appears as one group with a 180 ms fade-in. Hiding unmounts it
+immediately; only the controls animate, and the native viewport stays a sibling.
 Reopening an ended input already starts at zero; it must not also inject a
 startup seek to zero, including video_player's explicit replay seek. Running
 seeks to zero and nonzero pending seeks/A–B starts remain native seeks.
@@ -344,8 +359,13 @@ Transient release controls use a temporary testOnly instrumentation APK targetin
 only its own random package. Public UiAutomation reads actual accessibility
 nodes without an idle wait or Display.getSize clipping; Privi is neither changed
 nor an instrumentation target. A single real blank tap is followed immediately
-by a strict PNG capture. PiP/Play reuse that snapshot's original screen bounds,
-within the existing controls deadline. Helper build/install/runtime errors,
+by a strict PNG capture; this independent presentation check requires actual
+image review, not just a visible accessibility node. A separate hide/reveal
+operation obtains fresh PiP/Play bounds without a pre-click PNG, then sends one
+ordinary tap and captures afterward. Snapshots older than the original 3s
+visibility budget are rejected without input. Holding a tooltip button while
+waiting for PNG would turn the tap into a long press and is not used.
+Helper build/install/runtime errors,
 missing or zero-area controls and cleanup failures fail explicitly. Its
 connection stays alive for bounded read-only root sampling (up to 2s within
 the unchanged 8s host controls deadline), because service connection can finish

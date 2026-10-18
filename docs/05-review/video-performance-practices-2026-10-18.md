@@ -271,3 +271,14 @@ root另行启动[不插桩原生39146944141](https://github.com/kcng0/privi/acti
 [signed43即时helper验收39148303329](https://github.com/kcng0/privi/actions/runs/39148303329)再次首画面3.6386秒、held画面推进，但controls-before连续root-unavailable，未发PiP。固定AOSP13源码及真实log说明：服务connected不等于Privi ViewRoot已注册accessibility window；旧helper读一次null便finish，22–126ms内销毁仍建立中的连接。修正改同连接内有界只读poll，最长2秒且扣入原8秒host预算，不waitIdle/造帧/重复tap。实际Android新poll时序待验。
 
 下一次原生观察保留原失败：三个paused ASS截图紧邻保存SF层dump；EXPAND原检查失败后，仅在真实seekable、授权、input身份与实际位置有效时，可诊断性seek同位置并另存PNG/SF，最终始终重抛原错误。它用于检验SDK detachViews重建decoder后从GOP中段续播的候选，不能当产品自动fallback，也不能仅凭PNG恢复认定关键帧因果。Host新增只读native-is-seekable字段并通过官方AAR Kotlin编译，现有immutable签名43不包含该新字段；最终后续native生产构建需新build号≥44。
+
+
+2026-10-19 后续实现（未发布）：用户追问最近改动主要是诊断、字幕仍存在后，已将修复落到固定 SDK 源码。`7aa28b4` 的两个下游 patch 位于 `third_party/libvlc/patches/`：0001 分离 raw cue validity、clock 转换成功与 known stop，支持合法跨零点时间，维护 ephemeral/OSD/暂停语义，并对真正不可表示的时间/缓冲运算走明确 fatal 事件；0002 使清空字幕、format变化、failed lock不再保留旧 order/region cache hit。它们不是已验证的画面成功声明。修改内部 subpicture ABI，三个 ABI 必须全量重编 core、全部 modules 与 JNI；原 Java/资源保留，不能混旧 SO。App 未启用 sub-filter，`subsdelay` 的未启用历史问题不属于此修复范围。
+
+新的[固定源码 SDK 构建39152889983](https://github.com/kcng0/privi/actions/runs/39152889983)已从 `6d5cc2d` 启动：真实 fresh fetch、20个官方 git-am、0001→0002、upstream get-vlc检查及官方 AAR hash完成，patched tree `dbcefa869c26f667d09dfb792c537ee359d2d065`。三ABI正在实际源码编译，尚无 SDK/字幕画面通过结论。显式 --license g 沿用官方实际功能配置；不采用会改变现有模块集合的 a 分支。完整 SDK/source/licenses/provenance bundle需与最终 APK 一起公开；默认 Maven尚未切到新永久artifact，不能漏掉最终cutover。
+
+[作者原生39151899430](https://github.com/kcng0/privi/actions/runs/39151899430)使用 `5d505fd` 和旧官方SDK：实际完成100次controller handoff、持按11641ms，RSS457297920→460701696 bytes；本轮未复现上一轮原生释放阻塞，不能据单轮证明所有设备不存在。Host现在等待真实资源清理再答dispose，Playing前同generation的启动token不会因SDK play返回而提前清除。EXPAND action70仍是旧pattern，SCREEN_OFF未进入；same-position诊断seek因原4分钟scene已用163718ms、不足预留预算而没有执行，不能记为恢复或keyframe实验成功。原native backtrace在drive退场后已无app PID，明确记录diagnostic-failed，没有替换原业务失败。
+
+[signed43即时root-poll39149914381](https://github.com/kcng0/privi/actions/runs/39149914381)首画面4.156秒、持触/松手画面继续推进。038原PNG在显示tap后1.75秒内已保存却无top/center/bottom chrome，039 XML有控件；PiP点击已距显示tap3.72秒，不能区分过期输入与native拒绝。该PNG是真实呈现反例，不能用XML visible=true替代。`a9d3259`将三条视频入口的chrome归一组，仅出现时180ms自然淡入，隐藏即时卸载；没有退出fade、常驻ticker或重建native viewport，既有4项即时隐藏反例已按较小实现关闭而未改测试。原生HC效果仍待图像验收。正式smoke将A原始blank tap→PNG与B新的fresh reveal→普通单击分开，保留3s/8s期限与过期拒绝；等待PNG的button DOWN方案因Tooltip长按抢arena而明确否决。
+
+用户授权的新独立验收周期第1轮已启动SDK模块对抗审查；Host的Surface恢复及最终native/签名APK尚未完成，公开v1.1.3仍未发布，build43仅为旧SDK暂存包，最终native行为需build44或更高。A52实际FPS、声音、温度与功耗仍未验。
