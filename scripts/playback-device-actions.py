@@ -210,12 +210,12 @@ def recover_after_failure():
     wake_and_return()
 
 
-def capture(name):
+def capture(name, *, timeout=15):
     if not re.fullmatch(r"[A-Za-z0-9_.-]+", name):
         raise ValueError("Invalid screenshot name")
     path = OUTPUT / f"{name}.png"
     with path.open("wb") as target:
-        adb("exec-out", "screencap", "-p", stdout=target)
+        adb("exec-out", "screencap", "-p", stdout=target, timeout=timeout)
     with Image.open(path) as source:
         image = source.convert("RGB")
     return path, image
@@ -261,8 +261,8 @@ def content_bounds(image, viewport):
     return bounds
 
 
-def inspect_capture(request):
-    path, image = capture(request["name"])
+def inspect_capture(request, *, captured=None):
+    path, image = captured if captured is not None else capture(request["name"])
     if request["op"] == "screenshot":
         return {"screenshot": path.name, "screen_size": image.size,
                 "inspection": "raw-composition-for-review"}
@@ -481,8 +481,10 @@ class ReleaseSmoke:
     def tap(self, label, **kwargs):
         _, node = self.find(label, **kwargs)
         left, top, right, bottom = self.bounds(node)
+        pressed_at = time.monotonic()
         adb("shell", "input", "tap", str((left + right) // 2), str((top + bottom) // 2))
         self.note("tap", label=label, bounds=[left, top, right, bottom])
+        return pressed_at
 
     def allow_gallery_permission(self, root):
         identifier = "com.android.permissioncontroller:id/permission_allow_button"
@@ -574,6 +576,50 @@ class ReleaseSmoke:
         if not hidden:
             self.last_video = result["video_bounds"]
         return identifier
+
+    def first_video(self, started_at):
+        # Only the first cold PlayerScreen entry has a readiness window. Never
+        # connect UIAutomator here: accessibility can request Flutter frames.
+        deadline = started_at + 30
+        index = 0
+        while time.monotonic() < deadline:
+            index += 1
+            name = f"release-cold-first-{index:03d}"
+            windows = adb("shell", "dumpsys", "window", capture_output=True, text=True,
+                          timeout=min(5, deadline - time.monotonic())).stdout
+            (OUTPUT / f"{name}-window.txt").write_text(windows)
+            focus = focus_from(windows)
+            if "Application Not Responding:" in windows or "Application Error:" in windows:
+                raise RuntimeError(f"Android error dialog during cold start: {focus}")
+            if "com.privi.app/" not in focus:
+                raise RuntimeError(f"Cold PlayerScreen lost foreground: {focus}")
+            if time.monotonic() >= deadline:
+                break
+            path, image = capture(name, timeout=min(5, deadline - time.monotonic()))
+            observed = time.monotonic()
+            try:
+                bounds = content_bounds(image, [0, 0, *image.size])
+            except AssertionError as error:
+                if not str(error).startswith(("No actual synthetic video pixels", "No actual testsrc video")):
+                    raise
+                self.note("cold-first-video-waiting", screenshot=path.name,
+                          elapsed_seconds=observed - started_at, foreground=focus, reason=str(error))
+                remaining = deadline - time.monotonic()
+                if remaining > 0:
+                    time.sleep(min(.5, remaining))
+                continue
+            request = {"id": "release-cold-first", "op": "capture", "name": name, "aspect": 180 / 320}
+            # The first real testsrc image must satisfy the original geometry
+            # immediately. An incorrect ratio is never a readiness retry.
+            RESULTS[request["id"]] = {"ok": True, "request": request,
+                                      "android_foreground_window": focus,
+                                      **inspect_capture(request, captured=(path, image))}
+            persist()
+            self.last_video = bounds
+            self.note("cold-first-video-ready", screenshot=path.name,
+                      elapsed_seconds=observed - started_at, foreground=focus)
+            return observed - started_at
+        raise TimeoutError("No actual fixture video within 30s of the initial In order tap")
 
     def blank(self):
         if self.last_video is None:
@@ -776,12 +822,8 @@ def release_smoke(artifact_directory):
         smoke.tap("Invisible")
         smoke.tap("PriviReleaseSmoke", timeout=40)
         smoke.tap("Play playlist")
-        smoke.tap("In order")
-        smoke.find("Player settings")
-        _, initial_image = capture("release-player-initial-controls")
-        # Only bootstrap the blank-input point from observed content. The
-        # strict geometry/motion assertion follows with the real controls hidden.
-        smoke.last_video = content_bounds(initial_image, [0, 0, *initial_image.size])
+        started_at = smoke.tap("In order")
+        report["cold_first_video_seconds"] = smoke.first_video(started_at)
         smoke.controls(False)
         smoke.sample("release-player-initial")
         for cycle in range(1, 3):

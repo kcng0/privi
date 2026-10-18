@@ -210,3 +210,10 @@ Hacker 第 1 轮在 `34ec5ba` 的实际原生结果中确认：真实 ADB 点击
 同一轮字幕截图后探针恰跨越 3 秒素材片尾：reopen 3→4、Playing→Opening、position 0，不能以截图完成后的单次 SDK 状态断言持续卡死。验收现保留原始 opening 时间线并有界等待 Playing；图片本身只取一次、字幕/比例/运动标准不变。长按和松手也在原有 12 秒观察窗内等待真实 2× 徽标出现/消失，不主动 pump 或重发 DOWN/UP。新增只读 gfxinfo framestats 用于现场 UI 数据，不代表视频 FPS。
 
 旧版正式 APK 的真 UI 校准已实际完成首次图案设置、关闭 Block screenshots（之后严格要求有效 PNG）和选择内置播放器；随后停在系统照片/视频 ALLOW 弹窗识别，尚未进入播放。它仅用于校准真实首启路径，不是新版 APK 验收证据。下一版必须使用新的同一签名 APK artifact 完成实际播放、长按、PiP/熄屏返回，再将原包发布。
+
+
+作者快照 `9091d80` 的[完整原生运行](https://github.com/kcng0/privi/actions/runs/39137345022) 首次流程通过，普通 CI 亦通过。实际无 pump 的 DOWN→UP持续11798ms；持触两图视频 ROI 变化15.05%/9区块，松手后25.69%/14区块；100次切片完成。Skia候选的PiP EXPAND解锁后18.54%/10区块、SCREEN_OFF唤醒解锁后18.36%/12区块，root实际查看熄屏恢复PNG确认真实testsrc画面，不再全黑。两条返回在未解锁时素材均隐藏；窗口与真实root widget witness保留。RSS前后482385920→460828672 bytes、峰值533151744，仅为debug模拟器资源探针，不能据此宣称A52性能。
+
+此次流程绿仍不是字幕验收通过：root实际查看新 `portrait-ass-embedded-after-seek-1000.png`，源HUD1.000秒/frame24无字，reopen2→2、native1000→1587、generation1，排除了外部slave独有的解释；external A–B图HUD1.375秒/frame33亦无字，reopen5保持。外部普通seek图此次有字，但reopen3→4，不能当成修复。下一次只读字幕Surface缓冲统计及独立paused-seek对照用于定位，不改变选轨或播放的生产行为，原playing序列保留。字幕兼容反例尚未闭环，因此完整正式APK验收与发布继续等待。
+
+旧正式APK的[第三轮入口校准](https://github.com/kcng0/privi/actions/runs/39137886958) 已真实走通图库授权、文件夹Hide、系统all-files开关、pattern解锁、Invisible album、Play playlist/In order，实际PNG确认进入PlayerScreen。随后的首次视频全黑/0:00，多色门严格失败；旧日志有Goldfish H264 decodeHeader错误，不能据此断言新版也失败，亦不放宽视频门。初始化metadata/UI控件不代表首个native frame，正式APK验收将仅在首次启动使用有界真实PNG就绪观察，不重发任何播放命令或造Flutter帧；后续长按、恢复和字幕仍保持原门。

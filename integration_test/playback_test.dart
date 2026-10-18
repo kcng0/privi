@@ -438,6 +438,36 @@ void main() {
   testWidgets(
     'native audio, ASS subtitles, delays, rate and A-B controls',
     (tester) async {
+      Future<void> recordSubtitlePixels(
+        VideoPlayerController controller,
+        String label,
+      ) async {
+        final observation = <String, Object?>{
+          'captured-at': DateTime.now().toUtc().toIso8601String(),
+        };
+        try {
+          observation['metadata'] = await const MethodChannel(
+            'com.privi.app/libvlc',
+          ).invokeMapMethod<String, String>(
+            'debugReadSubtitleSurfacePixels',
+            {'id': controller.playerId},
+          ).timeout(const Duration(seconds: 5));
+        } on PlatformException catch (error) {
+          observation['platform-error'] = {
+            'code': error.code,
+            'message': error.message,
+            'details': error.details,
+          };
+        } on TimeoutException catch (error) {
+          observation['timeout-error'] = error.toString();
+        } on MissingPluginException catch (error) {
+          observation['missing-plugin-error'] = error.toString();
+        }
+        (metrics['native_subtitle_surface_pixels'] as Map<String, dynamic>? ??
+            (metrics['native_subtitle_surface_pixels'] =
+                <String, dynamic>{}))[label] = observation;
+      }
+
       Future<Map<String, String>> awaitAssPlaying(
         VideoPlayerController controller,
         AdvancedVideoController advanced,
@@ -521,6 +551,7 @@ void main() {
         final firstFacade = steady.value.position;
         expect(firstNative, isNotNull);
         await recordDiagnostics(steady, steadyAdvanced, 'ass-steady-first');
+        await recordSubtitlePixels(steady, 'ass-steady-first');
         final first = await screenshot(
           tester,
           'portrait-ass-steady-first',
@@ -587,6 +618,10 @@ void main() {
           (await steady.position)?.inMilliseconds,
           inInclusiveRange(0, 2999),
         );
+        await recordSubtitlePixels(
+          steady,
+          'ass-embedded-after-seek-1000-before',
+        );
         await screenshot(
           tester,
           'portrait-ass-embedded-after-seek-1000',
@@ -640,6 +675,7 @@ void main() {
           final before = await awaitExternalPlaying(
             'ass-external-$phase-before',
           );
+          await recordSubtitlePixels(external, 'ass-external-$phase-before');
           expect(before['native-is-playing'], 'true');
           expect(
             (await external.position)?.inMilliseconds,
@@ -655,6 +691,7 @@ void main() {
           final after = await awaitExternalPlaying(
             'ass-external-$phase-after',
           );
+          await recordSubtitlePixels(external, 'ass-external-$phase-after');
           expect(after['native-is-playing'], 'true');
           expect(
             (await external.position)?.inMilliseconds,
@@ -693,6 +730,118 @@ void main() {
         externalAdvanced.dispose();
         await tester.pumpWidget(const SizedBox.shrink());
         await external.dispose();
+      }
+
+      // Freeze the short input before its EOF so decoder re-selection can be
+      // compared on the same input. Glyph presence still requires actual PNGs.
+      final paused = await open(tester, 'tracks.mkv');
+      final pausedAdvanced = AdvancedVideoController(paused);
+      try {
+        await display(tester, paused);
+        await pausedAdvanced.refresh();
+        await pausedAdvanced.importSubtitle(files['chinese.ass']!.path);
+        expect(pausedAdvanced.value.audioDelay, Duration.zero);
+        expect(pausedAdvanced.value.subtitleDelay, Duration.zero);
+        expect(pausedAdvanced.value.abLoopEnd, isNull);
+        await paused.play();
+        await awaitAssPlaying(
+          paused,
+          pausedAdvanced,
+          'ass-paused-playing-before-pause',
+          readinessMetric: 'ass_paused_readiness',
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 400));
+        await paused.pause();
+        Map<String, String>? baseline;
+        Future<Map<String, String>> pausedObservation(
+          String label, {
+          int? targetMs,
+        }) async {
+          final watch = Stopwatch()..start();
+          late Map<String, String> native;
+          int? position;
+          while (true) {
+            native = await recordDiagnostics(paused, pausedAdvanced, label)
+                .timeout(const Duration(seconds: 12) - watch.elapsed);
+            final probe = (metrics['native_diagnostics_probes']
+                as Map<String, dynamic>)[label] as Map<String, dynamic>;
+            position = probe['native-position-ms'] as int?;
+            final ready = native['native-player-state'] == '4' &&
+                native['native-is-playing'] == 'false' &&
+                !paused.value.isPlaying &&
+                position != null &&
+                (targetMs == null || (position - targetMs).abs() <= 30);
+            if (ready || watch.elapsed >= const Duration(seconds: 12)) break;
+            final remaining = const Duration(seconds: 12) - watch.elapsed;
+            if (remaining <= Duration.zero) break;
+            await Future<void>.delayed(
+              remaining < const Duration(milliseconds: 100)
+                  ? remaining
+                  : const Duration(milliseconds: 100),
+            );
+            if (watch.elapsed >= const Duration(seconds: 12)) break;
+          }
+          expect(native['native-player-state'], '4');
+          expect(native['native-is-playing'], 'false');
+          expect(paused.value.isPlaying, isFalse);
+          expect(position, inInclusiveRange(0, 2999));
+          baseline ??= native;
+          expect(native['input-reopen-count'], baseline!['input-reopen-count']);
+          expect(native['surface-generation'], baseline!['surface-generation']);
+          (metrics['ass_paused_observations'] as Map<String, dynamic>? ??
+              (metrics['ass_paused_observations'] =
+                  <String, dynamic>{}))[label] = {
+            'target-ms': targetMs,
+            'native-position-ms': position,
+            'target-reached': targetMs == null ||
+                (position != null && (position - targetMs).abs() <= 30),
+            'input-reopen-count': native['input-reopen-count'],
+            'surface-generation': native['surface-generation'],
+            'glyph-result': 'requires actual PNG review, including baseline',
+          };
+          await recordSubtitlePixels(paused, label);
+          return native;
+        }
+
+        Future<Map<String, dynamic>> pausedFrame(
+          String phase, {
+          int? targetMs,
+          String? compareTo,
+        }) async {
+          await pausedObservation(
+            'ass-paused-$phase-before',
+            targetMs: targetMs,
+          );
+          final frame = await screenshot(
+            tester,
+            'portrait-ass-paused-$phase',
+            aspect: 180 / 320,
+            compareTo: compareTo,
+            paused: compareTo != null,
+          );
+          await pausedObservation(
+            'ass-paused-$phase-after',
+            targetMs: targetMs,
+          );
+          return frame;
+        }
+
+        final first = await pausedFrame('steady-first');
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+        await pausedFrame('steady-second', compareTo: first['id'] as String);
+        await paused.seekTo(const Duration(milliseconds: 1000));
+        await pausedFrame('after-seek-1000', targetMs: 1000);
+        final selected = await pausedObservation('ass-paused-before-reselect');
+        final actual = selected['subtitle-track-actual'];
+        expect(int.tryParse(actual ?? ''), greaterThanOrEqualTo(0));
+        await pausedAdvanced.selectSubtitleTrack('-1');
+        await pausedAdvanced.selectSubtitleTrack(actual!);
+        await paused.seekTo(const Duration(milliseconds: 1000));
+        await pausedFrame('after-reselect-seek-1000', targetMs: 1000);
+      } finally {
+        pausedAdvanced.dispose();
+        await tester.pumpWidget(const SizedBox.shrink());
+        await paused.dispose();
       }
 
       final controller = await open(tester, 'tracks.mkv');

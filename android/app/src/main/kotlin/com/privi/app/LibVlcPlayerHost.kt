@@ -1,6 +1,7 @@
 package com.privi.app
 
 import android.app.Activity
+import android.app.KeyguardManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -12,6 +13,7 @@ import android.media.AudioManager
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
 import io.flutter.plugin.common.BinaryMessenger
@@ -243,6 +245,11 @@ class LibVlcPlayerHost(
             result.error("disposed", "LibVLC host has been disposed", null)
             return
         }
+        if (call.method == "debugReadSubtitleSurfacePixels" &&
+            activity.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE == 0) {
+            result.error("subtitle_probe_debug_only", "Subtitle pixel probing requires a debuggable application", null)
+            return
+        }
         try {
             if (call.method == "init") {
                 entries.values.toList().forEach(::disposeEntry)
@@ -438,6 +445,7 @@ class LibVlcPlayerHost(
                         ?: mapOf("subtitle-surface-present" to "false", "subtitle-surface-view-id" to "none")
                     nativeCall(entry, result) { diagnostics(entry) + subtitleSurface }
                 }
+                "debugReadSubtitleSurfacePixels" -> debugReadSubtitleSurfacePixels(entry, result)
                 "setFitMode" -> {
                     val mode = call.argument<String>("fitMode")
                         ?: throw IllegalArgumentException("Missing video fit mode")
@@ -456,6 +464,30 @@ class LibVlcPlayerHost(
             val code = if (error is IllegalArgumentException) "invalid_arguments" else "player_operation_failed"
             result.error(code, error.message, null)
         }
+    }
+
+    /** Debug-only, explicit buffer inspection; never part of copyable playback diagnostics. */
+    private fun debugReadSubtitleSurfacePixels(entry: Entry, result: MethodChannel.Result) {
+        val view = entry.activeView
+        val generation = entry.surfaceGeneration
+        fun authorized(): Boolean {
+            val keyguard = activity.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+            val power = activity.getSystemService(Context.POWER_SERVICE) as PowerManager
+            return !closed && !activity.isDestroyed && !activity.isFinishing &&
+                entries[entry.id] === entry && !entry.disposed && entry.allowed && entry.failure == null &&
+                entry.player != null && entry.activeView === view && entry.attachedView === view &&
+                entry.surfaceGeneration == generation && entry.viewportAttached && entry.surfacesReady &&
+                !keyguard.isKeyguardLocked && power.isInteractive
+        }
+        if (view == null || !authorized()) {
+            result.error("subtitle_probe_unavailable", "An authorized, current subtitle surface is required", null)
+            return
+        }
+        view.readSubtitleSurfacePixels(
+            authorized = ::authorized,
+            onResult = result::success,
+            onError = { code, message -> result.error(code, message, null) },
+        )
     }
 
     private fun requiredLong(call: MethodCall, name: String): Long =

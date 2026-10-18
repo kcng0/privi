@@ -316,6 +316,20 @@ the harness itself could conceal a platform view waiting for an overlay image.
 Each action converts logical coordinates with the current FlutterView screen
 offset. The AOSP emulator must expose PiP and pass a bounded foreground HOME/UI
 readiness check. ANR/crash dialogs fail with saved evidence; they are not closed.
+The actual release-APK smoke uses the normal first-run UI and permissions. Its
+first PlayerScreen entry has a 30-second, real-PNG readiness window starting at
+the In order tap: metadata and controls do not prove a decoded frame. Waiting
+never connects UIAutomator or repeats playback commands; the first real fixture
+frame must meet the unchanged geometry rules. Later hold/recovery checks do not
+reuse this startup allowance.
+For subtitle diagnosis, debug builds expose an explicit
+`debugReadSubtitleSurfacePixels{id}` call on the existing LibVLC channel. It uses
+PixelCopy only to return buffer status, dimensions, nontransparent bounds/count
+and CRC, never pixels, text or paths. Release builds refuse the method. Both
+request and callback require the same authorized, current surface; a changed
+view, holder, presentation or device lock rejects the observation. Copy errors
+remain diagnostic failures, and a successful copy does not prove visible glyphs.
+These values are separate from the user's copyable playback diagnostics.
 
 The old rate-profile harness still explicitly installs a MediaKit subclass and
 uses mpv-only properties. It is manual-only historical diagnostics, never a
