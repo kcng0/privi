@@ -14,7 +14,7 @@ on:
       hwdec:
         description: 'mpv hwdec override; default keeps app policy'
         type: choice
-        options: [default, auto-safe, auto, 'no']
+        options: [default, auto-safe, auto, 'mediacodec,auto-safe', 'no']
         default: default
       screenrecord:
         description: 'Record screen too (adds encoder load; capture cadence is not video FPS)'
@@ -31,7 +31,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        hwdec: ${{ github.event_name == 'pull_request' && fromJSON('["auto-safe","auto"]') || fromJSON(format('["{0}"]', inputs.hwdec)) }}
+        hwdec: ${{ github.event_name == 'pull_request' && fromJSON('["auto-safe","mediacodec,auto-safe"]') || fromJSON(format('["{0}"]', inputs.hwdec)) }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -81,7 +81,9 @@ jobs:
           profile: pixel_6
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader -no-snapshot -noaudio -no-boot-anim -camera-back none
-          script: bash scripts/run-playback-rate-profile.sh
+          script: |
+            adb -s emulator-5554 shell settings --user current put secure immersive_mode_confirmations confirmed
+            bash scripts/run-playback-rate-profile.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:

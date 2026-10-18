@@ -88,6 +88,7 @@ DART
 timeout 900s "${FLUTTER_BIN:-flutter}" build apk --profile --no-pub \
   --target=integration_test/playback_rate_profile_test.dart \
   --dart-define="PROFILE_FIXTURE_BASE=http://127.0.0.1:$port" \
+  --dart-define="PROFILE_RUN_ID=$run_id" \
   --dart-define="PRIVI_PROFILE_HWDEC=${PROFILE_HWDEC:-}" \
   2>&1 | tee "$output/flutter-build.log"
 profile_apk="$PWD/build/app/outputs/flutter-apk/app-profile.apk"
@@ -118,6 +119,7 @@ import time
 
 output = pathlib.Path(os.environ["PROFILE_OUTPUT"])
 adb = ["adb", "-s", os.environ["PROFILE_SERIAL"]]
+run_id = os.environ["PROFILE_RUN_ID"]
 remote = f"/sdcard/privi-rate-profile-{os.environ['PROFILE_RUN_ID']}.mp4"
 pidfile = f"/data/local/tmp/privi-rate-profile-{os.environ['PROFILE_RUN_ID']}.pid"
 events = []
@@ -201,22 +203,22 @@ try:
     with (output / "flutter-device.log").open("w") as logfile:
         for line in log.stdout:
             marker = line.strip()
-            if not marker.startswith("PRIVI_RATE_"):
+            if not marker.startswith("PRIVI_RATE_") or run_id not in marker.split():
                 continue
             logfile.write(line)
             logfile.flush()
-            if marker == "PRIVI_RATE_RUN_START":
+            if marker == f"PRIVI_RATE_RUN_START {run_id}":
                 event("run_start")
                 start_recording()
-            elif marker == "PRIVI_RATE_RUN_END":
+            elif marker == f"PRIVI_RATE_RUN_END {run_id}":
                 event("run_end")
                 stop_recording()
             else:
-                match = re.fullmatch(r"PRIVI_RATE_HOLD ([a-z0-9_]+) (\d+) (\d+) (\d+)", marker)
+                match = re.fullmatch(rf"PRIVI_RATE_HOLD {re.escape(run_id)} ([a-z0-9_]+) (\d+) (\d+) (\d+)", marker)
                 if match:
                     name, x, y, duration = match.groups()
                     pool.submit(hold, name, int(x), int(y), int(duration))
-                match = re.fullmatch(r"PRIVI_RATE_CAPTURE ([a-z0-9_]+)", marker)
+                match = re.fullmatch(rf"PRIVI_RATE_CAPTURE {re.escape(run_id)} ([a-z0-9_]+)", marker)
                 if match:
                     pool.submit(capture, match.group(1))
 finally:
@@ -243,6 +245,7 @@ timeout 1200s "${FLUTTER_BIN:-flutter}" drive --profile --no-pub -d "$serial" \
   --driver="$output/profile_driver.dart" \
   --target=integration_test/playback_rate_profile_test.dart \
   --dart-define="PROFILE_FIXTURE_BASE=http://127.0.0.1:$port" \
+  --dart-define="PROFILE_RUN_ID=$run_id" \
   --dart-define="PRIVI_PROFILE_HWDEC=${PROFILE_HWDEC:-}" \
   2>&1 | tee "$output/flutter-drive.log"
 drive_status=${PIPESTATUS[0]}

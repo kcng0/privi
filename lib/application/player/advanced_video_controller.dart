@@ -30,6 +30,9 @@ class AdvancedVideoController extends ValueNotifier<AdvancedVideoState>
   bool _loadingTracks = false;
   bool _loadedTracks = false;
 
+  bool get supportsPlaybackDiagnostics =>
+      !_disposed && _port is VideoPlaybackDiagnosticsPort;
+
   void _onVideoChanged() {
     if (_disposed) return;
     if (_port == null) {
@@ -79,16 +82,17 @@ class AdvancedVideoController extends ValueNotifier<AdvancedVideoState>
         : video.size;
   }
 
-  Future<void> _run(Future<void> Function() action) async {
+  Future<T> _run<T>(Future<T> Function() action) async {
     if (_disposed) throw StateError('Advanced video controller is disposed');
     try {
-      await action();
+      final result = await action();
       if (!_disposed && _port == null) {
         value = value.copyWith(
           error: controller.value.errorDescription,
           clearError: controller.value.errorDescription == null,
         );
       }
+      return result;
     } catch (error) {
       if (!_disposed) value = value.copyWith(error: error.toString());
       rethrow;
@@ -164,6 +168,18 @@ class AdvancedVideoController extends ValueNotifier<AdvancedVideoState>
   @override
   Future<void> setAbLoop(Duration? start, Duration? end) =>
       _run(() => _requirePort('A–B repeat').setAbLoop(start, end));
+
+  Future<Map<String, String>> readPlaybackDiagnostics() => _run(() async {
+        final Object? port = _port;
+        if (port is! VideoPlaybackDiagnosticsPort) {
+          throw UnsupportedError('Playback diagnostics are unavailable');
+        }
+        final diagnostics = await port.readPlaybackDiagnostics();
+        if (_disposed || !identical(port, _port)) {
+          throw StateError('Playback diagnostics belong to an inactive player');
+        }
+        return diagnostics;
+      });
 
   @override
   void dispose() {

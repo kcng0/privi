@@ -78,6 +78,28 @@ bool _validDisplaySize(Size size) =>
     size.width > 0 &&
     size.height > 0;
 
+/// The bundled mpv's direct Android interop produces 8-bit RGB. Keep copy-back
+/// decoding for HDR, wider gamuts, higher bit depths, and unknown metadata.
+@visibleForTesting
+bool shouldPreferDirectAndroidDecoding({
+  required String hwdec,
+  required String currentHwdec,
+  required String pixelFormat,
+  required String colorMatrix,
+  required String primaries,
+  required String gamma,
+}) {
+  if (hwdec != 'auto-safe' || currentHwdec != 'mediacodec-copy') return false;
+  if (!const {'yuv420p', 'yuvj420p', 'nv12', 'nv21'}.contains(pixelFormat)) {
+    return false;
+  }
+  if (!const {'bt.1886', 'srgb'}.contains(gamma)) return false;
+  // These are mpv's names, rather than FFmpeg's bt709/smpte170m aliases.
+  return (colorMatrix == 'bt.709' && primaries == 'bt.709') ||
+      (colorMatrix == 'bt.601' &&
+          const {'bt.601-525', 'bt.601-625'}.contains(primaries));
+}
+
 /// Replaces Android ExoPlayer/MediaCodec with libmpv so in-app playback can
 /// software-decode formats the device hardware rejects.
 void installVaultVideoPlayer() {
@@ -87,6 +109,9 @@ void installVaultVideoPlayer() {
 }
 
 class MediaKitVideoPlayerPlatform extends VideoPlayerPlatform {
+  MediaKitVideoPlayerPlatform({this.logLevel = MPVLogLevel.error});
+
+  final MPVLogLevel logLevel;
   final Map<int, _PlayerSlot> _players = {};
   final Map<int, PlatformException> _initializationErrors = {};
   int _nextId = 1;
@@ -168,7 +193,8 @@ class MediaKitVideoPlayerPlatform extends VideoPlayerPlatform {
 
     trace(phase);
     final player = Player(
-      configuration: const PlayerConfiguration(
+      configuration: PlayerConfiguration(
+        logLevel: logLevel,
         libass: true,
         libassAndroidFont: 'assets/fonts/NotoSansCJKsc-Regular.ttf',
         libassAndroidFontName: 'Noto Sans CJK SC',
@@ -282,6 +308,9 @@ class MediaKitVideoPlayerPlatform extends VideoPlayerPlatform {
       phase = 'metadata';
       trace(phase);
       ready = await waitUntilPlaybackReady(player);
+      phase = 'Android decoding policy';
+      trace(phase);
+      await advanced.configureAndroidDecodingAfterMetadata();
       phase = 'advanced controls';
       trace(phase);
       await advanced.refresh();
@@ -550,7 +579,7 @@ Future<VideoEvent> waitForPlaybackMetadata({
 /// A player-owned port. Mutations are serialized so disposal never races a
 /// property write or the creation of a private subtitle copy.
 class MediaKitAdvancedVideoPort extends ValueNotifier<AdvancedVideoState>
-    implements AdvancedVideoPort {
+    implements AdvancedVideoPort, VideoPlaybackDiagnosticsPort {
   MediaKitAdvancedVideoPort(
     this.player, {
     Future<void> Function(String, String)? writeProperty,
@@ -603,6 +632,103 @@ class MediaKitAdvancedVideoPort extends ValueNotifier<AdvancedVideoState>
   void reportError(String message) {
     if (!_closed) value = value.copyWith(error: message);
   }
+
+  /// Only technical properties belong in a user-requested diagnostic snapshot.
+  /// Never add source/track titles, paths, URLs, subtitle text, or device names.
+  static const _diagnosticProperties = [
+    'mpv-version',
+    'ffmpeg-version',
+    'speed',
+    'pause',
+    'time-pos',
+    'duration',
+    'hwdec',
+    'hwdec-current',
+    'hwdec-interop',
+    'video-codec',
+    'video-format',
+    'container-fps',
+    'video-params/pixelformat',
+    'video-params/w',
+    'video-params/h',
+    'video-params/dw',
+    'video-params/dh',
+    'video-params/rotate',
+    'video-params/colormatrix',
+    'video-params/primaries',
+    'video-params/gamma',
+    'video-params/colorlevels',
+    'video-params/sig-peak',
+    'video-dec-params/pixelformat',
+    'video-dec-params/colormatrix',
+    'video-dec-params/primaries',
+    'video-dec-params/gamma',
+    'frame-drop-count',
+    'decoder-frame-drop-count',
+    'vo-delayed-frame-count',
+    'avsync',
+    'paused-for-cache',
+    'core-idle',
+    'seeking',
+    'video-sync',
+    'display-sync-active',
+    'current-vo',
+    'current-ao',
+    'audio-pitch-correction',
+  ];
+
+  @override
+  Future<Map<String, String>> readPlaybackDiagnostics() async {
+    final read = _readProperty;
+    if (read == null) {
+      throw UnsupportedError('Playback diagnostics are unavailable');
+    }
+    final snapshot = <String, String>{
+      'schema': 'privi.playback-diagnostics/1',
+      'empty_values': 'unsupported_or_unavailable',
+    };
+    await _enqueue(
+      () async {
+        final watch = Stopwatch()..start();
+        for (final property in _diagnosticProperties) {
+          // Keep missing native values unknown; never manufacture a zero counter.
+          snapshot[property] = await read(property);
+        }
+        snapshot['sample_duration_ms'] = '${watch.elapsedMilliseconds}';
+      },
+      clearError: false,
+    );
+    return Map.unmodifiable(snapshot);
+  }
+
+  /// Called once during paused Android initialization, after metadata is ready.
+  /// Changing hwdec rebuilds the decoder and seeks; never do this on rate changes.
+  Future<void> configureAndroidDecodingAfterMetadata() => _enqueue(() async {
+        final read = _readProperty;
+        if (read == null ||
+            player.state.playing ||
+            player.state.duration <= Duration.zero ||
+            !_validDisplaySize(displaySizeFromPlayer(player))) {
+          return;
+        }
+        final hwdec = await read('hwdec');
+        if (hwdec != 'auto-safe') return;
+        final currentHwdec = await read('hwdec-current');
+        if (currentHwdec != 'mediacodec-copy') return;
+        // Use raw decoded metadata. video-params includes mpv's color guesses
+        // and would incorrectly opt unknown 1080p content into the SDR path.
+        // Width/height events can precede Dart videoParams; read native values.
+        final eligible = shouldPreferDirectAndroidDecoding(
+          hwdec: hwdec,
+          currentHwdec: currentHwdec,
+          pixelFormat: await read('video-dec-params/pixelformat'),
+          colorMatrix: await read('video-dec-params/colormatrix'),
+          primaries: await read('video-dec-params/primaries'),
+          gamma: await read('video-dec-params/gamma'),
+        );
+        if (!eligible || await read('pause') != 'yes') return;
+        await _writeVerified('hwdec', 'mediacodec,auto-safe');
+      });
 
   void _onTracksChanged() {
     _updateMetadata();

@@ -406,5 +406,7 @@
   "videoSetA": "当前位置设为 A",
   "videoSetB": "当前位置设为 B",
   "videoClearAb": "清除 A–B",
-  "videoAdvancedUnavailable": "当前播放器不支持高级播放功能。"
+  "videoAdvancedUnavailable": "当前播放器不支持高级播放功能。",
+  "videoCopyPlaybackDiagnostics": "复制播放诊断信息",
+  "videoPlaybackDiagnosticsCopied": "播放诊断信息已复制"
 }

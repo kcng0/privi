@@ -1322,6 +1322,12 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get videoAdvancedUnavailable => '当前播放器不支持高级播放功能。';
+
+  @override
+  String get videoCopyPlaybackDiagnostics => '复制播放诊断信息';
+
+  @override
+  String get videoPlaybackDiagnosticsCopied => '播放诊断信息已复制';
 }
 
 /// The translations for Chinese, as used in China (`zh_CN`).
@@ -2642,6 +2648,12 @@ class AppLocalizationsZhCn extends AppLocalizationsZh {
 
   @override
   String get videoAdvancedUnavailable => '当前播放器不支持高级播放功能。';
+
+  @override
+  String get videoCopyPlaybackDiagnostics => '复制播放诊断信息';
+
+  @override
+  String get videoPlaybackDiagnosticsCopied => '播放诊断信息已复制';
 }
 
 /// The translations for Chinese, as used in Hong Kong (`zh_HK`).
@@ -3962,4 +3974,10 @@ class AppLocalizationsZhHk extends AppLocalizationsZh {
 
   @override
   String get videoAdvancedUnavailable => '目前播放器不支援進階播放功能。';
+
+  @override
+  String get videoCopyPlaybackDiagnostics => '複製播放診斷資訊';
+
+  @override
+  String get videoPlaybackDiagnosticsCopied => '播放診斷資訊已複製';
 }

@@ -1,5 +1,8 @@
+import 'dart:convert';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../application/player/advanced_video_controller.dart';
@@ -80,6 +83,7 @@ class _AdvancedSheetState extends State<_AdvancedSheet> {
   String? _error;
 
   Future<void> _run(Future<void> Function() operation) async {
+    if (_busy || !mounted) return;
     setState(() {
       _busy = true;
       _error = null;
@@ -158,6 +162,16 @@ class _AdvancedSheetState extends State<_AdvancedSheet> {
           throw StateError('The selected subtitle has no readable path.');
         }
         await widget.advanced.importSubtitle(path);
+      });
+
+  Future<void> _copyPlaybackDiagnostics() => _run(() async {
+        final diagnostics = await widget.advanced.readPlaybackDiagnostics();
+        if (!mounted || ModalRoute.of(context)?.isCurrent != true) return;
+        await Clipboard.setData(ClipboardData(text: jsonEncode(diagnostics)));
+        if (!mounted || ModalRoute.of(context)?.isCurrent != true) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(context.l10n.videoPlaybackDiagnosticsCopied)),
+        );
       });
 
   Widget _tracks(
@@ -300,9 +314,17 @@ class _AdvancedSheetState extends State<_AdvancedSheet> {
                   ),
                 ),
               ],
+              if (widget.advanced.supportsPlaybackDiagnostics)
+                ListTile(
+                  key: const ValueKey('video-copy-playback-diagnostics'),
+                  leading: const Icon(Icons.copy_outlined),
+                  title: Text(context.l10n.videoCopyPlaybackDiagnostics),
+                  onTap: _busy ? null : _copyPlaybackDiagnostics,
+                ),
               if (!state.supportsAudioTracks &&
                   !state.supportsSubtitles &&
-                  !state.supportsAbLoop)
+                  !state.supportsAbLoop &&
+                  !widget.advanced.supportsPlaybackDiagnostics)
                 Padding(
                   padding: const EdgeInsets.all(16),
                   child: Text(context.l10n.videoAdvancedUnavailable),

@@ -1351,4 +1351,10 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get videoAdvancedUnavailable =>
       'Advanced playback is unavailable on this player.';
+
+  @override
+  String get videoCopyPlaybackDiagnostics => 'Copy playback diagnostics';
+
+  @override
+  String get videoPlaybackDiagnosticsCopied => 'Playback diagnostics copied';
 }

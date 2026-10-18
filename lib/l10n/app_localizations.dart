@@ -2499,6 +2499,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Advanced playback is unavailable on this player.'**
   String get videoAdvancedUnavailable;
+
+  /// No description provided for @videoCopyPlaybackDiagnostics.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy playback diagnostics'**
+  String get videoCopyPlaybackDiagnostics;
+
+  /// No description provided for @videoPlaybackDiagnosticsCopied.
+  ///
+  /// In en, this message translates to:
+  /// **'Playback diagnostics copied'**
+  String get videoPlaybackDiagnosticsCopied;
 }
 
 class _AppLocalizationsDelegate

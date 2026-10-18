@@ -730,5 +730,7 @@
   "videoSetA": "Set A here",
   "videoSetB": "Set B here",
   "videoClearAb": "Clear A–B",
-  "videoAdvancedUnavailable": "Advanced playback is unavailable on this player."
+  "videoAdvancedUnavailable": "Advanced playback is unavailable on this player.",
+  "videoCopyPlaybackDiagnostics": "Copy playback diagnostics",
+  "videoPlaybackDiagnosticsCopied": "Playback diagnostics copied"
 }

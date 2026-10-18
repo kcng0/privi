@@ -24,6 +24,7 @@ const _fixtureBase = String.fromEnvironment(
 // Run through scripts/run-playback-rate-profile.sh: device gestures and screenshots
 // come from adb, not WidgetTester's synthetic pointer events. No app code changes.
 void main() {
+  const runId = String.fromEnvironment('PROFILE_RUN_ID');
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   installVaultVideoPlayer();
   final platform = _ProfilePlatform();
@@ -40,13 +41,17 @@ void main() {
       final scenes = <Map<String, Object?>>[];
       final surfaceEvents = <Map<String, Object?>>[];
       final flutterFrames = <Map<String, Object?>>[];
+      final nativeLogs = <Map<String, Object?>>[];
+      var omittedNativeLogs = 0;
       final metrics = <String, Object?>{
         'schema_version': 1,
+        'run_id': runId,
         'clock': 'Stopwatch monotonic microseconds; waits use real wall time',
         'harness':
             'real VideoGestureSurface + VideoViewport; menu equivalent is '
                 'VideoPlayerController.setPlaybackSpeed, without a held pointer',
-        'fixture': 'synthetic-1080p24.mp4; 1920x1080 H264 yuv420p + AAC; 40s',
+        'fixture':
+            'synthetic-1080p24.mp4; 1920x1080 H264 yuv420p BT.709 + AAC; 60s',
         'limits': [
           'Emulator software decode/SwiftShader does not predict A52 hardware decode.',
           'Rate command counts, time-pos progress and source FPS are not output FPS.',
@@ -69,11 +74,14 @@ void main() {
         'rate_commands': platform.commands,
         'surface_events': surfaceEvents,
         'flutter_frames': flutterFrames,
+        'native_log_level': 'warn',
+        'native_logs': nativeLogs,
       };
       Directory? fixtures;
       VideoPlayerController? controller;
       video.PlatformVideoController? output;
       void Function()? surfaceChanged;
+      StreamSubscription<PlayerLog>? logSubscription;
       final orientation = PlaybackOrientationService();
       void onTimings(List<FrameTiming> timings) {
         for (final timing in timings) {
@@ -186,6 +194,19 @@ void main() {
         final port = platform.advancedPortFor(current.playerId)
             as MediaKitAdvancedVideoPort;
         final native = port.player.platform as NativePlayer;
+        logSubscription = port.player.stream.log.listen((entry) {
+          if (nativeLogs.length >= 256) {
+            omittedNativeLogs++;
+            return;
+          }
+          nativeLogs.add({
+            'wall_us': platform.clock.elapsedMicroseconds,
+            'scene': platform.scene,
+            'level': entry.level,
+            'prefix': entry.prefix,
+            'text': entry.text.trim(),
+          });
+        });
         metrics['mpv_version'] = await native.getProperty('mpv-version');
         const hwdecOverride = String.fromEnvironment('PRIVI_PROFILE_HWDEC');
         metrics['hwdec_override'] =
@@ -216,10 +237,20 @@ void main() {
             'vo-delayed-frame-count',
             'hwdec',
             'hwdec-current',
+            'hwdec-interop',
             'video-codec',
             'video-format',
             'video-params/w',
             'video-params/h',
+            'video-params/pixelformat',
+            'video-params/colormatrix',
+            'video-params/primaries',
+            'video-params/gamma',
+            'video-params/sig-peak',
+            'video-dec-params/pixelformat',
+            'video-dec-params/colormatrix',
+            'video-dec-params/primaries',
+            'video-dec-params/gamma',
             'avsync',
             'seeking',
             'core-idle',
@@ -315,7 +346,7 @@ void main() {
               a == null || b == null ? null : (b - a) / timePosWall;
           scenes.add(scene);
           // Capture outside the timing window, including the real native surface.
-          debugPrint('PRIVI_RATE_CAPTURE $name');
+          debugPrint('PRIVI_RATE_CAPTURE $runId $name');
           final captureClient = HttpClient();
           try {
             var captured = false;
@@ -355,8 +386,8 @@ void main() {
                   const Offset(40, 0);
           final dpr = tester.view.devicePixelRatio;
           final requested = platform.clock.elapsedMicroseconds;
-          debugPrint('PRIVI_RATE_HOLD $name '
-              '${(point.dx * dpr).round()} ${(point.dy * dpr).round()} 8000');
+          debugPrint('PRIVI_RATE_HOLD $runId $name '
+              '${(point.dx * dpr).round()} ${(point.dy * dpr).round()} 15000');
           await waitFor(
             () => find.text('2x').evaluate().isNotEmpty,
             'Real Android hold did not show the 2x badge',
@@ -367,11 +398,21 @@ void main() {
             'Long press did not apply native rate 2',
           );
           await measure(name, 2);
+          expect(
+            find.text('2x'),
+            findsOneWidget,
+            reason: 'The complete measurement must fit inside the real hold',
+          );
+          expect(
+            current.value.isCompleted,
+            isFalse,
+            reason: 'The hold must not measure natural end of the fixture',
+          );
           final heldCommands = platform.commands.length - commandIndex;
           await waitFor(
             () => find.text('2x').evaluate().isEmpty,
             'Real Android hold did not release',
-            timeout: const Duration(seconds: 12),
+            timeout: const Duration(seconds: 20),
           );
           final released = platform.clock.elapsedMicroseconds;
           await waitFor(
@@ -400,7 +441,7 @@ void main() {
           }
         }
 
-        debugPrint('PRIVI_RATE_RUN_START');
+        debugPrint('PRIVI_RATE_RUN_START $runId');
         await Future<void>.delayed(const Duration(milliseconds: 500));
         await prepare(1);
         await measure('baseline_1x', 1);
@@ -410,7 +451,9 @@ void main() {
         await hold('hold_2x_unchanged', 2);
         metrics['completed'] = true;
       } finally {
-        debugPrint('PRIVI_RATE_RUN_END');
+        debugPrint('PRIVI_RATE_RUN_END $runId');
+        await logSubscription?.cancel();
+        metrics['native_logs_omitted'] = omittedNativeLogs;
         binding.removeTimingsCallback(onTimings);
         if (output != null && surfaceChanged != null) {
           output.rect.removeListener(surfaceChanged);
@@ -436,6 +479,8 @@ num? _number(Map<String, Object?> snapshot, String key) =>
     (snapshot[key]! as Map<String, Object?>)['value'] as num?;
 
 class _ProfilePlatform extends MediaKitVideoPlayerPlatform {
+  _ProfilePlatform() : super(logLevel: MPVLogLevel.warn);
+
   final clock = Stopwatch()..start();
   final commands = <Map<String, Object?>>[];
   String scene = 'initialization';

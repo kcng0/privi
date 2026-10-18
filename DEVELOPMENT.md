@@ -212,6 +212,22 @@ extraction is serialized with a bounded session-only cache; Android API 27+
 decodes bounded preview frames directly. Preview callbacks belong to their
 controller so a late scrub cannot request frames from the next video.
 
+Android opens paused with the SDK's original hardware policy. After metadata is
+ready, only `auto-safe` / `mediacodec-copy` with confirmed common 8-bit SDR raw
+`video-dec-params` may prefer `mediacodec,auto-safe`. The normalized `video-params`
+include guessed colors and must not authorize this choice. HDR, higher bit depths,
+wide gamut, missing metadata, software fallback and emulator `no` retain their
+existing policy. Changing `hwdec` rebuilds the decoder and queues a seek, so this
+choice happens once during initialization, never during rate changes. Readback
+confirms the requested policy; it does not prove direct output or a ready frame.
+
+The advanced playback sheet offers an explicit Copy playback diagnostics action
+on supported backends. It reads an allowlist of technical native properties once,
+with unknown counters preserved as unknown. Reports contain no source names,
+paths, URLs, subtitle text or device names. No polling, persistence or automatic
+upload is attached to playback; clipboard writes require the requesting sheet to
+remain current. Diagnostics share the port's operation/disposal queue.
+
 The pinned `third_party/media_kit_video` 2.0.1 override fixes Android callbacks
 that outlive disposal during a failed decoder attempt. `PRIVI_PATCH.md` records
 the exact upstream source and removal criteria; keep its lifecycle tests when
@@ -242,6 +258,15 @@ zero context flags before reaching the host renderer. The upstream mpv fix is
 the older mpv commit. Do not remove frame assertions to make newer emulators
 pass. API 35 metadata/disposal checks ran, but its visual rendering did not pass;
 physical-device validation remains separate.
+
+`scripts/run-playback-rate-profile.sh` is the independent 1080p24 SDR rate
+experiment. It uses actual Android MotionEvents, six real-time measurement
+windows and an APK whose `com.privi.app.playbackprofile` id is checked before
+installation. It cannot replace the release vault. The optional recording adds
+encoder load. Flutter timings, source FPS and command counts are not video output
+FPS; decoder/VO counters and playback progress also require their documented
+interpretation. See `docs/05-review/video-performance-practices-2026-10-18.md` for
+primary sources, measurement limits and the physical A52 validation matrix.
 
 ## Code generation
 

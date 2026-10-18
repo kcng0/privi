@@ -43,6 +43,79 @@ void main() {
     expect(advanced.value.supportsAudioTracks, isFalse);
     await expectLater(advanced.selectAudioTrack('fr'), throwsUnsupportedError);
     expect(video.selected, 'en');
+    expect(advanced.supportsPlaybackDiagnostics, isFalse);
+    await expectLater(
+      advanced.readPlaybackDiagnostics(),
+      throwsUnsupportedError,
+    );
+  });
+
+  test('playback diagnostics are read only when explicitly requested',
+      () async {
+    final video = _Facade(supported: false);
+    final port = _DiagnosticsPort();
+    final advanced = AdvancedVideoController(video, port: port);
+    addTearDown(video.dispose);
+    addTearDown(port.dispose);
+    addTearDown(advanced.dispose);
+    expect(advanced.supportsPlaybackDiagnostics, isTrue);
+    await advanced.refresh();
+    video.value = video.value.copyWith(position: const Duration(seconds: 2));
+    expect(port.diagnosticsReads, 0);
+    expect(await advanced.readPlaybackDiagnostics(), port.diagnostics);
+    expect(port.diagnosticsReads, 1);
+  });
+
+  test('ordinary advanced ports remain unsupported for diagnostics', () async {
+    final video = _Facade(supported: false);
+    final port = _AdvancedPort();
+    final advanced = AdvancedVideoController(video, port: port);
+    addTearDown(video.dispose);
+    addTearDown(port.dispose);
+    addTearDown(advanced.dispose);
+    expect(advanced.supportsPlaybackDiagnostics, isFalse);
+    await expectLater(
+      advanced.readPlaybackDiagnostics(),
+      throwsUnsupportedError,
+    );
+  });
+
+  test('diagnostics read errors remain observable to the caller and state',
+      () async {
+    final video = _Facade(supported: false);
+    final port = _DiagnosticsPort();
+    final error = StateError('Native diagnostics read failed');
+    port.diagnosticsError = error;
+    final advanced = AdvancedVideoController(video, port: port);
+    addTearDown(video.dispose);
+    addTearDown(port.dispose);
+    addTearDown(advanced.dispose);
+    await expectLater(
+      advanced.readPlaybackDiagnostics(),
+      throwsA(same(error)),
+    );
+    expect(advanced.value.error, contains('Native diagnostics read failed'));
+  });
+
+  test('disposal rejects both pending and subsequent diagnostics reads',
+      () async {
+    final video = _Facade(supported: false);
+    final port = _DiagnosticsPort();
+    port.diagnosticsGate = Completer<Map<String, String>>();
+    final advanced = AdvancedVideoController(video, port: port);
+    addTearDown(video.dispose);
+    addTearDown(port.dispose);
+    final pending = expectLater(
+      advanced.readPlaybackDiagnostics(),
+      throwsStateError,
+    );
+    expect(port.diagnosticsReads, 1);
+    advanced.dispose();
+    expect(advanced.supportsPlaybackDiagnostics, isFalse);
+    port.diagnosticsGate!.complete(port.diagnostics);
+    await pending;
+    await expectLater(advanced.readPlaybackDiagnostics(), throwsStateError);
+    expect(port.diagnosticsReads, 1);
   });
 
   test('position ticks do not emit unchanged display metadata', () async {
@@ -153,4 +226,22 @@ class _AdvancedPort extends ValueNotifier<AdvancedVideoState>
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _DiagnosticsPort extends _AdvancedPort
+    implements VideoPlaybackDiagnosticsPort {
+  final diagnostics = const {'decoder': 'h264', 'speed': '1.5'};
+  int diagnosticsReads = 0;
+  Object? diagnosticsError;
+  Completer<Map<String, String>>? diagnosticsGate;
+
+  @override
+  Future<Map<String, String>> readPlaybackDiagnostics() async {
+    diagnosticsReads++;
+    final error = diagnosticsError;
+    if (error != null) throw error;
+    return diagnosticsGate == null
+        ? diagnostics
+        : await diagnosticsGate!.future;
+  }
 }
