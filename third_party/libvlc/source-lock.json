@@ -56,11 +56,20 @@
   "patches": [
     {
       "path": "third_party/libvlc/patches/0001-preserve-valid-delayed-subtitle-dates.patch",
-      "sha256": "fccc89fa4d70c8b7ed2fa3f79df22f42ab7c167f94ccc3e74fd98b584e7900ca"
+      "sha256": "dd355691c41fc020908ed426f8321c56ed4796d5d85234e05bd6dac95f385c9f"
     },
     {
       "path": "third_party/libvlc/patches/0002-invalidate-cleared-subtitle-surface-cache.patch",
       "sha256": "dfff5609d49cd8f529bc52db6a32e05158d618a757cf2c5153cd80cdb008653f"
+    },
+    {
+      "path": "third_party/libvlc/patches/0003-seek-delayed-subtitles-in-their-own-timeline.patch",
+      "sha256": "c392e968c5d6e3b63a91abb6d9593b9205563d5d9c6cacb77624599fd71ac962"
+    },
+    {
+      "path": "third_party/libvlc/patches/0004-match-native-seek-return-contract.patch",
+      "sha256": "adf09024fbae02dc4bfce4f7477a5f4dd9e000d42e974afa139842f7eba560b9",
+      "target": "jni"
     }
   ]
 }

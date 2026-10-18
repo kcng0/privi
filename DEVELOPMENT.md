@@ -220,6 +220,14 @@ temporary build-run and permanent release-asset paths. An explicit invalid SDK
 fails the build. Native patches require the complete new APK and corresponding
 SDK/source bundle; a Dart-only update cannot deliver them. The default Maven
 selection has not yet been cut over to a validated permanent SDK artifact.
+A real video Surface binding loss marks its current native input for recovery.
+Before resuming, the host submits one seek at the current SDK position or the
+newest pending user target; a new input/owner/surface generation invalidates old
+work. Non-seekable inputs retain the SDK's future-keyframe path and expose that
+no recovery seek was submitted. A seek command has no completion result: its
+Java return is a position query, never an acceptance check. The original start
+deadline and real playback failure events still apply. Actual frame recovery
+remains an acceptance requirement.
 Android explicitly uses the fixed Flutter version's supported Skia UI renderer.
 Its Impeller GLES teardown can leave a context current on the former merged
 thread after a PiP ImageReader is abandoned on screen-off. This is a UI renderer

@@ -1,7 +1,8 @@
 # Subtitle corrections for the fixed 3.7.7 source
 
 Apply these patches after the 20 official JNI patches, in the order fixed by
-`../source-lock.json`. Rebuild core, all bundled modules and JNI for every ABI;
+`../source-lock.json`. Each entry explicitly targets VLC or JNI (VLC is the
+default); the fourth patch changes JNI rather than the VLC repository. Rebuild core, all bundled modules and JNI for every ABI;
 the added subpicture state changes the internal native ABI.
 
 `0001` separates raw cue validity from converted system dates. Applying an ES
@@ -25,13 +26,30 @@ order/region only after successful buffer preparation. This keeps the existing
 cache for unchanged captions and permits the same caption to be drawn again
 after a track transition. It is a preparation cache, not a presentation ack.
 
+`0003` aligns external slave seek selection with the delayed subtitle timeline.
+It restores every active overlapping cue and the latest unknown-stop group;
+seek replay skips expired history before queuing it. Ordinary future cues keep
+their normal order. A seek that precedes the first slave-time declaration is
+resolved when that declaration arrives. Standalone subtitle playback retains
+its original clock scheduling. SPU packet preroll compares known delayed ends
+with the master seek target; zero/unknown durations are not proof of expiry.
+Audio/video and the decoder's existing preroll filter remain in place. New
+unrepresentable demux dates report a dedicated input timing error using the
+actual demux input owner; ordinary EOF/old slave read errors are unchanged.
+
+`0004` matches JNI nativeSetTime's C return type to the existing Java `long`
+signature. It returns the contemporaneous SDK position, or -1 without an owner.
+That query can still report the old position: it is not a seek acceptance or
+completion acknowledgement. The app submits seeks after identity/seekability
+checks, ignores this return value and judges recovery by actual playback.
+
 Local checks use the actual patched functions with external Python integer
 oracles, comparison against the official legacy selection implementation and
 temporary C/UBSan probes. The arithmetic helper compiles for Android armv7,
 arm64 and x86_64. These checks do not establish Android presentation success.
 The final SDK and signed APK must still show the expected embedded/external
 Chinese ASS captions during playback, paused seeks, track disable/reselect,
-negative delay and A/B loops in the existing native acceptance path.
+negative/positive delay, overlapping cue seeks and A/B loops in the existing native acceptance path.
 
 User entry: open a video with the built-in player, then use **Audio tracks and
 subtitles / Advanced playback → Subtitle delay**. The original reproduction

@@ -79,7 +79,7 @@ class LibVlcPlayerHost(
     private class PlaybackStart(val generation: Long)
 
     private class UserSeek(val position: Long) {
-        @Volatile var appliedByReprime = false
+        @Volatile var submittedByReprime = false
     }
 
     private class VideoReprime(val inputEpoch: Long, val seekAtLoss: UserSeek?, val pendingAtLoss: Long?) {
@@ -440,12 +440,12 @@ class LibVlcPlayerHost(
                     entry.latestUserSeek = seek
                     entry.pendingPosition = position
                     nativeCall(entry, result, call.method) {
-                        if (entry.latestUserSeek !== seek || seek.appliedByReprime) return@nativeCall null
+                        if (entry.latestUserSeek !== seek || seek.submittedByReprime) return@nativeCall null
                         entry.player?.takeIf { !entry.nativeEnded }?.let {
                             val inputOpen = it.playerState == IMedia.State.Playing || it.playerState == IMedia.State.Paused
                             check(!inputOpen || it.isSeekable) { "LibVLC media is not seekable" }
                             if (!it.isSeekable) return@let
-                            check(it.setTime(position) >= 0) { "LibVLC rejected seek" }
+                            it.setTime(position)
                             main.post {
                                 if (!entry.disposed && entry.latestUserSeek === seek && entry.pendingPosition == position)
                                     entry.pendingPosition = null
@@ -1092,24 +1092,23 @@ class LibVlcPlayerHost(
         request.outcome = "seeking"
         nativeStage("video-reprime-seek")
         if (!unchanged()) return false
-        val accepted = player.setTime(target) >= 0L
-        if (accepted) {
-            entry.videoReprimeCount++
-            entry.videoReprimeTarget = target
-        }
+        // This asynchronous SDK command has no acceptance/completion result.
+        // Its Java return is only a contemporaneous position query.
+        player.setTime(target)
+        entry.videoReprimeCount++
+        entry.videoReprimeTarget = target
         if (!unchanged()) return false
-        if (!accepted) throw VideoReprimeException("LibVLC rejected video recovery seek")
-        if (seek != null && seek.position == target) seek.appliedByReprime = true
+        if (seek != null && seek.position == target) seek.submittedByReprime = true
         // CAS keeps a newer real binding loss, even if its callback interrupts
         // this worker between the final generation check and completion.
         if (!entry.videoReprime.compareAndSet(request, null)) return false
-        entry.videoReprimeOutcome = "seek-accepted"
+        entry.videoReprimeOutcome = "seek-submitted"
         main.post {
             if (!entry.disposed && entry.player === player && entry.inputEpoch == request.inputEpoch &&
                 entry.surfaceGeneration == start.generation && entry.latestUserSeek === seek &&
                 entry.pendingPosition == target) entry.pendingPosition = null
         }
-        trace(entry, "video-reprime-seek-accepted")
+        trace(entry, "video-reprime-seek-submitted")
         return isCurrentStart(entry, player, view, start)
     }
 
@@ -1268,7 +1267,7 @@ class LibVlcPlayerHost(
                             entry.pendingPosition?.let { position ->
                                 if (player.isSeekable) {
                                     trace(entry, "pending-seek-$position")
-                                    check(player.setTime(position) >= 0) { "Pending seek rejected" }
+                                    player.setTime(position)
                                     main.post {
                                         if (entry.latestUserSeek === seek && entry.pendingPosition == position)
                                             entry.pendingPosition = null
@@ -1329,7 +1328,7 @@ class LibVlcPlayerHost(
                         queueNative(entry.id, "ab-seek") {
                             if (entry.disposed || !entry.allowed || !entry.wantsPlay) return@queueNative
                             if (entry.nativeEnded || player.playerState == IMedia.State.Ended) return@queueNative
-                            if (!player.isSeekable || player.setTime(start) < 0) {
+                            if (!player.isSeekable) {
                                 main.post {
                                     entry.abStart = null
                                     entry.abEnd = null
@@ -1337,6 +1336,7 @@ class LibVlcPlayerHost(
                                     advancedError(entry, "LibVLC could not seek the A–B loop")
                                 }
                             } else {
+                                player.setTime(start)
                                 entry.abSeekCount++
                                 trace(entry, "ab-seek-$start")
                             }

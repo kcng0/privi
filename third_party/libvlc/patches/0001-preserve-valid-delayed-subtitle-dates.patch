@@ -40,14 +40,14 @@
 +/* A delayed stream date can cross zero before conversion, and a valid system
 + * date can be non-positive. Validity comes from the raw cue, not its value
 + * after applying an ES delay. Audio/video keep the existing conversion path. */
-+int input_clock_ConvertSubtitleTS( input_clock_t *cl, vlc_tick_t delay,
++enum input_clock_subtitle_result input_clock_ConvertSubtitleTS( input_clock_t *cl, vlc_tick_t delay,
 +                                   vlc_tick_t *start, vlc_tick_t *stop )
 +{
 +    vlc_mutex_lock( &cl->lock );
 +    if( !cl->b_has_reference )
 +    {
 +        vlc_mutex_unlock( &cl->lock );
-+        return VLC_EGENERIC;
++        return INPUT_CLOCK_SUBTITLE_NO_REFERENCE;
 +    }
 +
 +    const subtitle_date_wide pts = SubtitleDateWide( cl->i_pts_delay );
@@ -87,11 +87,11 @@
 +    *start = converted[0];
 +    if( stop ) *stop = converted[1];
 +    vlc_mutex_unlock( &cl->lock );
-+    return VLC_SUCCESS;
++    return INPUT_CLOCK_SUBTITLE_OK;
 +
 +overflow:
 +    vlc_mutex_unlock( &cl->lock );
-+    return VLC_EINVAL;
++    return INPUT_CLOCK_SUBTITLE_OVERFLOW;
 +}
 +
  int input_clock_GetRate( input_clock_t *cl )
@@ -99,15 +99,22 @@
      int i_rate;
 --- a/src/input/clock.h
 +++ b/src/input/clock.h
-@@ -35,6 +35,12 @@
+@@ -35,6 +35,19 @@
   * MUST be called from one and only one thread.
   */
  typedef struct input_clock_t input_clock_t;
 +
++/* Private results keep unavailable references distinct from fatal overflow. */
++enum input_clock_subtitle_result
++{
++    INPUT_CLOCK_SUBTITLE_OK,
++    INPUT_CLOCK_SUBTITLE_NO_REFERENCE,
++    INPUT_CLOCK_SUBTITLE_OVERFLOW,
++};
++
 +/* Raw cue validity is checked by the decoder. A NULL stop means unknown.
-+ * EGENERIC: no clock reference yet; EINVAL: a stored date is unrepresentable.
 + * Successful output dates may be zero or negative. */
-+int input_clock_ConvertSubtitleTS( input_clock_t *, vlc_tick_t delay,
++enum input_clock_subtitle_result input_clock_ConvertSubtitleTS( input_clock_t *, vlc_tick_t delay,
 +                                   vlc_tick_t *start, vlc_tick_t *stop );
  
  /**
@@ -131,13 +138,13 @@
 -                  NULL, INT64_MAX );
 +    const bool stop_known = p_subpic->i_stop > VLC_TICK_INVALID;
 +    const bool same_date = stop_known && p_subpic->i_start == p_subpic->i_stop;
-+    int conversion = VLC_SUCCESS;
++    enum input_clock_subtitle_result conversion = INPUT_CLOCK_SUBTITLE_OK;
 +    if( p_owner->p_clock )
 +    {
 +        conversion = input_clock_ConvertSubtitleTS( p_owner->p_clock,
 +            p_owner->i_ts_delay, &p_subpic->i_start,
 +            stop_known ? &p_subpic->i_stop : NULL );
-+        if( conversion == VLC_SUCCESS )
++        if( conversion == INPUT_CLOCK_SUBTITLE_OK )
 +        {
 +            p_subpic->system_dates_valid = true;
 +            p_subpic->stop_known = stop_known;
@@ -146,7 +153,7 @@
 +            if( stop_known && !same_date &&
 +                p_subpic->i_start == p_subpic->i_stop )
 +            {
-+                if( p_subpic->i_stop == INT64_MAX ) conversion = VLC_EINVAL;
++                if( p_subpic->i_stop == INT64_MAX ) conversion = INPUT_CLOCK_SUBTITLE_OVERFLOW;
 +                else p_subpic->i_stop++;
 +            }
 +        }
@@ -155,12 +162,12 @@
  
 -    if( p_subpic->i_start <= VLC_TICK_INVALID
 -     || DecoderTimedWait( p_dec, p_subpic->i_start - SPU_MAX_PREPARE_TIME ) )
-+    if( conversion == VLC_EINVAL && p_owner->p_input != NULL )
++    if( conversion == INPUT_CLOCK_SUBTITLE_OVERFLOW && p_owner->p_input != NULL )
 +    {
 +        msg_Err( p_dec, "Subtitle delay produces an unrepresentable clock date" );
 +        input_ControlPush( p_owner->p_input, INPUT_CONTROL_TIMING_ERROR, NULL );
 +    }
-+    const bool invalid = conversion != VLC_SUCCESS ||
++    const bool invalid = conversion != INPUT_CLOCK_SUBTITLE_OK ||
 +        (!p_subpic->system_dates_valid && p_subpic->i_start <= VLC_TICK_INVALID);
 +    /* Past signed dates are ready now; subtract only when it cannot underflow. */
 +    const bool wait = !invalid && p_subpic->i_start > SPU_MAX_PREPARE_TIME;
@@ -283,7 +290,7 @@
 +        cr_average < INT_MIN || cr_average > INT_MAX )
 +    {
 +        InputTimingError( p_input );
-+        return VLC_EINVAL;
++        return VLC_EGENERIC;
 +    }
 +
 +    es_out_SetDelay( p_sys->p_es_out_display, AUDIO_ES, i_audio_delay );
@@ -300,7 +307,7 @@
      /* Compute correct pts_delay */
 -    UpdatePtsDelay( p_input );
 +    if( UpdatePtsDelay( p_input ) != VLC_SUCCESS )
-+        return VLC_EINVAL;
++        return VLC_EGENERIC;
  
      /* Set up es_out */
      i_es_out_mode = ES_OUT_MODE_AUTO;

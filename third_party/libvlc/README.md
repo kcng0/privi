@@ -7,8 +7,9 @@ adding a patch does not enable or publish it.
 `source-lock.json` fixes the upstream commits, official AAR SHA-256, ordered
 custom patches, complete native library/ABI set, compiler flags and container
 digests. Every `.patch` under `patches/` must appear exactly once in the lock.
-Custom patches apply to VLC after the 20 patches shipped with the fixed JNI
-commit. Patch or toolchain changes require a new SDK and full app APK.
+Custom patches apply in lock order to their `vlc` or `jni` target. VLC patches
+follow the 20 patches shipped with the fixed JNI commit. Both repositories
+record patched commits/trees, and build/package reject dirty or mismatched inputs. Patch or toolchain changes require a new SDK and full app APK.
 
 The upstream chain is:
 

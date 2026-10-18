@@ -25,6 +25,8 @@ SCRIPT = ROOT / 'scripts/build-libvlc-sdk.sh'
 TARGETS = {t['abi']: t for t in LOCK['targets']}
 BUNDLE = 'libvlc-sdk.tar.xz'
 AAR = 'libvlc-privi.aar'
+SOURCE_STATE_KEYS = tuple(f'{name}_patched_{kind}' for name in ('jni', 'vlc')
+                          for kind in ('commit', 'tree'))
 
 
 def fail(message):
@@ -118,6 +120,8 @@ def checkout(spec, dest):
 def patch_inputs():
     paths = []
     for entry in LOCK['patches']:
+        if entry.get('target', 'vlc') not in ('vlc', 'jni'):
+            fail('Custom patch target must be vlc or jni: ' + entry['path'])
         path = ROOT / entry['path']
         if not path.resolve().is_relative_to(ROOT / 'third_party/libvlc/patches'):
             fail('Custom patches must stay in third_party/libvlc/patches')
@@ -129,6 +133,29 @@ def patch_inputs():
     if len(paths) != len(set(paths)):
         fail('Duplicate patch in source lock')
     return paths
+
+
+def custom_patch_records():
+    return [dict(entry, target=entry.get('target', 'vlc')) for entry in LOCK['patches']]
+
+
+def source_state(work):
+    state = {}
+    for name, path in [('jni', work / 'libvlcjni'), ('vlc', work / 'libvlcjni/vlc')]:
+        state[name + '_patched_commit'] = run(['git', 'rev-parse', 'HEAD'], path)
+        state[name + '_patched_tree'] = run(['git', 'rev-parse', 'HEAD^{tree}'], path)
+    return state
+
+
+def check_prepared_sources(work, info):
+    actual = source_state(work)
+    for key in SOURCE_STATE_KEYS:
+        if actual[key] != info[key]:
+            fail('Prepared source revision/tree changed: ' + key)
+    for name, path in [('jni', work / 'libvlcjni'), ('vlc', work / 'libvlcjni/vlc')]:
+        result = subprocess.run(['git', 'diff', '--quiet', 'HEAD', '--'], cwd=path)
+        if result.returncode:
+            fail(f'Prepared {name} working tree/index differs from its recorded commit (git diff exit {result.returncode})')
 
 
 def prepare(args):
@@ -146,17 +173,27 @@ def prepare(args):
     official = sorted((jni / 'libvlc/patches').glob('*.patch'))
     if len(official) != LOCK['vlc']['official_patch_count']:
         fail('Official JNI patch count differs from the source lock')
+    official_records = [{'name': p.name, 'sha256': sha(p)} for p in official]
     # This is the same git-am/message-id contract as upstream get-vlc.sh.
     subprocess.run(['git', 'am', '--message-id', *map(str, official)], cwd=vlc, env=env, check=True)
-    for patch in patches:
-        subprocess.run(['git', 'apply', '--index', str(patch)], cwd=vlc, check=True)
-    if patches:
+    repositories = {'vlc': vlc, 'jni': jni}
+    changed = set()
+    # Preserve the global lock order even when adjacent patches target different repos.
+    for entry, patch in zip(LOCK['patches'], patches):
+        target = entry.get('target', 'vlc')
+        subprocess.run(['git', 'apply', '--index', str(patch)], cwd=repositories[target], check=True)
+        changed.add(target)
+    for target in sorted(changed):
         subprocess.run(['git', '-c', 'user.name=Privi SDK builder', '-c',
                         'user.email=sdk-build@privi.invalid', 'commit', '--quiet',
                         f'--date=@{epoch} +0000', '-m', 'Apply locked Privi native patches'],
-                       cwd=vlc, env=env, check=True)
+                       cwd=repositories[target], env=env, check=True)
+    patched = source_state(work)
     # Upstream confirms its tested VLC commit and all 20 Message-Ids are present.
+    # With an existing VLC directory and no --reset it only checks; enforce that
+    # neither the JNI nor VLC source was changed by this upstream invocation.
     subprocess.run(['./buildsystem/get-vlc.sh'], cwd=jni, check=True)
+    check_prepared_sources(work, patched)
     fetch(LOCK['official_aar']['url'], work / 'official.aar', LOCK['official_aar']['sha256'])
     inputs = [SCRIPT, LOCK_PATH, ROOT / '.github/workflows/libvlc-sdk.yml', *patches]
     readme = ROOT / 'third_party/libvlc/README.md'
@@ -168,12 +205,13 @@ def prepare(args):
         'format': 1, 'project_commit': run(['git', 'rev-parse', 'HEAD'], ROOT),
         'source_lock_sha256': sha(LOCK_PATH), 'build_script_sha256': sha(SCRIPT),
         'source_date_epoch': epoch, 'source_lock': LOCK,
-        'vlc_patched_commit': run(['git', 'rev-parse', 'HEAD'], vlc),
-        'vlc_patched_tree': run(['git', 'rev-parse', 'HEAD^{tree}'], vlc),
-        'official_patches': [{'name': p.name, 'sha256': sha(p)} for p in official],
+        **patched,
+        'custom_patches': custom_patch_records(),
+        'official_patches': official_records,
     }
     write_json(work / 'prepared.json', prepared)
     print('Prepared fixed source tree:', prepared['vlc_patched_tree'])
+    print('Prepared fixed JNI tree:', prepared['jni_patched_tree'])
     if not args.skip_archive:
         archive_tree(work, out / 'prepared.tar.xz', epoch)
 
@@ -183,6 +221,9 @@ def prepared_input(work):
     if info['source_lock_sha256'] != sha(LOCK_PATH) or info['build_script_sha256'] != sha(SCRIPT):
         fail('Prepared source does not match the checked-out source lock and build script')
     check_sha(work / 'official.aar', LOCK['official_aar']['sha256'])
+    if info['custom_patches'] != custom_patch_records():
+        fail('Prepared patch target/order/hash differs from the checked-out source lock')
+    check_prepared_sources(work, info)
     return info
 
 
@@ -200,9 +241,6 @@ def build(args):
         fail('Container NDK revision differs from the locked SDK build')
     jni = work / 'libvlcjni'
     vlc = jni / 'vlc'
-    if run(['git', 'rev-parse', 'HEAD^{tree}'], vlc) != info['vlc_patched_tree']:
-        fail('Prepared VLC tree changed before compilation')
-    subprocess.run(['git', 'diff', '--exit-code', 'HEAD'], cwd=vlc, check=True)
     if (jni / 'libvlc/jni/libs').exists():
         fail('Native output already exists; refusing a mixed or incremental SDK build')
     diagnostics = out / 'diagnostics'
@@ -309,7 +347,8 @@ def package(args):
     expected = set()
     for abi, target in TARGETS.items():
         record = json.loads((parts / 'abi' / abi / 'provenance.json').read_text())
-        for key in ['project_commit', 'source_lock_sha256', 'build_script_sha256', 'vlc_patched_tree']:
+        for key in ['project_commit', 'source_lock_sha256', 'build_script_sha256',
+                    'custom_patches', *SOURCE_STATE_KEYS]:
             if record[key] != prepared[key]:
                 fail('ABI outputs came from different source inputs: ' + abi + '/' + key)
         if record['target'] != target or set(record['libraries']) != set(LOCK['native_libraries']):
@@ -395,9 +434,13 @@ def verify_bundle(bundle, expected, commit, dest):
         fail('SDK commit or source lock differs from the explicitly selected input')
     if info['source_lock'] != LOCK or set(info['abis']) != set(TARGETS):
         fail('SDK provenance does not cover the locked three-ABI build')
+    if info['custom_patches'] != custom_patch_records():
+        fail('SDK provenance patch target/order/hash differs from the source lock')
     check_sha(dest / AAR, info['aar_sha256'])
     with zipfile.ZipFile(dest / AAR) as aar:
         for abi, record in info['abis'].items():
+            if any(record[key] != info[key] for key in (*SOURCE_STATE_KEYS, 'custom_patches')):
+                fail('AAR ABI provenance came from different JNI/VLC source trees: ' + abi)
             for name, details in record['libraries'].items():
                 if hashlib.sha256(aar.read(f'jni/{abi}/{name}')).hexdigest() != details['sha256']:
                     fail('AAR native bytes differ from SDK provenance')
