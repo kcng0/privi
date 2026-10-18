@@ -1004,6 +1004,9 @@ void main() {
       }
 
       try {
+        await const MethodChannel('com.privi.app/window')
+            .invokeMethod<void>('startCompositionDiagnostics')
+            .timeout(const Duration(seconds: 5));
         await tester.pumpWidget(
           UncontrolledProviderScope(
             container: container,
@@ -1539,6 +1542,17 @@ void main() {
         }
         metrics['pip_expand_and_screen_off'] = 'passed';
       } finally {
+        // Detach the read-only observer before removing the scene. A stop
+        // failure must still fail this test without replacing its original
+        // exception or preventing controller/database cleanup.
+        try {
+          await const MethodChannel('com.privi.app/window')
+              .invokeMethod<void>('stopCompositionDiagnostics')
+              .timeout(const Duration(seconds: 5));
+        } catch (error, stackTrace) {
+          metrics['composition_diagnostics_stop_error'] = error.toString();
+          addTearDown(() => Error.throwWithStackTrace(error, stackTrace));
+        }
         await tester.pumpWidget(const SizedBox.shrink());
         await tester.pump();
         final platform = playback;

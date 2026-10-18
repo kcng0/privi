@@ -2,6 +2,8 @@
 
 日期：2026-10-18。来源：官方文档与固定版本源码。范围：Android 本地视频、倍速、seek、预览、输出与测量；iOS 单独验证。
 
+最新状态：`1.1.3+41` 已完成签名候选构建，但实际 APK 的首次播放失败，尚未公开发布。第2轮独立验收保留冷启动、PiP 恢复和字幕反例；用户已明确要求继续修复并重新独立验收，通过后再发布。下方保留各快照记录，历史流程绿不表示当前验收通过。
+
 目前应优先处理真实解码和视频输出路径。用户已确认 Samsung A52 上的 1080p 视频在菜单 2× 和长按 2× 都严重掉帧，松手恢复也会停顿。上一轮减少手势回调、重建和预览开销，没有消除这个实际症状。不能再用调用次数正确或一次播放成功来证明流畅。
 
 ## 结论与实施顺序
@@ -217,3 +219,15 @@ Hacker 第 1 轮在 `34ec5ba` 的实际原生结果中确认：真实 ADB 点击
 此次流程绿仍不是字幕验收通过：root实际查看新 `portrait-ass-embedded-after-seek-1000.png`，源HUD1.000秒/frame24无字，reopen2→2、native1000→1587、generation1，排除了外部slave独有的解释；external A–B图HUD1.375秒/frame33亦无字，reopen5保持。外部普通seek图此次有字，但reopen3→4，不能当成修复。下一次只读字幕Surface缓冲统计及独立paused-seek对照用于定位，不改变选轨或播放的生产行为，原playing序列保留。字幕兼容反例尚未闭环，因此完整正式APK验收与发布继续等待。
 
 旧正式APK的[第三轮入口校准](https://github.com/kcng0/privi/actions/runs/39137886958) 已真实走通图库授权、文件夹Hide、系统all-files开关、pattern解锁、Invisible album、Play playlist/In order，实际PNG确认进入PlayerScreen。随后的首次视频全黑/0:00，多色门严格失败；旧日志有Goldfish H264 decodeHeader错误，不能据此断言新版也失败，亦不放宽视频门。初始化metadata/UI控件不代表首个native frame，正式APK验收将仅在首次启动使用有界真实PNG就绪观察，不重发任何播放命令或造Flutter帧；后续长按、恢复和字幕仍保持原门。
+
+### 正式签名候选41与第2轮独立验收
+
+`b4110cc` 的[签名候选构建39139579043](https://github.com/kcng0/privi/actions/runs/39139579043) 成功，Shorebird登记 `1.1.3+41` 基础版本；stage-only跳过公开tag/release。实际APK为114,818,931 bytes，较v1.1.2的232,194,147 bytes减少50.55%。SHA-256为 `45356748118c3da0827286cc1e8f8b380eb02ac1754ed71fb98cb98c96b4a74d`，正式签名证书与旧包一致，三种ABI、LibVLC模块及Noto字体保留。下载体积减少不代表安装占用同比减少。
+
+独立`check` Hacker `/root/libvlc_hacker_round2` 使用该同hash正式包完成[真实入口smoke39141358312](https://github.com/kcng0/privi/actions/runs/39141358312)：首启pattern、系统权限、Hide、Invisible、Play playlist/In order均走通；之后一直spinner，约26秒出现真实`initialization_timeout` / Retry，未进入长按或PiP。设备日志15:42:40.371已报初始化超时，15:42:42.801才完成26,863ms字体缓存。原25秒媒体期限先于共享准备启动，随后丢弃打开的媒体，是明确本地反例，不能靠Retry或放宽截图门关闭。
+
+同快照[原生诊断39139268901](https://github.com/kcng0/privi/actions/runs/39139268901) 的PiP EXPAND→解锁→Play后实际PNG仍为Draw your pattern。root树无锁层、native cover全部false、native playing/surface-ready均不能否定屏幕。该解锁没有新恢复请求：fullscreen view在未授权时建立，解锁时native surface已经ready。既有ready条件不保证Flutter图像消费或呈现。本次没有先前Impeller的EGL_BAD_ACCESS，不能继续按旧错误归因。下一次增加debug-only只读reader通知与window draw/commit观测，不消费图像或补帧，以真实PNG核对。
+
+字幕反例仍在：playing内嵌ASS seek后，HUD1.750秒/frame42、delay=0无中文字；paused外挂ASS普通seek到1秒有字，但off/on再seek无字。PixelCopy正alpha与无字PNG来自不同时间，不能当成修复。负delay的静态SDK分支显示跨零时间戳有删除风险，尚不能仅凭分支断言动态根因；禁止夹零、盲重选轨或重启规避。官方[Maven元数据](https://repo1.maven.org/maven2/org/videolan/android/libvlc-all/maven-metadata.xml)中3.x稳定版最高仍为3.7.7，4.0只有EAP，不能假设存在无风险升级修复。
+
+本轮Hacker结论partial，不满足发布前提。用户按两轮上限决定继续修复三项、再开启独立验收。候选build升至42，先分离共享准备与每媒体打开期限；30秒正式包首帧、45秒native初始化外层及全部像素门保持不变。新修复的实际APK、PiP、字幕及A52音画性能尚未验，公开Latest仍为v1.1.2。

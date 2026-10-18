@@ -224,6 +224,15 @@ The first LibVLC initialization builds the system font cache on its background
 queue, before playback. Cache validity and elapsed time are diagnostic values;
 an unwritable cache warns and leaves rendering available, matching the SDK's
 contract. ASS uses `ssa-fontsdir`; other text uses the SDK's platform font family.
+Shared engine/font preparation has its own 60-second deadline, starting when
+that work actually starts on the native queue. Each media's 25-second open/parse
+deadline starts when its own open task begins; waiting for shared preparation
+does not consume it. Queue starvation has a separate 25-second error. A blocking
+SDK font-cache call has no cancellation API: cancellation rejects its delivery
+and releases a late engine after the call returns, without concurrently freeing
+native code still in use. Initialization diagnostics expose these stages even
+while that queue is busy. These failure bounds are not startup performance goals;
+the actual release smoke retains its independent 30-second first-picture gate.
 
 Creation returns a disposable id before asynchronous parsing can fail. Parsed
 metadata initializes the facade without opening a decoder. A preloaded item owns
@@ -330,6 +339,13 @@ request and callback require the same authorized, current surface; a changed
 view, holder, presentation or device lock rejects the observation. Copy errors
 remain diagnostic failures, and a successful copy does not prove visible glyphs.
 These values are separate from the user's copyable playback diagnostics.
+The existing PiP integration scenario can explicitly start/stop a debug-only
+Flutter composition observer on `com.privi.app/window`. Window diagnostics then
+include reader identity/geometry, ImageAvailable notification timestamps and
+whole-window draw/commit metadata. It neither acquires images nor requests
+frames. A tree draw is not a particular ImageView's draw, and a window commit
+does not prove display or identify an unlocked buffer. Release builds reject
+starting this observer. It is removed before the scene and at Activity disposal.
 
 The old rate-profile harness still explicitly installs a MediaKit subclass and
 uses mpv-only properties. It is manual-only historical diagnostics, never a

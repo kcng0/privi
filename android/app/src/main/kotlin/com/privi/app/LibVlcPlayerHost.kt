@@ -52,6 +52,8 @@ class LibVlcPlayerHost(
         const val VIEW_TYPE = "com.privi.app/libvlc/view"
         private const val PARSE_TIMEOUT_MS = 20_000
         private const val OPEN_TIMEOUT_MS = 25_000L
+        private const val ENGINE_PREPARATION_TIMEOUT_MS = 60_000L
+        private const val INITIALIZATION_QUEUE_TIMEOUT_MS = 25_000L
         private const val SURFACE_FRAME_TIMEOUT_MS = 5_000L
         private const val TAG = "PriviLibVlc"
 
@@ -72,6 +74,17 @@ class LibVlcPlayerHost(
     }
 
     private data class Failure(val code: String, val message: String)
+
+    private data class MediaRequest(val uri: String, val packageName: String?, val headers: Map<*, *>?)
+
+    private class EnginePreparation {
+        val queuedAt = SystemClock.elapsedRealtime()
+        @Volatile var startedAt: Long? = null
+        @Volatile var cancelled = false
+        var finishedAt: Long? = null
+        var timeout: Runnable? = null
+        var queueTimeout: Runnable? = null
+    }
 
     private class Source(
         val media: Media,
@@ -99,7 +112,7 @@ class LibVlcPlayerHost(
         var source: Source? = null
         var player: MediaPlayer? = null
         var initialized: Map<String, Any?>? = null
-        var failure: Failure? = null
+        @Volatile var failure: Failure? = null
         var duration = 0L
         var width = 0.0
         var height = 0.0
@@ -150,6 +163,11 @@ class LibVlcPlayerHost(
         var abSeeking = false
         var abSeekCount = 0L
         var openTimeout: Runnable? = null
+        var queueTimeout: Runnable? = null
+        var initializationStage = "waiting-engine"
+        var initializationQueuedAt: Long? = null
+        @Volatile var initializationStartedAt: Long? = null
+        var initializationFinishedAt: Long? = null
         var playerTimeout: Runnable? = null
         var focusRequest: AudioFocusRequest? = null
         var focusListener: AudioManager.OnAudioFocusChangeListener? = null
@@ -202,13 +220,18 @@ class LibVlcPlayerHost(
     private val entries = LinkedHashMap<Int, Entry>()
     private var nextId = 1
     private var pendingCreations = 0
+    private val engineWaiters = LinkedHashMap<Entry, MediaRequest>()
+    private var enginePreparation: EnginePreparation? = null
+    private var preparingEngine = false
+    @Volatile private var enginePreparationStage = "idle"
+    @Volatile private var enginePreparationFailure: Failure? = null
     private var queueShutdown = false
     @Volatile private var closed = false
     // Created and finally released on nativeQueue.
     private var libVlc: LibVLC? = null
     private var subtitleFonts: File? = null
-    private var fontCacheValid: Boolean? = null
-    private var fontCacheBuildMs: Long? = null
+    @Volatile private var fontCacheValid: Boolean? = null
+    @Volatile private var fontCacheBuildMs: Long? = null
     private val audioManager = activity.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private var focusOwner: Entry? = null
     private val screenOffReceiver = object : BroadcastReceiver() {
@@ -443,7 +466,11 @@ class LibVlcPlayerHost(
                     // player queries remain serialized on nativeQueue.
                     val subtitleSurface = entry.activeView?.subtitleDiagnostics()
                         ?: mapOf("subtitle-surface-present" to "false", "subtitle-surface-view-id" to "none")
-                    nativeCall(entry, result) { diagnostics(entry) + subtitleSurface }
+                    // Waiting for shared bootstrap has no player/Media to query.
+                    // Keep its stage and deadline observable even if a blocking
+                    // SDK preparation call currently occupies nativeQueue.
+                    if (entry.source == null && entry.player == null) result.success(diagnostics(entry) + subtitleSurface)
+                    else nativeCall(entry, result) { diagnostics(entry) + subtitleSurface }
                 }
                 "debugReadSubtitleSurfacePixels" -> debugReadSubtitleSurfacePixels(entry, result)
                 "setFitMode" -> {
@@ -503,41 +530,206 @@ class LibVlcPlayerHost(
         entries[entry.id] = entry
         // Always cross video_player's creation barrier, including malformed/unopenable media.
         result.success(entry.id)
-        val timeout = Runnable { fail(entry, "initialization_timeout", "LibVLC media initialization timed out") }
-        entry.openTimeout = timeout
-        main.postDelayed(timeout, OPEN_TIMEOUT_MS)
+        val request = try {
+            MediaRequest(
+                call.argument<String>("uri")?.takeIf { it.isNotBlank() }
+                    ?: throw IllegalArgumentException("Missing media URI"),
+                call.argument<String>("package"), call.argument<Map<*, *>>("httpHeaders"),
+            )
+        } catch (error: Exception) {
+            fail(entry, "media_open_failed", "LibVLC could not read the media request (${error.javaClass.simpleName})")
+            return
+        }
+        if (libVlc != null) {
+            queueMediaOpen(entry, request)
+            return
+        }
+        // A failed SDK call can still be unwinding on nativeQueue. Do not
+        // enqueue another preparation behind it or leave new callers waiting.
+        if (preparingEngine && enginePreparationFailure != null) {
+            val failure = enginePreparationFailure!!
+            fail(entry, failure.code, failure.message)
+            return
+        }
+        engineWaiters[entry] = request
+        if (!preparingEngine) prepareEngine()
+    }
+
+    private fun prepareEngine() {
+        val preparation = EnginePreparation()
+        enginePreparation = preparation
+        preparingEngine = true
+        enginePreparationFailure = null
+        enginePreparationStage = "queued"
+        preparation.queueTimeout = Runnable {
+            if (enginePreparation === preparation && preparation.startedAt == null && !preparation.cancelled) {
+                failEnginePreparation(preparation, "engine_queue_timeout", "LibVLC engine preparation could not start on the native queue")
+            }
+        }.also { main.postDelayed(it, INITIALIZATION_QUEUE_TIMEOUT_MS) }
+        nativeQueue.execute {
+            var prepared: LibVLC? = null
+            var fonts: File? = null
+            var failure: Failure? = null
+            try {
+                if (closed || preparation.cancelled) return@execute
+                val startedAt = SystemClock.elapsedRealtime()
+                if (startedAt - preparation.queuedAt >= INITIALIZATION_QUEUE_TIMEOUT_MS) {
+                    failure = Failure("engine_queue_timeout", "LibVLC engine preparation could not start on the native queue")
+                    return@execute
+                }
+                preparation.startedAt = startedAt
+                main.post {
+                    if (enginePreparation !== preparation || preparation.cancelled || closed) return@post
+                    preparation.queueTimeout?.let(main::removeCallbacks)
+                    preparation.queueTimeout = null
+                    enginePreparationStage = "constructing-engine"
+                    Log.i(TAG, "Engine preparation started")
+                    preparation.timeout = Runnable {
+                        failEnginePreparation(preparation, "engine_preparation_timeout", "LibVLC engine and font preparation timed out")
+                    }.also {
+                        val remaining = ENGINE_PREPARATION_TIMEOUT_MS -
+                            (SystemClock.elapsedRealtime() - preparation.startedAt!!)
+                        main.postDelayed(it, remaining.coerceAtLeast(0L))
+                    }
+                }
+                prepared = LibVLC(activity.applicationContext, arrayListOf(
+                    "--audio-time-stretch", "--no-video-title-show", "--stats", "--android-display-chroma=RV32",
+                ).apply {
+                    if (activity.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) add("--verbose=2")
+                })
+                if (closed || preparation.cancelled) return@execute
+                main.post {
+                    if (enginePreparation === preparation && !preparation.cancelled && !closed)
+                        enginePreparationStage = "building-font-cache"
+                }
+                // This SDK call is blocking and has no cancellation API. A
+                // deadline cancels delivery; release waits for the call to return.
+                val started = SystemClock.elapsedRealtime()
+                try {
+                    fontCacheValid = prepared.buildFontCache()
+                } catch (error: Exception) {
+                    fontCacheValid = false
+                    Log.w(TAG, "Font cache build failed (${error.javaClass.simpleName})")
+                } finally {
+                    fontCacheBuildMs = SystemClock.elapsedRealtime() - started
+                }
+                if (fontCacheValid == true) Log.i(TAG, "Font cache valid after ${fontCacheBuildMs}ms")
+                else Log.w(TAG, "Font cache not valid on disk after ${fontCacheBuildMs}ms")
+                if (closed || preparation.cancelled) return@execute
+                main.post {
+                    if (enginePreparation === preparation && !preparation.cancelled && !closed)
+                        enginePreparationStage = "installing-subtitle-fonts"
+                }
+                fonts = prepareSubtitleFonts()
+            } catch (error: Exception) {
+                failure = Failure("engine_preparation_failed", "LibVLC engine preparation failed (${error.javaClass.simpleName})")
+            } catch (error: LinkageError) {
+                failure = Failure("engine_unavailable", "LibVLC could not load its native engine (${error.javaClass.simpleName})")
+            } catch (error: OutOfMemoryError) {
+                failure = Failure("engine_resource_exhausted", "LibVLC engine preparation ran out of memory")
+            } finally {
+                val engine = prepared
+                val installedFonts = fonts
+                val error = failure
+                main.post { finishEnginePreparation(preparation, engine, installedFonts, error) }
+            }
+        }
+    }
+
+    private fun failEnginePreparation(preparation: EnginePreparation, code: String, message: String) {
+        if (enginePreparation !== preparation || !preparingEngine || preparation.cancelled || closed) return
+        preparation.cancelled = true
+        preparation.finishedAt = SystemClock.elapsedRealtime()
+        preparation.timeout?.let(main::removeCallbacks)
+        preparation.queueTimeout?.let(main::removeCallbacks)
+        preparation.timeout = null
+        preparation.queueTimeout = null
+        enginePreparationStage = "failed"
+        enginePreparationFailure = Failure(code, message)
+        Log.e(TAG, "$code during shared engine preparation")
+        val waiting = engineWaiters.keys.toList()
+        engineWaiters.clear()
+        waiting.forEach { fail(it, code, message) }
+    }
+
+    private fun finishEnginePreparation(preparation: EnginePreparation, engine: LibVLC?, fonts: File?, failure: Failure?) {
+        preparation.timeout?.let(main::removeCallbacks)
+        preparation.queueTimeout?.let(main::removeCallbacks)
+        preparation.timeout = null
+        preparation.queueTimeout = null
+        if (enginePreparation === preparation && !closed && !preparation.cancelled) {
+            val elapsed = preparation.startedAt?.let { SystemClock.elapsedRealtime() - it }
+            when {
+                elapsed != null && elapsed >= ENGINE_PREPARATION_TIMEOUT_MS ->
+                    failEnginePreparation(preparation, "engine_preparation_timeout", "LibVLC engine and font preparation timed out")
+                failure != null -> failEnginePreparation(preparation, failure.code, failure.message)
+                engine == null || fonts == null ->
+                    failEnginePreparation(preparation, "engine_preparation_failed", "LibVLC engine preparation did not complete")
+            }
+        }
+        if (enginePreparation === preparation) {
+            preparingEngine = false
+            if (!closed && !preparation.cancelled && engine != null && fonts != null) {
+                libVlc = engine
+                subtitleFonts = fonts
+                preparation.finishedAt = SystemClock.elapsedRealtime()
+                enginePreparationStage = "ready"
+                Log.i(TAG, "Engine preparation ready after ${preparation.finishedAt!! - preparation.startedAt!!}ms")
+                val waiting = engineWaiters.toList()
+                engineWaiters.clear()
+                waiting.forEach { (entry, request) ->
+                    if (!entry.disposed && entry.failure == null) queueMediaOpen(entry, request)
+                }
+                maybeShutdownQueue()
+                return
+            }
+        }
+        // A cancelled/failed preparation never publishes a usable engine, even
+        // if a blocking native operation completed after its owner was gone.
+        if (engine != null) nativeQueue.execute {
+            try { engine.release() } catch (error: Exception) {
+                Log.e(TAG, "Prepared engine cleanup failed (${error.javaClass.simpleName})")
+            }
+        }
+        maybeShutdownQueue()
+    }
+
+    private fun queueMediaOpen(entry: Entry, request: MediaRequest) {
+        entry.initializationStage = "queued"
+        entry.initializationQueuedAt = SystemClock.elapsedRealtime()
+        entry.queueTimeout = Runnable {
+            if (!entry.disposed && entry.failure == null && entry.initializationStartedAt == null)
+                fail(entry, "media_queue_timeout", "LibVLC media opening could not start on the native queue")
+        }.also { main.postDelayed(it, INITIALIZATION_QUEUE_TIMEOUT_MS) }
         pendingCreations++
         nativeQueue.execute {
             var source: Source? = null
             var failure: Failure? = null
             try {
-                if (entry.disposed || closed) return@execute
-                val uri = call.argument<String>("uri")?.takeIf { it.isNotBlank() }
-                    ?: throw IllegalArgumentException("Missing media URI")
-                val lib = libVlc ?: LibVLC(activity.applicationContext, arrayListOf(
-                    "--audio-time-stretch", "--no-video-title-show", "--stats", "--android-display-chroma=RV32",
-                ).apply {
-                    if (activity.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) add("--verbose=2")
-                }).also {
-                    libVlc = it
-                    // The SDK's first text renderer otherwise scans system fonts
-                    // during playback. This blocking work belongs to initialization
-                    // on nativeQueue, before any Media or decoder is created.
-                    val started = SystemClock.elapsedRealtime()
-                    try {
-                        fontCacheValid = it.buildFontCache()
-                    } catch (error: Exception) {
-                        fontCacheValid = false
-                        Log.w(TAG, "Font cache build failed (${error.javaClass.simpleName})")
-                    } finally {
-                        fontCacheBuildMs = SystemClock.elapsedRealtime() - started
-                    }
-                    if (fontCacheValid == true) Log.i(TAG, "Font cache valid after ${fontCacheBuildMs}ms")
-                    else Log.w(TAG, "Font cache not valid on disk after ${fontCacheBuildMs}ms")
+                if (entry.disposed || entry.failure != null || closed) return@execute
+                val startedAt = SystemClock.elapsedRealtime()
+                if (startedAt - entry.initializationQueuedAt!! >= INITIALIZATION_QUEUE_TIMEOUT_MS) {
+                    failure = Failure("media_queue_timeout", "LibVLC media opening could not start on the native queue")
+                    return@execute
                 }
-                val fonts = subtitleFonts ?: prepareSubtitleFonts().also { subtitleFonts = it }
-                source = openSource(lib, uri, call.argument<String>("package"))
-                applyHttpHeaders(source.media, call.argument<Map<*, *>>("httpHeaders"))
+                entry.initializationStartedAt = startedAt
+                main.post {
+                    entry.queueTimeout?.let(main::removeCallbacks)
+                    entry.queueTimeout = null
+                    if (entry.disposed || entry.failure != null || closed) return@post
+                    entry.initializationStage = "opening"
+                    trace(entry, "media-open-started")
+                    entry.openTimeout = Runnable {
+                        fail(entry, "initialization_timeout", "LibVLC media opening and metadata parsing timed out")
+                    }.also {
+                        val remaining = OPEN_TIMEOUT_MS - (SystemClock.elapsedRealtime() - entry.initializationStartedAt!!)
+                        main.postDelayed(it, remaining.coerceAtLeast(0L))
+                    }
+                }
+                val lib = checkNotNull(libVlc) { "LibVLC engine is not prepared" }
+                val fonts = checkNotNull(subtitleFonts) { "LibVLC fonts are not prepared" }
+                source = openSource(lib, request.uri, request.packageName)
+                applyHttpHeaders(source.media, request.headers)
                 source.media.addOption(":ssa-fontsdir=${fonts.absolutePath}")
                 source.media.setHWDecoderEnabled(true, false)
             } catch (error: Exception) {
@@ -552,6 +744,7 @@ class LibVlcPlayerHost(
                         if (entry.disposed || entry.failure != null || closed || error != null) releaseSource(opened)
                         else {
                             entry.source = opened
+                            entry.initializationStage = "parsing"
                             parse(entry)
                         }
                     }
@@ -651,7 +844,11 @@ class LibVlcPlayerHost(
     }
 
     private fun parsed(entry: Entry) {
-        if (entry.failure != null || entry.initialized != null) return
+        if (entry.disposed || closed || entry.failure != null || entry.initialized != null) return
+        if (entry.initializationStartedAt?.let { SystemClock.elapsedRealtime() - it >= OPEN_TIMEOUT_MS } == true) {
+            fail(entry, "initialization_timeout", "LibVLC media opening and metadata parsing timed out")
+            return
+        }
         val media = entry.source?.media ?: return
         entry.tracks = (0 until media.trackCount).mapNotNull { media.getTrack(it) }
         val video = entry.tracks.filterIsInstance<IMedia.VideoTrack>().firstOrNull()
@@ -677,6 +874,8 @@ class LibVlcPlayerHost(
         entry.duration = media.duration.coerceAtLeast(0)
         entry.openTimeout?.let(main::removeCallbacks)
         entry.openTimeout = null
+        entry.initializationStage = "ready"
+        entry.initializationFinishedAt = SystemClock.elapsedRealtime()
         entry.initialized = mapOf(
             "event" to "initialized", "duration" to entry.duration,
             "width" to entry.width, "height" to entry.height, "rotationCorrection" to 0,
@@ -1272,6 +1471,8 @@ class LibVlcPlayerHost(
     }
 
     private fun diagnostics(entry: Entry): Map<String, String> {
+        val now = SystemClock.elapsedRealtime()
+        val preparation = enginePreparation
         val result = linkedMapOf(
             "engine" to "libvlc", "engine-version" to (if (libVlc != null) LibVLC.version() else "unavailable"),
             "render-surface" to "SurfaceView", "display-width" to entry.width.toString(),
@@ -1282,6 +1483,13 @@ class LibVlcPlayerHost(
             "rate-request-count" to entry.rateRequestCount.toString(),
             "font-cache-valid" to (fontCacheValid?.toString() ?: "not-built"),
             "font-cache-build-ms" to (fontCacheBuildMs?.toString() ?: "not-built"),
+            "engine-preparation-stage" to enginePreparationStage,
+            "engine-preparation-error" to (enginePreparationFailure?.code ?: "none"),
+            "engine-preparation-ms" to (preparation?.startedAt?.let { (preparation.finishedAt ?: now) - it }?.toString() ?: "not-started"),
+            "engine-queue-wait-ms" to (preparation?.let { (it.startedAt ?: it.finishedAt ?: now) - it.queuedAt }?.toString() ?: "not-queued"),
+            "media-initialization-stage" to entry.initializationStage,
+            "media-initialization-ms" to (entry.initializationStartedAt?.let { (entry.initializationFinishedAt ?: now) - it }?.toString() ?: "not-started"),
+            "media-queue-wait-ms" to (entry.initializationQueuedAt?.let { (entry.initializationStartedAt ?: entry.initializationFinishedAt ?: now) - it }?.toString() ?: "not-queued"),
             "input-reopen-count" to entry.inputReopenCount.toString(),
             "input-restarting" to entry.inputRestarting.toString(),
             "pending-seek-ms" to (entry.pendingPosition?.toString() ?: "none"),
@@ -1354,8 +1562,15 @@ class LibVlcPlayerHost(
     private fun fail(entry: Entry, code: String, message: String) {
         if (entry.disposed || entry.failure != null) return
         entry.failure = Failure(code, message)
+        engineWaiters.remove(entry)
+        entry.queueTimeout?.let(main::removeCallbacks)
+        entry.queueTimeout = null
         entry.openTimeout?.let(main::removeCallbacks)
         entry.openTimeout = null
+        if (entry.initialized == null) {
+            entry.initializationStage = "failed"
+            entry.initializationFinishedAt = SystemClock.elapsedRealtime()
+        }
         revoke(entry)
         entry.sink?.error(code, message, null)
         emitAdvanced(entry)
@@ -1373,6 +1588,11 @@ class LibVlcPlayerHost(
 
     private fun disposeEntry(entry: Entry) {
         if (entry.disposed) return
+        engineWaiters.remove(entry)
+        entry.queueTimeout?.let(main::removeCallbacks)
+        entry.queueTimeout = null
+        entry.initializationStage = "disposed"
+        entry.initializationFinishedAt = entry.initializationFinishedAt ?: SystemClock.elapsedRealtime()
         entry.allowed = false
         entry.wantsPlay = false
         entry.playing = false
@@ -1422,6 +1642,17 @@ class LibVlcPlayerHost(
     fun dispose() {
         if (closed) return
         closed = true
+        enginePreparation?.let { preparation ->
+            preparation.cancelled = true
+            preparation.timeout?.let(main::removeCallbacks)
+            preparation.queueTimeout?.let(main::removeCallbacks)
+            preparation.timeout = null
+            preparation.queueTimeout = null
+            if (preparingEngine) {
+                preparation.finishedAt = SystemClock.elapsedRealtime()
+                enginePreparationStage = "cancelled"
+            }
+        }
         channel.setMethodCallHandler(null)
         activity.unregisterReceiver(screenOffReceiver)
         entries.values.toList().forEach(::disposeEntry)
@@ -1431,7 +1662,7 @@ class LibVlcPlayerHost(
     private fun maybeShutdownQueue() {
         // An open completing after dispose still owns a Media/descriptor. Its main-thread
         // handoff must enqueue cleanup before the final engine release and queue shutdown.
-        if (!closed || pendingCreations != 0 || queueShutdown) return
+        if (!closed || preparingEngine || pendingCreations != 0 || queueShutdown) return
         queueShutdown = true
         nativeQueue.execute {
             try { libVlc?.release() } catch (error: Exception) {

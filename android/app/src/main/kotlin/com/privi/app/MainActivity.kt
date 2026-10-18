@@ -1,6 +1,7 @@
 package com.privi.app
 
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.content.res.Configuration
 import android.net.Uri
 import android.media.AudioManager
@@ -31,6 +32,7 @@ class MainActivity : FlutterFragmentActivity() {
     private var pictureInPicture: PictureInPictureHandler? = null
     private var orientation: OrientationHandler? = null
     private var libVlcPlayers: LibVlcPlayerHost? = null
+    private var compositionDiagnostics: FlutterCompositionDiagnostics? = null
 
     private fun <T> runIo(result: MethodChannel.Result, block: () -> T) {
         ioExecutor.execute {
@@ -215,7 +217,33 @@ class MainActivity : FlutterFragmentActivity() {
                     "getWindowDiagnostics" -> {
                         result.success(mapOf(
                             "activity-window-focused" to hasWindowFocus(),
-                        ) + pictureInPicture?.diagnostics().orEmpty())
+                        ) + pictureInPicture?.diagnostics().orEmpty() +
+                            compositionDiagnostics?.let {
+                                mapOf("flutter-composition" to it.snapshot())
+                            }.orEmpty())
+                    }
+                    "startCompositionDiagnostics" -> {
+                        if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE == 0) {
+                            result.error("composition_probe_debug_only", "Composition observation requires a debug build", null)
+                        } else {
+                            val view = findViewById<FlutterView>(FlutterFragment.FLUTTER_VIEW_ID)
+                            if (view == null || !view.isAttachedToWindow) {
+                                result.error("view_unavailable", "Flutter view is not attached", null)
+                            } else {
+                                compositionDiagnostics?.stop()
+                                compositionDiagnostics = FlutterCompositionDiagnostics(view, mainHandler)
+                                result.success(null)
+                            }
+                        }
+                    }
+                    "stopCompositionDiagnostics" -> {
+                        if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE == 0) {
+                            result.error("composition_probe_debug_only", "Composition observation requires a debug build", null)
+                        } else {
+                            compositionDiagnostics?.stop()
+                            compositionDiagnostics = null
+                            result.success(null)
+                        }
                     }
                     "getFlutterViewScreenOffset" -> {
                         val view = findViewById<FlutterView>(FlutterFragment.FLUTTER_VIEW_ID)
@@ -269,6 +297,8 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     override fun onDestroy() {
+        compositionDiagnostics?.stop()
+        compositionDiagnostics = null
         libVlcPlayers?.dispose()
         libVlcPlayers = null
         pictureInPicture?.dispose()
