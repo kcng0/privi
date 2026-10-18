@@ -158,3 +158,10 @@ Hacker 首轮发现的源位深保护合同反证已用于收窄上述声明；�
 锁屏权限与 view 生命周期分开：root lock/PiP 仍是唯一授权 owner；原生默认隐藏，锁屏/后台/熄屏撤授权并暂停，临时 PiP view 重挂不会获得额外权限。各 view 单独保存 fit 模式。原生错误仅由明确的 fatal player 事件传播，调试日志不会再次污染 video_player facade。iOS 保留 AVFoundation。
 
 旧 mpv 原生回归和 profile 代码都显式安装旧 adapter，不能作为 LibVLC 真路径证据。当前环境没有连接 Android 手机，也无可运行模拟器；源码/SDK 编译及既有 Flutter tests 只作探针。验收必须保留“native 真播放、字幕与 Surface 叠层、PiP/屏幕遮挡、A52 2×音画和持续温度未验”的明确边界，直到取得实际输出。最终验收与发布结果随交付补记。
+
+
+本轮独立 Hacker 为 `/root/libvlc_hacker`，两轮最终适用代码快照 `dc70d5e907328c236cfdaed3377b19d86f0e5646`，结论 partial。首轮建立两个实现反例：facade 自然完成会先发 pause/seek，旧 completed 标志因此丢失、LibVLC ended input 不能重播；新 SurfaceView 路径也漏掉默认防休眠。现已分离 nativeEnded 并重开 Media、保留控制意图；仅授权且真播放的当前 Surface 保持亮屏，暂停/撤权清除。Hacker 第二轮确认实现原因消除，无新的确定性反例。临时边界探针还确认 init barrier、创建失败可 dispose、睡眠开关传递，以及 grant 等待期间锁定不会下发 play；它们不构成 Android 实播证据。
+
+[最终 CI](https://github.com/kcng0/privi/actions/runs/39122616315) 静态分析及 437 项既有测试通过；[正式构建](https://github.com/kcng0/privi/actions/runs/39122686064) 已成功发布 [v1.1.2 (40)](https://github.com/kcng0/privi/releases/tag/v1.1.2)。下载的实际 APK 已核对包名 com.privi.app、非 debug、正式签名与上一版一致；不含 libmpv，ARM64 libvlc.so/libvlcjni.so 与官方 3.7.7 AAR 内容一致。APK 232194147 bytes；SHA-256 `77143bfff97408a351fef1c54857e769d06211e1f00ea0ef1b80037f384d514e`。匿名 `/releases/latest` 已返回 v1.1.2，因此用户可沿“设置 → 检查更新”取得完整安装包。
+
+真实验收入口：Visible/Invisible → 内置视频播放 → 菜单/长按 2×、回 1×、横向拖动释放；高级字幕/音轨/延迟/AB；PiP → 返回/熄屏/解锁。Android 实际画面和声音、字幕层级、Surface 重挂、熄屏及 A52 同片性能仍未验，继续由 issue #59 跟踪；本次交付是可安装对照版本，不能以发布成功宣称卡顿已解决。

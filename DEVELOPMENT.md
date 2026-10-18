@@ -278,6 +278,8 @@ Record actual visible output and sound; media-clock progress, decoder counters
 and Flutter frame timings are not display FPS. This checkout has no connected
 Android device or KVM; any missing native true-path evidence must remain marked
 unverified and must not be described as a performance fix proven on A52.
+LibVLC first ships in `v1.1.2+40`; its two-round independent implementation review
+resolved replay/keep-screen-on counterexamples, with physical acceptance pending.
 Primary-source research and the historical diagnostic limitations are recorded in
 `docs/05-review/video-performance-practices-2026-10-18.md`.
 
