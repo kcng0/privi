@@ -174,6 +174,19 @@ both orientations. Touch lock disables gestures and tools until explicitly
 unlocked. Video Back exits; an open settings/track panel is dismissed first.
 Vertical swipes on the left adjust window brightness and those on the right
 adjust media volume. Heart rating remains in the settings sheet.
+Long press hides the regular controls and shows only a temporary 2x badge;
+speed changes and restoration are serialized for that controller. The chosen
+persistent speed is unchanged. Horizontal swipes keep playback running, update
+only the time feedback, and submit one exact seek on release. They do not start
+a second preview decoder. Timeline scrubbing retains bounded thumbnail previews,
+but release cancels queued previews immediately, before awaiting the final seek;
+an already-running platform decode may finish and its result is discarded.
+Android exact seeking permits the decoder to drop eligible frames before the
+target, rather than forcing every pre-target frame through full decoding.
+An active scrub/seek suppresses automatic
+playlist advancement until it settles; if a playing video naturally finishes
+during a swipe, restarting at its chosen target still requires the lifecycle
+owner's current playback permission.
 
 Default orientation follows Android's `FULL_SENSOR`, independently of the
 system rotation lock. The session direction menu and axis-lock control survive
@@ -194,9 +207,10 @@ Android retains the existing media_kit/mpv decoder behind video_player. Per-play
 advanced capabilities expose tracks, local subtitles, audio/subtitle delay, and
 A-B repeat. libass renders styled subtitles using the bundled Noto CJK font;
 font provenance and licensing are in `assets/fonts`. iOS keeps AVFoundation and
-only advertises capabilities that it actually implements. Preview extraction
-is serialized and shared between timeline/gesture controls, with a bounded
-session-only cache; Android API 27+ decodes bounded preview frames directly.
+only advertises capabilities that it actually implements. Timeline preview
+extraction is serialized with a bounded session-only cache; Android API 27+
+decodes bounded preview frames directly. Preview callbacks belong to their
+controller so a late scrub cannot request frames from the next video.
 
 The pinned `third_party/media_kit_video` 2.0.1 override fixes Android callbacks
 that outlive disposal during a failed decoder attempt. `PRIVI_PATCH.md` records

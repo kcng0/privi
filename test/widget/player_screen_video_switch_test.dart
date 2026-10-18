@@ -250,6 +250,61 @@ void main() {
   }
 
   for (final entry in ['playlist', 'viewer', 'gallery']) {
+    testWidgets('$entry hides regular controls throughout long press',
+        (tester) async {
+      await tester.pumpWidget(videoApp(entry));
+      await drain(tester);
+      videoPlatform.initializeFirstPlayer();
+      await drain(tester);
+      final video =
+          tester.widget<VideoViewport>(find.byType(VideoViewport)).controller;
+      expect(find.byIcon(Icons.arrow_back), findsOneWidget);
+      final point =
+          tester.getRect(find.byType(VideoGestureSurface)).centerLeft +
+              const Offset(24, 0);
+      final hold = await tester.startGesture(point);
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(video.value.playbackSpeed, 2);
+      expect(find.text('2x'), findsOneWidget);
+      expect(find.byIcon(Icons.arrow_back), findsNothing);
+      await hold.up();
+      await tester.pump();
+      expect(video.value.playbackSpeed, 1);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await drain(tester);
+    });
+
+    testWidgets('$entry retains the current video at EOF during a swipe',
+        (tester) async {
+      await tester.pumpWidget(videoApp(entry));
+      await drain(tester);
+      videoPlatform.initializeFirstPlayer();
+      await drain(tester);
+      final video =
+          tester.widget<VideoViewport>(find.byType(VideoViewport)).controller;
+      final point =
+          tester.getRect(find.byType(VideoGestureSurface)).centerLeft +
+              const Offset(80, 0);
+      final swipe = await tester.startGesture(point);
+      await swipe.moveBy(const Offset(-60, 0));
+      await tester.pump(const Duration(seconds: 2));
+      videoPlatform.completeFirstPlayer();
+      await drain(tester);
+      expect(
+        tester.widget<VideoViewport>(find.byType(VideoViewport)).controller,
+        same(video),
+      );
+      await swipe.up();
+      await drain(tester);
+      expect(
+        tester.widget<VideoViewport>(find.byType(VideoViewport)).controller,
+        same(video),
+      );
+      expect(video.value.isPlaying, isTrue);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await drain(tester);
+    });
+
     testWidgets('$entry handles PiP revocation before the window expands',
         (tester) async {
       tester.view.devicePixelRatio = 1;

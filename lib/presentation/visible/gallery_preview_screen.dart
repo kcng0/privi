@@ -483,6 +483,7 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen>
         mediaId: _current.id,
         fitMode: _fitMode,
         onTap: _toggleChrome,
+        onFastForwardStarted: _hideChrome,
         onUserSeek: _markUserSeek,
       );
     }
@@ -572,6 +573,7 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen>
       child: ValueListenableBuilder<VideoPlayerValue>(
         valueListenable: video,
         builder: (context, value, _) => VideoBottomControls(
+          key: ObjectKey(video),
           value: value,
           landscape: landscape,
           fitMode: _fitMode,
@@ -589,7 +591,10 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen>
           onPictureInPicture: videoPipSupported
               ? () => unawaited(enterVideoPictureInPicture())
               : null,
-          onPreviewFrameRequested: videoPreviewFrame,
+          onPreviewFrameRequested: (position) =>
+              videoPreviewFrame(video, position),
+          onPreviewCancelled: () => clearVideoPreview(video),
+          onSeekStarted: () => beginVideoSeek(video),
         ),
       ),
     );

@@ -123,6 +123,8 @@ class VideoBottomControls extends StatefulWidget {
     required this.onChooseFit,
     required this.onOpenSettings,
     this.onPreviewFrameRequested,
+    this.onPreviewCancelled,
+    this.onSeekStarted,
     this.showTransport = true,
     this.onOpenTracks,
     this.onPictureInPicture,
@@ -144,6 +146,8 @@ class VideoBottomControls extends StatefulWidget {
   final VoidCallback onChooseFit;
   final VoidCallback onOpenSettings;
   final Future<Uint8List?> Function(Duration position)? onPreviewFrameRequested;
+  final VoidCallback? onPreviewCancelled;
+  final VoidCallback Function()? onSeekStarted;
 
   @override
   State<VideoBottomControls> createState() => _VideoBottomControlsState();
@@ -155,33 +159,67 @@ class _VideoBottomControlsState extends State<VideoBottomControls> {
   Uint8List? _previewFrame;
   Duration? _previewPosition;
   int _previewGeneration = 0;
+  int _seekGeneration = 0;
+  VoidCallback? _finishSeekInteraction;
 
   @override
   void dispose() {
     _previewGeneration++;
+    _seekGeneration++;
+    _finishSeekInteraction?.call();
+    widget.onPreviewCancelled?.call();
     super.dispose();
   }
 
   Future<void> _finishScrub(double positionMs) async {
-    await widget.onSeek(Duration(milliseconds: positionMs.round()));
-    if (mounted) {
-      setState(() {
-        _scrubbing = false;
-        _scrubPositionMs = null;
-        _clearPreview();
-      });
+    final generation = ++_seekGeneration;
+    final finishSeeking = _finishSeekInteraction;
+    _finishSeekInteraction = null;
+    widget.onPreviewCancelled?.call();
+    setState(() {
+      _scrubbing = false;
+      _scrubPositionMs = positionMs;
+      _clearPreview();
+    });
+    try {
+      await widget.onSeek(Duration(milliseconds: positionMs.round()));
+    } catch (error, stackTrace) {
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: error,
+          stack: stackTrace,
+          library: 'Privi video seeking',
+        ),
+      );
+    } finally {
+      finishSeeking?.call();
+      if (mounted && generation == _seekGeneration) {
+        setState(() => _scrubPositionMs = null);
+      }
     }
+  }
+
+  void _startScrub(double positionMs) {
+    _finishSeekInteraction?.call();
+    _finishSeekInteraction = widget.onSeekStarted?.call();
+    setState(() {
+      _seekGeneration++;
+      _scrubbing = true;
+      _scrubPositionMs = positionMs;
+    });
   }
 
   void _schedulePreview(double positionMs) {
     final request = widget.onPreviewFrameRequested;
-    if (request == null) return;
+    if (request == null || !_scrubbing) return;
     final position = Duration(milliseconds: positionMs.round());
     final generation = ++_previewGeneration;
     unawaited(() async {
       try {
         final frame = await request(position);
-        if (!mounted || generation != _previewGeneration) return;
+        if (!mounted || !_scrubbing || generation != _previewGeneration) {
+          return;
+        }
         setState(() {
           _previewFrame = frame;
           _previewPosition = frame == null ? null : position;
@@ -247,12 +285,7 @@ class _VideoBottomControlsState extends State<VideoBottomControls> {
                               setState(() => _scrubPositionMs = next);
                               _schedulePreview(next);
                             },
-                      onChangeStart: durationMs <= 0
-                          ? null
-                          : (next) => setState(() {
-                                _scrubbing = true;
-                                _scrubPositionMs = next;
-                              }),
+                      onChangeStart: durationMs <= 0 ? null : _startScrub,
                       onChangeEnd: durationMs <= 0
                           ? null
                           : (next) => unawaited(_finishScrub(next)),
@@ -268,7 +301,7 @@ class _VideoBottomControlsState extends State<VideoBottomControls> {
                             alignment: Alignment.centerLeft,
                             child: _timeLabel(
                               formatVideoProgress(
-                                _scrubbing
+                                _scrubPositionMs != null
                                     ? Duration(
                                         milliseconds: positionMs.round(),
                                       )

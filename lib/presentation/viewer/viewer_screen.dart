@@ -593,6 +593,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
       mediaId: item.id,
       fitMode: _fitMode,
       onTap: _toggleChrome,
+      onFastForwardStarted: _hideChrome,
       onUserSeek: _markUserSeek,
     );
   }
@@ -692,6 +693,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
         valueListenable: video,
         builder: (context, value, _) {
           return VideoBottomControls(
+            key: ObjectKey(video),
             value: value,
             landscape: landscape,
             fitMode: _fitMode,
@@ -709,7 +711,10 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
             onPictureInPicture: videoPipSupported
                 ? () => unawaited(enterVideoPictureInPicture())
                 : null,
-            onPreviewFrameRequested: videoPreviewFrame,
+            onPreviewFrameRequested: (position) =>
+                videoPreviewFrame(video, position),
+            onPreviewCancelled: () => clearVideoPreview(video),
+            onSeekStarted: () => beginVideoSeek(video),
           );
         },
       ),
