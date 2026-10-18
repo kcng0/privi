@@ -203,3 +203,10 @@ Hacker 第 1 轮在 `34ec5ba` 的实际原生结果中确认：真实 ADB 点击
 只读 critic 排除了仅把 Flutter 根 View 改为 TextureView 的方案：当前 HC 仍无条件转 FlutterImageView 并合并线程。候选只在生产 manifest 显式采用当前版本[官方支持的 Skia opt-out](https://docs.flutter.dev/perf/impeller#android)，保留 LibVLC/SurfaceView/授权与生命周期合同；不能仅在测试禁用 Impeller。此选项已被上游标记 deprecated，后续升级需重查；它影响全部 Android Flutter UI，不能称为已证明的性能提升。须用相同原生全流程和实际 Shorebird 正式 APK 验证恢复、触控、锁屏/路由及视觉，再决定发布；当前候选尚未验。
 
 同一诊断运行的外部 ASS 稳态真实图有中文字；第一次普通 seek(1000) 后 HUD1.000/frame24 已无字，此时 delay=0/无 A–B，说明导入本身可用、单次 seek 即能触发。之后 delay 阶段截图文字恢复，但同时 inputReopen 从1变2，不能把它解释为 delay 修复；A–B 再次 seek 后 HUD0.500/frame12 无字。SDK actual delay 与125000/-250000微秒 intent一致，SPU4及Surface持续有效，native作者继续定位 seek 后字幕状态。
+
+
+快照 `ea38fb6` 的[作者原生运行](https://github.com/kcng0/privi/actions/runs/39135752805) 提前失败，尚未走到熄屏恢复，不能判断 Skia 候选已有效。原生日志确认 ended input 内部重开会先发 Stopped 再发 Playing；旧 facade 把这个临时 Stopped 当暂停。在长按倍率请求返回后，手势层原有的生命周期保护会在 facade 已暂停时再次 pause，因此这是可影响真实长按的生产状态反例。修复仅为有效授权与播放意图下的内部重开保留 facade 播放意图，并标明 buffering；真实 pause/revoke/failure 和既有 25 秒启动超时继续生效。该候选需下一次实际原生运行。
+
+同一轮字幕截图后探针恰跨越 3 秒素材片尾：reopen 3→4、Playing→Opening、position 0，不能以截图完成后的单次 SDK 状态断言持续卡死。验收现保留原始 opening 时间线并有界等待 Playing；图片本身只取一次、字幕/比例/运动标准不变。长按和松手也在原有 12 秒观察窗内等待真实 2× 徽标出现/消失，不主动 pump 或重发 DOWN/UP。新增只读 gfxinfo framestats 用于现场 UI 数据，不代表视频 FPS。
+
+旧版正式 APK 的真 UI 校准已实际完成首次图案设置、关闭 Block screenshots（之后严格要求有效 PNG）和选择内置播放器；随后停在系统照片/视频 ALLOW 弹窗识别，尚未进入播放。它仅用于校准真实首启路径，不是新版 APK 验收证据。下一版必须使用新的同一签名 APK artifact 完成实际播放、长按、PiP/熄屏返回，再将原包发布。

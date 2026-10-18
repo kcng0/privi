@@ -131,6 +131,7 @@ class LibVlcPlayerHost(
         var looping = false
         // Native EndReached must survive facade seekTo(0) until a fresh input is opened.
         @Volatile var nativeEnded = false
+        var inputRestarting = false
         var mixWithOthers = false
         var preventsDisplaySleep = true
         var volume = 1.0
@@ -695,6 +696,13 @@ class LibVlcPlayerHost(
                 entry.pendingPosition = null
                 trace(entry, "reopen-satisfies-seek-zero")
             }
+            if (entry.nativeEnded) {
+                // Replacing an ended input can report Stopped before its new
+                // Playing event. Preserve the owner's play intent during this
+                // bounded transition instead of reporting a user pause.
+                entry.inputRestarting = true
+                updateBuffering(entry)
+            }
             if (entry.playerTimeout == null) {
                 entry.playerTimeout = Runnable {
                     if (!entry.playing && entry.wantsPlay) fail(entry, "playback_timeout", "LibVLC did not start playback in time")
@@ -713,6 +721,11 @@ class LibVlcPlayerHost(
                     }
                     check(player.setVolume((entry.volume * 100).roundToInt()) == 0) { "LibVLC rejected volume" }
                     setRate(player, entry.speed)
+                    // setMedia can block while retiring the old input. A real
+                    // pause, revocation, or surface handoff during that work
+                    // must still prevent this queued play from starting.
+                    if (entry.disposed || !entry.allowed || !entry.wantsPlay || !entry.viewportAttached ||
+                        !entry.surfacesReady || entry.surfaceGeneration != generation) return@execute
                     trace(entry, "native-play")
                     player.play()
                 } catch (error: Exception) {
@@ -773,6 +786,7 @@ class LibVlcPlayerHost(
                 entry.playerTimeout?.let(main::removeCallbacks)
                 entry.playerTimeout = null
                 entry.playing = true
+                entry.inputRestarting = false
                 entry.surfaceSuspended = false
                 updateBuffering(entry)
                 entry.nativeEnded = false
@@ -803,7 +817,9 @@ class LibVlcPlayerHost(
                 trace(entry, if (event.type == MediaPlayer.Event.Paused) "event-paused" else "event-stopped")
                 entry.playing = false
                 updateAwake(entry)
-                if (!entry.surfaceSuspended || !entry.allowed || !entry.wantsPlay) {
+                val internalInputStop = event.type == MediaPlayer.Event.Stopped &&
+                    entry.inputRestarting && entry.allowed && entry.wantsPlay
+                if (!internalInputStop && (!entry.surfaceSuspended || !entry.allowed || !entry.wantsPlay)) {
                     emit(entry, mapOf("event" to "isPlayingStateUpdate", "isPlaying" to false))
                 }
             }
@@ -827,7 +843,7 @@ class LibVlcPlayerHost(
                 }
             }
             MediaPlayer.Event.Buffering -> {
-                entry.nativeBuffering = event.buffering < 100f
+                entry.nativeBuffering = entry.allowed && event.buffering < 100f
                 updateBuffering(entry)
             }
             MediaPlayer.Event.TimeChanged -> {
@@ -1101,6 +1117,7 @@ class LibVlcPlayerHost(
 
     private fun pause(entry: Entry) {
         entry.wantsPlay = false
+        entry.inputRestarting = false
         entry.surfaceSuspended = false
         updateBuffering(entry)
         entry.surfaceRecovery?.let(main::removeCallbacks)
@@ -1111,7 +1128,8 @@ class LibVlcPlayerHost(
     }
 
     private fun updateBuffering(entry: Entry) {
-        val buffering = entry.nativeBuffering || entry.surfaceSuspended
+        val buffering = !entry.disposed && entry.failure == null && entry.allowed &&
+            (entry.nativeBuffering || entry.surfaceSuspended || entry.inputRestarting)
         if (buffering != entry.buffering) {
             entry.buffering = buffering
             emit(entry, mapOf("event" to if (buffering) "bufferingStart" else "bufferingEnd"))
@@ -1138,6 +1156,7 @@ class LibVlcPlayerHost(
 
     private fun revoke(entry: Entry) {
         entry.allowed = false
+        entry.nativeBuffering = false
         finishSurfaceFrameRequest(entry)
         entry.views.forEach { it.setPresentationVisible(false) }
         pause(entry)
@@ -1232,6 +1251,7 @@ class LibVlcPlayerHost(
             "font-cache-valid" to (fontCacheValid?.toString() ?: "not-built"),
             "font-cache-build-ms" to (fontCacheBuildMs?.toString() ?: "not-built"),
             "input-reopen-count" to entry.inputReopenCount.toString(),
+            "input-restarting" to entry.inputRestarting.toString(),
             "pending-seek-ms" to (entry.pendingPosition?.toString() ?: "none"),
             "native-player-created" to (entry.player != null).toString(),
             "active-view-id" to (entry.activeView?.platformViewId?.toString() ?: "none"),
@@ -1291,7 +1311,7 @@ class LibVlcPlayerHost(
             "allowed=${entry.allowed} wanted=${entry.wantsPlay} playing=${entry.playing} " +
             "created=${entry.player != null} shown=${view?.presentable} window=${view?.windowVisible} " +
             "ready=${entry.surfacesReady} generation=${entry.surfaceGeneration} " +
-            "reopen=${entry.inputReopenCount} pending=${entry.pendingPosition} " +
+            "reopen=${entry.inputReopenCount} restarting=${entry.inputRestarting} pending=${entry.pendingPosition} " +
             "request=${entry.frameRequestGeneration}")
     }
 
@@ -1323,6 +1343,11 @@ class LibVlcPlayerHost(
         if (entry.disposed) return
         entry.allowed = false
         entry.wantsPlay = false
+        entry.playing = false
+        entry.inputRestarting = false
+        entry.surfaceSuspended = false
+        entry.nativeBuffering = false
+        entry.buffering = false
         finishSurfaceFrameRequest(entry)
         entry.viewportAttached = false
         entry.surfaceGeneration++

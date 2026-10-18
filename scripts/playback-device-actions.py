@@ -68,6 +68,7 @@ def save_graphics_state(prefix):
         "display": ["shell", "dumpsys", "display"],
         "surfaceflinger": ["shell", "dumpsys", "SurfaceFlinger"],
         "threads": ["shell", "ps", "-T", "-A"],
+        "gfxinfo-framestats": ["shell", "dumpsys", "gfxinfo", "com.privi.app", "framestats"],
     }
     report = {"captured_monotonic": time.monotonic(), "files": {}}
     for name, arguments in commands.items():
@@ -366,6 +367,7 @@ class ReleaseSmoke:
         self.events = []
         self.last_video = None
         self.screenshots_required = False
+        self.gallery_permission_granted = False
 
     def note(self, event, **values):
         self.events.append({"event": event, "monotonic": time.monotonic(), **values})
@@ -447,12 +449,17 @@ class ReleaseSmoke:
                     value == label or value.startswith(label + "\n")
                     for value in (node.get("text", ""), node.get("content-desc", "")))]
 
-    def find(self, label, *, timeout=20, scroll=False):
+    def find(self, label, *, timeout=20, scroll=False, resource_id=None, gallery_permission=False):
         deadline = time.monotonic() + timeout
         swipes = 0
         while True:
             root = self.ui("find")
-            nodes = self.matches(root, label)
+            if gallery_permission and self.allow_gallery_permission(root):
+                self.unlock_if_needed()
+                continue
+            nodes = ([node for node in root.iter("node")
+                      if node.get("resource-id") == resource_id and node.get("enabled") != "false"]
+                     if resource_id else self.matches(root, label))
             if nodes:
                 clickable = [node for node in nodes if node.get("clickable") == "true"]
                 candidates = clickable or nodes
@@ -476,6 +483,20 @@ class ReleaseSmoke:
         left, top, right, bottom = self.bounds(node)
         adb("shell", "input", "tap", str((left + right) // 2), str((top + bottom) // 2))
         self.note("tap", label=label, bounds=[left, top, right, bottom])
+
+    def allow_gallery_permission(self, root):
+        identifier = "com.android.permissioncontroller:id/permission_allow_button"
+        if not any(node.get("resource-id") == identifier for node in root.iter("node")):
+            return False
+        messages = [node.get("text", "") for node in root.iter("node")
+                    if node.get("resource-id") == "com.android.permissioncontroller:id/permission_message"]
+        if len(messages) != 1 or "photos and videos" not in messages[0].casefold():
+            raise RuntimeError(f"Unexpected system permission prompt: {messages}")
+        if self.gallery_permission_granted:
+            raise RuntimeError("Photos/videos permission remained or reappeared after one actual Allow tap")
+        self.tap("Allow gallery photos and videos", resource_id=identifier)
+        self.gallery_permission_granted = True
+        return True
 
     def switch(self, label, enabled, *, scroll=False):
         def control_for(root, node):
@@ -721,14 +742,20 @@ def release_smoke(artifact_directory):
         adb("shell", "input", "keyevent", "4")
         smoke.tap("Visible")
         root = smoke.ui("media-filter")
+        if smoke.allow_gallery_permission(root):
+            smoke.unlock_if_needed()
+            root = smoke.ui("media-filter-after-permission")
         if smoke.matches(root, "Photos only · tap for videos"):
             smoke.tap("Photos only · tap for videos")
         root = smoke.ui("gallery-permission")
         if smoke.matches(root, "Grant permission"):
             smoke.tap("Grant permission")
-            smoke.tap("Allow")
+            prompt, _ = smoke.find(
+                "Allow gallery photos and videos",
+                resource_id="com.android.permissioncontroller:id/permission_allow_button")
+            smoke.allow_gallery_permission(prompt)
             smoke.unlock_if_needed()
-        _, folder = smoke.find("PriviReleaseSmoke")
+        _, folder = smoke.find("PriviReleaseSmoke", gallery_permission=True)
         left, top, right, bottom = smoke.bounds(folder)
         adb("shell", "input", "swipe", str((left + right) // 2), str((top + bottom) // 2),
             str((left + right) // 2), str((top + bottom) // 2), "1000")

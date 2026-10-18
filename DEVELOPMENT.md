@@ -244,6 +244,11 @@ the root lock/PiP lifecycle, independently of controller cleanup.
 Reopening an ended input already starts at zero; it must not also inject a
 startup seek to zero, including video_player's explicit replay seek. Running
 seeks to zero and nonzero pending seeks/A–B starts remain native seeks.
+An ended input replacement keeps its play intent through LibVLC's intermediate
+Stopped event until the new input reaches Playing. This bounded native transition
+is buffering, rather than a user pause; explicit pause, revoked presentation and
+failures still stop playback. The existing playback timeout reports a replacement
+that cannot start.
 
 Presentation is denied by default. The existing root lock/PiP owner grants the
 current controller before play, and hides its native video/subtitle surfaces
@@ -430,8 +435,11 @@ but creates no GitHub tag or public release. The native validation workflow can
 install that artifact using its `release_run_id` input. After real APK acceptance,
 run the release workflow at the same commit with `publish_run_id` set to the
 successful staged run, `stage_only=false`, and optional `release_notes`. This
-checks the source workflow/repository/commit and checksums, then publishes the
-same APK without rebuilding. Keep the verified source ref fixed; if app code
+checks the source workflow/repository/commit and checksums, rejects an existing
+tag pointing to another commit, then publishes the same APK without rebuilding.
+Before publishing, match the successful native validation report's
+`release_run_id` and APK SHA-256 to this staged artifact; a successful build or
+publish job is not playback acceptance. Keep the verified source ref fixed; if app code
 changes after a Shorebird base has been registered, increment the build number
 and validate the new base rather than overwriting it.
 

@@ -355,6 +355,17 @@ jobs:
           NAME="${FULL%%+*}"
           TAG="v${NAME}"
           [ -z "$DISPATCH_TAG" ] || [ "$DISPATCH_TAG" = "$TAG" ]
+          # An existing tag makes GitHub ignore target_commitish. Reject a
+          # mismatched source tag rather than publishing correct bytes with
+          # source archives from another commit; never move an existing tag.
+          TAG_REFS="$RUNNER_TEMP/staged-tag-refs.txt"
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" "refs/tags/$TAG^{}" > "$TAG_REFS"; then
+            TAG_COMMIT=$(awk 'NR == 1 { direct = $1 } /\^\{\}$/ { peeled = $1 } END { print peeled != "" ? peeled : direct }' "$TAG_REFS")
+            [ "$TAG_COMMIT" = "$GITHUB_SHA" ] || { echo "error: existing $TAG points to another commit" >&2; exit 1; }
+          else
+            REMOTE_STATUS=$?
+            [ "$REMOTE_STATUS" -eq 2 ] || exit "$REMOTE_STATUS"
+          fi
           {
             echo "tag=$TAG"
             echo "version=$NAME"

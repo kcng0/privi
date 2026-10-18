@@ -438,6 +438,45 @@ void main() {
   testWidgets(
     'native audio, ASS subtitles, delays, rate and A-B controls',
     (tester) async {
+      Future<Map<String, String>> awaitAssPlaying(
+        VideoPlayerController controller,
+        AdvancedVideoController advanced,
+        String label, {
+        required String readinessMetric,
+      }) async {
+        const timeout = Duration(seconds: 12);
+        final watch = Stopwatch()..start();
+        final observations = <Map<String, Object?>>[];
+        (metrics[readinessMetric] as Map<String, dynamic>? ??
+                (metrics[readinessMetric] = <String, dynamic>{}))[label] =
+            observations;
+        while (watch.elapsed < timeout) {
+          final native = await recordDiagnostics(
+            controller,
+            advanced,
+            label,
+          ).timeout(timeout - watch.elapsed);
+          final probe = (metrics['native_diagnostics_probes']
+              as Map<String, dynamic>)[label] as Map<String, dynamic>;
+          observations.add({
+            'elapsed-ms': watch.elapsedMilliseconds,
+            'native-player-state': native['native-player-state'],
+            'native-is-playing': native['native-is-playing'],
+            'input-reopen-count': native['input-reopen-count'],
+            'native-position-ms': probe['native-position-ms'],
+            'facade-position-ms': probe['facade-position-ms'],
+            'captured-at': probe['captured-at'],
+          });
+          if (native['native-is-playing'] == 'true') return native;
+          // A legal 3s loop reopens its input at EOF. Observe that transition
+          // without pumping, seeking, replaying or retrying a captured image.
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+        }
+        throw StateError(
+          'ASS did not resume native Playing within 12s: $label $observations',
+        );
+      }
+
       // Isolate steady embedded ASS playback from the later external-subtitle,
       // seek and A-B scenario. Source pixels (including CJK and burned-in HUD)
       // remain the visual evidence; clocks below are separate diagnostic probes.
@@ -455,8 +494,13 @@ void main() {
         await steady.play();
         await Future<void>.delayed(const Duration(milliseconds: 800));
         Future<void> checkSteadyCue(String label) async {
+          final native = await awaitAssPlaying(
+            steady,
+            steadyAdvanced,
+            label,
+            readinessMetric: 'ass_embedded_readiness',
+          );
           final position = await steady.position;
-          final native = await recordDiagnostics(steady, steadyAdvanced, label);
           expect(position, isNotNull);
           expect(
             position!.inMilliseconds,
@@ -528,6 +572,36 @@ void main() {
           compareTo: first['id'] as String,
         );
         await checkSteadyCue('ass-steady-second-after');
+
+        // Same embedded ASS input: ordinary seek before any external slave,
+        // subtitle delay or A-B configuration, for the decoder comparison.
+        await steady.seekTo(const Duration(milliseconds: 1000));
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+        await awaitAssPlaying(
+          steady,
+          steadyAdvanced,
+          'ass-embedded-after-seek-1000-before',
+          readinessMetric: 'ass_embedded_readiness',
+        );
+        expect(
+          (await steady.position)?.inMilliseconds,
+          inInclusiveRange(0, 2999),
+        );
+        await screenshot(
+          tester,
+          'portrait-ass-embedded-after-seek-1000',
+          aspect: 180 / 320,
+        );
+        await awaitAssPlaying(
+          steady,
+          steadyAdvanced,
+          'ass-embedded-after-seek-1000-after',
+          readinessMetric: 'ass_embedded_readiness',
+        );
+        expect(
+          (await steady.position)?.inMilliseconds,
+          inInclusiveRange(0, 2999),
+        );
       } finally {
         steadyAdvanced.dispose();
         await tester.pumpWidget(const SizedBox.shrink());
@@ -551,13 +625,19 @@ void main() {
         await external.play();
         await Future<void>.delayed(const Duration(milliseconds: 800));
 
+        Future<Map<String, String>> awaitExternalPlaying(String label) =>
+            awaitAssPlaying(
+              external,
+              externalAdvanced,
+              label,
+              readinessMetric: 'ass_external_readiness',
+            );
+
         Future<Map<String, dynamic>> externalFrame(
           String phase, {
           String? compareTo,
         }) async {
-          final before = await recordDiagnostics(
-            external,
-            externalAdvanced,
+          final before = await awaitExternalPlaying(
             'ass-external-$phase-before',
           );
           expect(before['native-is-playing'], 'true');
@@ -572,9 +652,7 @@ void main() {
             aspect: 180 / 320,
             compareTo: compareTo,
           );
-          final after = await recordDiagnostics(
-            external,
-            externalAdvanced,
+          final after = await awaitExternalPlaying(
             'ass-external-$phase-after',
           );
           expect(after['native-is-playing'], 'true');
@@ -984,8 +1062,9 @@ void main() {
           await waitFor(
             () =>
                 controller.value.playbackSpeed == 2 &&
-                rates() == initialRates + 1,
-            'Real Android long press must apply 2x',
+                rates() == initialRates + 1 &&
+                find.text('2x').evaluate().length == 1,
+            'Real Android long press must apply 2x and render its badge',
           );
           expect(find.text('2x'), findsOneWidget);
           expect(find.byTooltip('Player settings'), findsNothing);
@@ -1010,8 +1089,9 @@ void main() {
         await waitFor(
           () =>
               controller.value.playbackSpeed == originalSpeed &&
-              rates() == initialRates + 2,
-          'Android UP must restore the previous speed once',
+              rates() == initialRates + 2 &&
+              find.text('2x').evaluate().isEmpty,
+          'Android UP must restore the previous speed once and remove its badge',
         );
         expect(find.text('2x'), findsNothing);
         await diagnostics('hold-release-1x');
