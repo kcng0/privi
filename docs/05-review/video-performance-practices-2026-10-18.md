@@ -297,3 +297,8 @@ SDK `39155522179` 的三个 ABI 原生任务随后全部编译成功，但 packa
 实际 arm64 产物保留 271 个 built-in modules，包含 MediaCodec、Android display/window、avcodec、dav1d、vpx、libass、freetype、subtitle、Matroska/MP4/AVI 和 Android 音频输出。其 configure 功能开关与官方 arm64 库相同；官方额外的 debug/branch-protection 参数不作为功能裁剪。真实三库的 64-bit PT_LOAD 均为 16KiB 对齐。这些是构建与兼容性探针，尚不能证明字幕呈现、Samsung A52 输出 FPS 或声音。默认 SDK 消费路径已在 `e822ed7` 统一且移除 Maven fallback；永久 manifest 仍待成功 bundle 的真实哈希，不填占位值。
 
 对应源码归档修复随后用旧 run 的三个真实 source-part 检查：同名字节差异包含 fluidlite/postproc/x264；fluidlite 的三个压缩文件解开后 tar SHA 相同，确认该包差异来自压缩层。按内容存储共 70 个对象、349,183,267 bytes，保留各 ABI 原字节且不按文件名任选变体。旧产物未采集 `.githash`，只用于归档探针，不作为新 SDK 或完整 source-offer 复建成功证据。修正后的 producer 将捕获真实 sidecar，并通过对应源码包的 `inputs/scripts/build-libvlc-sdk.sh build --abi …` 在编译前校验并恢复该 ABI 的输入；仍需新的完整三 ABI 构建与实际播放验收。
+
+
+`e344a6c` 的[完整 SDK 39158862339](https://github.com/kcng0/privi/actions/runs/39158862339) 已全成功：prepare、三个 ABI native、package 均成功。20:02:28 UTC 的真实 package 输出为 whole-bundle SHA-256 `e8a8f5e5e4762f5c392f58645ce730e0315a0ea4a22ca4ff90f2782bb5a1de6b`、AAR SHA-256 `2d257e4a9665ff3cf8137fecb7df4edd7ab1ba2bb4dddd785787e44c6a4d8231`，已据此固定生产 manifest，候选升至 `1.1.3+44`。Actions SDK artifact 为 547,363,580 bytes；这是包括对应源码的构建资产，不是 APK 体积。消费者随后必须真实下载并校验全包；当前本地资产复核、字幕实际文字、PiP/熄屏与最终签名 APK 仍待验，不能称已发布。
+
+对应源码文档修正首次解包的 ownership 边界：由宿主普通用户解包、再进入 UID0 容器会被 Git 拒绝。公开 README 现将首次 `tar --no-same-owner` 与 build 放在同 UID0 容器中，不改全局 safe.directory。固定 e344 bundle 保留该源提交的 inputs 文档快照；发布说明链接 app tag 的修正说明。此文档修正不篡改 SDK/native provenance。

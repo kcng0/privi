@@ -109,18 +109,28 @@ source-offer rebuild, extract a fresh copy for each ABI and invoke its
 `--work-dir` pointing at that copy. An app repository checkout is not needed:
 
 ```bash
-# Extract the bundle first, then extract its corresponding-source archive into
-# a new directory for this ABI. SDK_WORK and SDK_PART are fresh absolute paths;
-# use the ABI/image from inputs/third_party/libvlc/source-lock.json.
+# Extract the outer SDK bundle first. SDK_WORK and SDK_PART are fresh absolute
+# directories for this ABI. Use the ABI/image from source-lock.json.
+SDK_SOURCE_ARCHIVE="$PWD/libvlc-corresponding-source.tar.xz"
 mkdir "$SDK_WORK" "$SDK_PART"
-tar -xJf libvlc-corresponding-source.tar.xz -C "$SDK_WORK"
 docker run --rm --platform linux/amd64 --user 0 \
   -e PRIVI_LIBVLC_BUILD_IMAGE="$SDK_IMAGE" \
+  -v "$SDK_SOURCE_ARCHIVE:/sdk-input/corresponding-source.tar.xz:ro" \
   -v "$SDK_WORK:$SDK_WORK" -v "$SDK_PART:$SDK_PART" \
   -w "$SDK_WORK" "$SDK_IMAGE" \
-  bash inputs/scripts/build-libvlc-sdk.sh build --abi "$SDK_ABI" --jobs 2 \
-    --timeout-seconds 18000 --work-dir "$SDK_WORK" --output-dir "$SDK_PART"
+  bash -c '
+    set -euo pipefail
+    tar -xJf /sdk-input/corresponding-source.tar.xz --no-same-owner -C "$1"
+    exec bash "$1/inputs/scripts/build-libvlc-sdk.sh" build --abi "$2" --jobs 2 \
+      --timeout-seconds 18000 --work-dir "$1" --output-dir "$3"
+  ' _ "$SDK_WORK" "$SDK_ABI" "$SDK_PART"
 ```
+
+Unpack and build inside the same container/user, as above. Unpacking on the host
+as a different user and then building as UID 0 causes Git's repository-ownership
+check to fail. Keep that check enabled; no global `safe.directory` change is
+needed. The bundle retains the SDK commit's `inputs/` documentation; use this
+README from the app release tag for the current host/container instructions.
 
 Dependency inputs are content-addressed at `dependency-sources/sha256/<SHA-256>`.
 The original `dependency_sources` inventory and its matching
