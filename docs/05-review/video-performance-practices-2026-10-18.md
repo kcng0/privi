@@ -310,4 +310,13 @@ SDK `39155522179` 的三个 ABI 原生任务随后全部编译成功，但 packa
 
 同轮100handoff及持触/松手动作已执行，采样画面有推进；menu2×两图却同停在3秒素材第71末帧，原运动门严格失败。两个采样各在EOS drain附近，中间存在新input活动，尚不能区分片尾采样别名与实际卡顿；不判2×通过。PiP/SCREEN_OFF未执行。
 
-[同hash签名44 smoke39162751244](https://github.com/kcng0/privi/actions/runs/39162751244)实际从pattern→授权→Hide→Invisible→In order进入，首帧4.5269秒，持触实际2×徽章与画面推进、松手徽章消失及画面推进均有PNG探针。随后blank tap显示控制栏失败：038 PNG在tap开始后2.2475秒内已取得，仍无chrome；039/040 accessibility也没有控件。末端剩59ms的instrument timeout只是错误呈现，不能抹去此前PNG反例。尚未进入PiP与熄屏。公开Latest仍为1.1.2+40，44仅暂存且不准promote；下一步为匹配当前SDK的可选只读subtitle trace和控制栏事件/合成根因调查。A52原片输出FPS、声音和温度仍未验。
+[同hash签名44 smoke39162751244](https://github.com/kcng0/privi/actions/runs/39162751244)实际从pattern→授权→Hide→Invisible→In order进入，首帧4.5269秒，持触实际2×徽章与画面推进、松手徽章消失及画面推进均有PNG探针。随后控制栏观察失败：038 PNG返回并解码在tap开始后2.2475秒内完成，原图无chrome；039/040 accessibility也没有控件。后续独立取证更正：screencap先抓图再压缩传回，完成时间不是取样时间；Flutter同时识别单击/双击，会等待300ms arena，立即启动的截图可能早于可见控件帧，后续XML读取又已很晚。当前不能据这些证据判单击已成功，也不能判控制栏始终不出现。末端剩59ms的instrument timeout不构成新的产品结论，需要在原3s/8s边界内补齐有明确取样阶段的PNG。尚未进入PiP与熄屏。公开Latest仍为1.1.2+40，44仅暂存且不准promote；下一步为匹配当前SDK的可选只读subtitle trace和控制栏事件/合成根因调查。A52原片输出FPS、声音和温度仍未验。
+
+
+[当前SDK只读trace39185913693](https://github.com/kcng0/privi/actions/runs/39185913693)在5f404a5上完成，Frida hooks ready、无probe error，三项delay场景均在完整4分钟窗口内。独立Hacker将cue/flush/action对齐：positive sub23、overlap sub26、queue sub89在seek后创建，但截图时没有put、没有提前delete；只有销毁解除等待后才vout-put并立即delete，未到spu-put。各自buffer97/49/49%后EOF，期间无buffering/decoder wait完成日志。证据支持paused+EOF绕过GetEmpty的forced buffering completion，不支持把这三项归咎于下游cache。此诊断有插桩，不作为吞吐或音频性能证据。
+
+新增0005在paused+EOF+buffering时调用既有GetEmpty完成缓冲，忽略empty返回并保留暂停分支；无clock reference不伪造ready。0006将paused video/SPU单帧grant移到真实decoder flush完成后，防止MediaCodec旧callback先消耗新seek机会。独立源码审查未发现这两处新增可达反例；MediaCodec mutex/flush ack与core video flush形成已核实边界，但不把所有可选codec的pf_flush泛称同步输出屏障。实际函数抽取的96种确定性执行次序中，旧关键路径grant被消费为0，新实现保留1；该探针仍不证明上屏。fresh官方20patch+6patch准备通过，VLC tree `6e663e32f416ae75d01489f0346815959f0adb2c`、JNI tree保持`3063bf30974cb795b13076bb5ae142c6d02f5c30`。需新的三ABI SDK和真实PNG复验。
+
+同次只读run中menu2×采样已变化，但orientation-landscape两图同停在1.875秒/frame45，原运动门严格失败；尚未进入PiP/SCREEN_OFF。root继续定位该Surface/循环边界，不以本轮menu采样称A52性能通过。字幕负delay A-B首帧的待解锁窗口仍需复核。
+
+签名smoke原观察盲区的修正仅限既有harness：A先确认hidden，一次普通tap后在500ms阶段抓无idle的原PNG，保存guest uptime抓屏区间/量化与显式screencap status，标pending-human-PNG-review；不再用晚XML反推A。B仍重新hide/reveal、使用fresh tree普通单击PiP，3秒freshness及原8秒期限不变。PNG chunk/IEND/CRC和元数据错误明确失败，无fallback。临时协议/次序探针通过，Android真路径尚未验，A仍必须逐图审查，不能因脚本继续而判控件呈现通过。

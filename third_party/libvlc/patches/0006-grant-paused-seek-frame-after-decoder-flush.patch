@@ -1,0 +1,32 @@
+--- a/src/input/decoder.c
++++ b/src/input/decoder.c
+@@ -1597,6 +1597,15 @@
+              * harmless). */
+             p_owner->flushing = false;
+ 
++            /* An asynchronous decoder can return an old picture while a flush
++             * is pending. Grant the paused seek frame after the decoder flush
++             * returns, rather than letting that old picture spend the grant.
++             * This branch runs regardless of pause/countdown. */
++            if( p_owner->paused
++             && ( p_owner->fmt.i_cat == VIDEO_ES || p_owner->fmt.i_cat == SPU_ES )
++             && p_owner->frames_countdown == 0 )
++                p_owner->frames_countdown++;
++
+             continue;
+         }
+ 
+@@ -2162,13 +2171,6 @@
+      * a row. */
+     p_owner->flushing = true;
+ 
+-    /* Flush video/spu decoder when paused: increment frames_countdown in order
+-     * to display one frame/subtitle */
+-    if( p_owner->paused
+-     && ( p_owner->fmt.i_cat == VIDEO_ES || p_owner->fmt.i_cat == SPU_ES )
+-     && p_owner->frames_countdown == 0 )
+-        p_owner->frames_countdown++;
+-
+     vlc_fifo_Signal( p_owner->p_fifo );
+     vlc_cond_signal( &p_owner->wait_timed );
+ 

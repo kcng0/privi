@@ -43,6 +43,20 @@ That query can still report the old position: it is not a seek acceptance or
 completion acknowledgement. The app submits seeks after identity/seekability
 checks, ignores this return value and judges recovery by actual playback.
 
+`0005` completes decoder buffering when a paused seek reaches master EOF
+before the normal cache threshold. It invokes the existing forced-buffering
+completion path and ignores its empty result; the input stays paused, without
+ending, repeating, reopening or submitting another seek. Without a usable clock
+reference it retains buffering rather than inventing a ready frame.
+
+`0006` grants the paused video/SPU seek frame after the decoder flush callback
+returns. MediaCodec output that is still arriving during the pending flush can
+otherwise consume the new seek's single-frame allowance, leaving the old image
+on screen. The flush branch already runs before the paused/countdown gate;
+existing positive frame-step counts remain intact. MediaCodec flush waits for
+its output thread, and software decoders submit from the decoder thread. This
+is not a claim that every optional codec implements a synchronous output flush.
+
 Local checks use the actual patched functions with external Python integer
 oracles, comparison against the official legacy selection implementation and
 temporary C/UBSan probes. The arithmetic helper compiles for Android armv7,

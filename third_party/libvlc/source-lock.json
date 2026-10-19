@@ -70,6 +70,14 @@
       "path": "third_party/libvlc/patches/0004-match-native-seek-return-contract.patch",
       "sha256": "adf09024fbae02dc4bfce4f7477a5f4dd9e000d42e974afa139842f7eba560b9",
       "target": "jni"
+    },
+    {
+      "path": "third_party/libvlc/patches/0005-finish-paused-seek-buffering-at-eof.patch",
+      "sha256": "c7105a40bf4f56896f57eac22c2511836e687246d1cd10222f461f8c77fe8cff"
+    },
+    {
+      "path": "third_party/libvlc/patches/0006-grant-paused-seek-frame-after-decoder-flush.patch",
+      "sha256": "383b610efc9f406f4822336b3934f0ae6e8560c520a534d33a7b69793c326657"
     }
   ]
 }

@@ -19,6 +19,7 @@ import time
 import uuid
 import xml.etree.ElementTree as ET
 import zipfile
+import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from PIL import Image, ImageChops, ImageOps, UnidentifiedImageError
@@ -464,6 +465,86 @@ def capture(name, *, timeout=15):
     return path, image
 
 
+def parse_timed_png(payload):
+    """Separate shell timing frames at PNG chunk boundaries, never image lines."""
+    before = re.match(rb"PRIVI_PNG_BEGIN ([0-9]+\.[0-9]{2})\n", payload)
+    if before is None:
+        raise ValueError("Timed PNG is missing its guest start frame")
+    start = before.end()
+    if payload[start:start + 8] != b"\x89PNG\r\n\x1a\n":
+        raise ValueError("Timed PNG has no PNG signature after its start frame")
+    position = start + 8
+    first, has_data = True, False
+    while True:
+        if position + 12 > len(payload):
+            raise ValueError("Timed PNG has a truncated chunk or no IEND")
+        length = int.from_bytes(payload[position:position + 4], "big")
+        kind = payload[position + 4:position + 8]
+        end = position + length + 12
+        if length > 0x7fffffff or end > len(payload) or not re.fullmatch(rb"[A-Za-z]{4}", kind):
+            raise ValueError("Timed PNG has an invalid or truncated chunk")
+        if (first and (kind != b"IHDR" or length != 13)) or (not first and kind == b"IHDR"):
+            raise ValueError("Timed PNG has an invalid IHDR")
+        expected_crc = int.from_bytes(payload[end - 4:end], "big")
+        if (zlib.crc32(payload[position + 4:end - 4]) & 0xffffffff) != expected_crc:
+            raise ValueError("Timed PNG chunk CRC does not match")
+        first = False
+        has_data = has_data or kind == b"IDAT"
+        if kind == b"IEND":
+            if length != 0 or not has_data:
+                raise ValueError("Timed PNG has an invalid IEND or no image data")
+            break
+        position = end
+    after = re.fullmatch(rb"\nPRIVI_PNG_END ([0-9]+) ([0-9]+\.[0-9]{2})\n", payload[end:])
+    if after is None:
+        raise ValueError("Timed PNG is missing its guest end/status frame")
+    status = int(after[1])
+    if status != 0:
+        raise RuntimeError(f"Guest screencap failed with status {status}")
+    before_cs = int(before[1].replace(b".", b""))
+    after_cs = int(after[2].replace(b".", b""))
+    if after_cs < before_cs:
+        raise ValueError("Timed PNG guest uptime moved backwards")
+    return payload[start:end], {
+        "guest_clock": "proc-uptime",
+        "guest_screencap_before_uptime_seconds": before[1].decode("ascii"),
+        "guest_screencap_after_uptime_seconds": after[2].decode("ascii"),
+        "guest_uptime_resolution_seconds": .01,
+        # /proc/uptime truncates to centiseconds. This brackets the command,
+        # including capture/encoding, rather than claiming an exact frame time.
+        "guest_capture_interval_uptime_centiseconds": [before_cs, after_cs + 1],
+        "guest_capture_interval_upper_bound_exclusive": True,
+        "guest_screencap_exit_status": status,
+    }
+
+
+def capture_timed_png(name, *, timeout):
+    """A-only raw screencap observation; no idle or accessibility round trip."""
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", name):
+        raise ValueError("Invalid screenshot name")
+    # API33 screencap writes a PNG to stdout and closes it before returning.
+    # adb exec-out quotes sh's arguments but does not relay its exit status;
+    # require both explicit frames, the screencap status and a complete PNG.
+    command = r'''read privi_png_before privi_png_idle < /proc/uptime || exit 1
+printf 'PRIVI_PNG_BEGIN %s\n' "$privi_png_before" || exit 1
+screencap -p
+privi_png_status=$?
+read privi_png_after privi_png_idle < /proc/uptime || exit 1
+printf '\nPRIVI_PNG_END %s %s\n' "$privi_png_status" "$privi_png_after"
+'''
+    started = time.monotonic()
+    result = adb("exec-out", "sh", "-c", command, capture_output=True, timeout=timeout)
+    finished = time.monotonic()
+    png, timing = parse_timed_png(result.stdout)
+    path = OUTPUT / f"{name}.png"
+    path.write_bytes(png)
+    with Image.open(path) as source:
+        image = source.convert("RGB")
+    return path, image, {**timing,
+                         "host_capture_command_started_monotonic": started,
+                         "host_capture_command_finished_monotonic": finished}
+
+
 def fixture_signature(image, bounds):
     # The external testsrc2 corpus contains broad vivid colour bands. Sparse
     # pink/teal lock controls are not video, even when their bounding box is tall.
@@ -875,7 +956,7 @@ class ReleaseSmoke:
         }
         return root
 
-    def immediate_png(self, label, tap_started, tap_finished, *, deadline=None):
+    def immediate_png(self, label, tap_started, tap_finished, *, deadline=None, guest_timing=False):
         self.sequence += 1
         prefix = f"release-ui-{self.sequence:03d}-{label}"
         started = time.monotonic()
@@ -883,15 +964,25 @@ class ReleaseSmoke:
         if timeout <= 0:
             raise TimeoutError("Immediate control PNG deadline expired")
         try:
-            path, _ = capture(prefix, timeout=timeout)
+            if guest_timing:
+                path, _, timing = capture_timed_png(prefix, timeout=timeout)
+                if deadline is not None and time.monotonic() >= deadline:
+                    raise TimeoutError("Control presentation PNG exceeded the controls deadline")
+            else:
+                path, _ = capture(prefix, timeout=timeout)
         except Exception as error:
             self.note("transient-tap-png-failed", tap_started_monotonic=tap_started,
                       tap_finished_monotonic=tap_finished, png_started_monotonic=started,
                       png_finished_monotonic=time.monotonic(), error=f"{type(error).__name__}: {error}")
             raise
-        self.note("transient-tap-png", screenshot=path.name,
-                  tap_started_monotonic=tap_started, tap_finished_monotonic=tap_finished,
-                  png_started_monotonic=started, png_finished_monotonic=time.monotonic())
+        if guest_timing:
+            self.note("transient-tap-png", screenshot=path.name,
+                      tap_started_monotonic=tap_started, tap_finished_monotonic=tap_finished,
+                      status="pending-human-PNG-review", **timing)
+        else:
+            self.note("transient-tap-png", screenshot=path.name,
+                      tap_started_monotonic=tap_started, tap_finished_monotonic=tap_finished,
+                      png_started_monotonic=started, png_finished_monotonic=time.monotonic())
 
     def tap_snapshot(self, root, label):
         snapshot = self.transient_snapshot
@@ -1181,6 +1272,10 @@ class ReleaseSmoke:
                 raise TimeoutError("No actual accessibility root within the controls deadline")
             time.sleep(min(.1, max(0, deadline - time.monotonic())))
             root = self.fast_ui("controls-before", deadline=deadline)
+        presentation = visible and capture_reveal_png
+        if presentation and self.matches(root, "Player settings"):
+            self.note("controls-presentation-rejected", reason="initial-controls-visible", input_sent=False)
+            raise AssertionError("Control presentation observation requires initially hidden controls")
         if bool(self.matches(root, "Player settings")) != visible:
             x, y = self.blank()
             started = time.monotonic()
@@ -1190,6 +1285,21 @@ class ReleaseSmoke:
             finished = time.monotonic()
             if visible:
                 shown_by_tap = started
+            if presentation:
+                # The ordinary tap must clear the 300ms double-tap arena and
+                # 180ms fade before A samples pixels. Keep the original 8s cap.
+                ready_at = finished + .5
+                if ready_at >= deadline:
+                    raise TimeoutError("No controls budget remains for the presentation observation")
+                time.sleep(max(0, ready_at - time.monotonic()))
+                self.immediate_png("controls-tap", started, finished,
+                                   deadline=deadline, guest_timing=True)
+                self.transient_snapshot = None
+                self.note("controls-reveal-png-observation", status="pending-human-PNG-review",
+                          tap_started_monotonic=started, tap_finished_monotonic=finished,
+                          presentation_not_before_monotonic=ready_at,
+                          evidence="actual PNG requires human review; no later XML visibility claim")
+                return None
             # Presentation observation and the next button click are separate
             # planned actions. The latter needs a fresh tree before the 3s hide,
             # with its PNG taken only after the complete ordinary button tap.
@@ -1271,13 +1381,16 @@ class ReleaseSmoke:
             time.sleep(.2)
 
     def pip_return(self, label, screen_off):
+        # Prepare A independently; A itself must observe hidden -> one blank tap.
+        self.note("controls-presentation-preparation", label=label, target="hidden")
+        self.controls(False)
         # A: preserve the independent blank-tap presentation observation. Its
         # actual PNG still requires review even if the later PiP click works.
         self.note("controls-presentation-observation", phase="start", label=label,
                   actual_png_review_required=True)
         self.controls(True)
         self.note("controls-presentation-observation", phase="recorded", label=label,
-                  actual_png_review_required=True)
+                  actual_png_review_required=True, status="pending-human-PNG-review")
         self.controls(False)
         # B: a new planned reveal/click, without a PNG/tree round trip between
         # showing the controls and sending the single ordinary button tap.
