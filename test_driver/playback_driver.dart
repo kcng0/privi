@@ -14,13 +14,22 @@ Future<void> main() async {
     },
     responseDataCallback: (data) async {
       final metrics = {...?data}..remove('screenshots');
-      final frames = metrics.remove('decoded_frames') as Map<String, dynamic>?;
-      for (final entry in (frames ?? <String, dynamic>{}).entries) {
-        await File('${output.path}/decoded-${entry.key}.png')
-            .writeAsBytes(base64Decode(entry.value as String));
+      final evidence = File('${output.path}/device-evidence.json');
+      if (!await evidence.exists()) {
+        throw StateError('Missing real Android input/screenshot evidence');
       }
+      final actions =
+          jsonDecode(await evidence.readAsString()) as Map<String, dynamic>;
+      metrics['native_device_evidence'] = actions;
       await File('${output.path}/metrics.json')
-          .writeAsString(jsonEncode(metrics));
+          .writeAsString(const JsonEncoder.withIndent('  ').convert(metrics));
+      if (actions.isEmpty ||
+          actions.values
+              .any((value) => (value as Map<String, dynamic>)['ok'] != true)) {
+        throw StateError(
+          'Real Android evidence contains missing/failed actions',
+        );
+      }
     },
   );
 }

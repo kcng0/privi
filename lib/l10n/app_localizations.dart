@@ -2499,6 +2499,84 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Advanced playback is unavailable on this player.'**
   String get videoAdvancedUnavailable;
+
+  /// No description provided for @videoCopyPlaybackDiagnostics.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy playback diagnostics'**
+  String get videoCopyPlaybackDiagnostics;
+
+  /// No description provided for @videoPlaybackDiagnosticsCopied.
+  ///
+  /// In en, this message translates to:
+  /// **'Playback diagnostics copied'**
+  String get videoPlaybackDiagnosticsCopied;
+
+  /// No description provided for @videoHardwareDecoding.
+  ///
+  /// In en, this message translates to:
+  /// **'Hardware acceleration'**
+  String get videoHardwareDecoding;
+
+  /// No description provided for @videoHardwareDecodingCompatible.
+  ///
+  /// In en, this message translates to:
+  /// **'Compatible mode'**
+  String get videoHardwareDecodingCompatible;
+
+  /// No description provided for @videoHardwareDecodingDirect.
+  ///
+  /// In en, this message translates to:
+  /// **'Direct hardware decoding (experimental)'**
+  String get videoHardwareDecodingDirect;
+
+  /// No description provided for @videoHardwareDecodingRequested.
+  ///
+  /// In en, this message translates to:
+  /// **'Requested decoder'**
+  String get videoHardwareDecodingRequested;
+
+  /// No description provided for @videoHardwareDecodingActual.
+  ///
+  /// In en, this message translates to:
+  /// **'Actual decoder'**
+  String get videoHardwareDecodingActual;
+
+  /// No description provided for @videoHardwareDecodingUnknown.
+  ///
+  /// In en, this message translates to:
+  /// **'Unknown'**
+  String get videoHardwareDecodingUnknown;
+
+  /// No description provided for @videoHardwareDecodingRefresh.
+  ///
+  /// In en, this message translates to:
+  /// **'Refresh decoder status'**
+  String get videoHardwareDecodingRefresh;
+
+  /// No description provided for @videoHardwareDecodingSessionHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Only affects this playback session. Switching pauses playback; press Play to continue. Experimental mode may change colors or dynamic range and may not improve performance.'**
+  String get videoHardwareDecodingSessionHelp;
+
+  /// No description provided for @videoHardwareDecodingUnspecifiedColor.
+  ///
+  /// In en, this message translates to:
+  /// **'This video\'s source color metadata is unspecified. Direct hardware decoding may not preserve its colors and brightness.'**
+  String get videoHardwareDecodingUnspecifiedColor;
+
+  /// No description provided for @videoHardwareDecodingDirectUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'The currently reported decoding format does not support this experiment (for example, HDR, wide color gamut, high bit depth, or hardware decoding is off).'**
+  String get videoHardwareDecodingDirectUnavailable;
+
+  /// No description provided for @videoHardwareDecodingModeUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'The current decoder request cannot be changed here.'**
+  String get videoHardwareDecodingModeUnavailable;
 }
 
 class _AppLocalizationsDelegate

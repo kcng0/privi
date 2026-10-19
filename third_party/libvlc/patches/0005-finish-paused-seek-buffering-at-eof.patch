@@ -1,0 +1,19 @@
+--- a/src/input/input.c
++++ b/src/input/input.c
+@@ -713,8 +713,16 @@
+          * is paused -> this may cause problem with some of them
+          * The same problem can be seen when seeking while paused */
+         if( b_paused )
++        {
++            /* A paused seek may reach EOF before filling the normal cache.
++             * Run the same decoder-buffering completion used by playing EOF,
++             * without advancing, repeating, ending or unpausing the input. */
++            if( input_priv(p_input)->master->b_eof &&
++                es_out_GetBuffering( input_priv(p_input)->p_es_out ) )
++                (void) es_out_GetEmpty( input_priv(p_input)->p_es_out );
+             b_paused = !es_out_GetBuffering( input_priv(p_input)->p_es_out )
+                     || input_priv(p_input)->master->b_eof;
++        }
+ 
+         if( !b_paused )
+         {

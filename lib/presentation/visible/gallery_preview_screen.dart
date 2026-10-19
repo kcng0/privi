@@ -11,6 +11,7 @@ import '../../application/player/picture_in_picture_controller.dart';
 import '../../application/settings/settings_controller.dart';
 import '../../core/l10n.dart';
 import '../../data/services/gallery_service.dart';
+import '../../data/services/playback/vault_video_player.dart';
 import '../../domain/enums.dart';
 import '../common/keep_vault_unlocked.dart';
 import '../common/zoomable_media_image.dart';
@@ -107,7 +108,7 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen>
         return;
       }
       if (item.isVideo) {
-        final c = candidate = VideoPlayerController.file(
+        final c = candidate = VaultVideoPlayerController.file(
           file,
           videoPlayerOptions: VideoPlayerOptions(allowBackgroundPlayback: true),
         );
@@ -397,6 +398,10 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen>
   Widget build(BuildContext context) {
     ref.watch(pictureInPictureControllerProvider);
     final landscape = _isLandscape(context);
+    final videoControlsAllowed = _current.isVideo &&
+        videoChromeAllowed &&
+        ref.watch(lockControllerProvider.select((lock) => lock.status)) ==
+            LockStatus.unlocked;
     final immersive = shouldHideSystemUiForBuiltInVideo(_current.isVideo);
     _syncSystemUi(immersive);
     if (_current.isVideo && _video != null && _video!.value.isInitialized) {
@@ -432,21 +437,25 @@ class _GalleryPreviewScreenState extends ConsumerState<GalleryPreviewScreen>
                   itemBuilder: (context, index) =>
                       _pageContent(index == _index),
                 ),
-                if (_chrome &&
-                    videoChromeAllowed &&
-                    _current.isVideo &&
-                    _video != null &&
-                    _video!.value.isInitialized)
-                  _centerVideoControls(),
+                if (videoControlsAllowed)
+                  VideoControlsTransition(
+                    key: ObjectKey(_video),
+                    visible: _chrome,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        if (_video != null && _video!.value.isInitialized)
+                          _centerVideoControls(),
+                        _topBar(),
+                        if (_video != null && _video!.value.isInitialized)
+                          _videoBottomBar(landscape),
+                      ],
+                    ),
+                  ),
                 if (videoTouchLocked && !videoPipGranted) videoUnlockControl(),
-                if (_chrome && videoChromeAllowed) _topBar(),
-                if (_chrome &&
-                    videoChromeAllowed &&
-                    _current.isVideo &&
-                    _video != null &&
-                    _video!.value.isInitialized)
-                  _videoBottomBar(landscape)
-                else if (_chrome && videoChromeAllowed && !_current.isVideo)
+                if (_chrome && videoChromeAllowed && !_current.isVideo)
+                  _topBar(),
+                if (_chrome && videoChromeAllowed && !_current.isVideo)
                   _imageBottomBar(landscape),
               ],
             ),

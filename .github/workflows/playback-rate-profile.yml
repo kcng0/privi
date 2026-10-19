@@ -1,0 +1,97 @@
+name: Legacy mpv Playback Rate Profile
+
+on:
+  # Historical mpv diagnostics only. Production LibVLC acceptance runs in
+  # player-validation.yml; this experiment must not certify current playback.
+  workflow_dispatch:
+    inputs:
+      hwdec:
+        description: 'mpv hwdec override; default keeps app policy'
+        type: choice
+        options: [default, auto-safe, auto, 'mediacodec,auto-safe', 'no']
+        default: default
+      screenrecord:
+        description: 'Record screen too (adds encoder load; capture cadence is not video FPS)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  rate-profile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        hwdec: ${{ github.event_name == 'pull_request' && fromJSON('["auto-safe","mediacodec,auto-safe"]') || fromJSON(format('["{0}"]', inputs.hwdec)) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select the pinned production LibVLC SDK
+        run: bash scripts/select-libvlc-sdk.sh
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/cache/restore@v4
+        id: gradle-cache
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: playback-gradle-${{ runner.os }}-${{ hashFiles('android/**/*.gradle*', 'android/gradle/wrapper/gradle-wrapper.properties', 'pubspec.lock') }}
+          restore-keys: playback-gradle-${{ runner.os }}-
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.6'
+          cache: true
+      - name: Dependencies and generated code
+        run: |
+          timeout 180s flutter pub get
+          timeout 120s flutter gen-l10n
+          timeout 300s dart run build_runner build
+      - name: Install fixture and recording tools
+        run: |
+          if ! command -v ffmpeg > /dev/null; then
+            sudo timeout 120s apt-get update
+            sudo timeout 180s apt-get install -y ffmpeg
+          fi
+      - name: Analyze independent profile harness
+        run: timeout 180s flutter analyze --no-pub integration_test/playback_rate_profile_test.dart
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-privi-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Profile real Android touch and playback
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          PROFILE_HWDEC: ${{ matrix.hwdec != 'default' && matrix.hwdec || '' }}
+          PROFILE_SCREENRECORD: ${{ inputs.screenrecord && '1' || '0' }}
+        with:
+          # Same native EGL-compatible environment as player-validation.yml.
+          api-level: 33
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: |
+            adb -s emulator-5554 shell settings --user current put secure immersive_mode_confirmations confirmed
+            bash scripts/run-playback-rate-profile.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playback-rate-profile-${{ matrix.hwdec }}
+          path: |
+            build/playback-rate-profile
+            !build/playback-rate-profile/**/fixtures/*.mp4
+          if-no-files-found: warn
+      - uses: actions/cache/save@v4
+        if: always() && steps.gradle-cache.outputs.cache-hit != 'true'
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ steps.gradle-cache.outputs.cache-primary-key }}

@@ -406,5 +406,18 @@
   "videoSetA": "目前位置設為 A",
   "videoSetB": "目前位置設為 B",
   "videoClearAb": "清除 A–B",
-  "videoAdvancedUnavailable": "目前播放器不支援進階播放功能。"
+  "videoAdvancedUnavailable": "目前播放器不支援進階播放功能。",
+  "videoCopyPlaybackDiagnostics": "複製播放診斷資訊",
+  "videoPlaybackDiagnosticsCopied": "播放診斷資訊已複製",
+  "videoHardwareDecoding": "硬件加速",
+  "videoHardwareDecodingCompatible": "相容模式",
+  "videoHardwareDecodingDirect": "直接硬件解碼（實驗）",
+  "videoHardwareDecodingRequested": "要求的解碼器",
+  "videoHardwareDecodingActual": "實際解碼器",
+  "videoHardwareDecodingUnknown": "未知",
+  "videoHardwareDecodingRefresh": "重新整理解碼器狀態",
+  "videoHardwareDecodingSessionHelp": "只對本次播放有效。切換會暫停，請手動播放。實驗模式可能改變色彩或動態範圍，且不保證改善流暢度。",
+  "videoHardwareDecodingUnspecifiedColor": "此影片的來源色彩資訊未標記，無法保證直接硬件解碼後的顏色和亮度一致。",
+  "videoHardwareDecodingDirectUnavailable": "目前報告的解碼格式不支援此實驗（例如 HDR、廣色域、高位元深度或未啟用硬件解碼）。",
+  "videoHardwareDecodingModeUnavailable": "目前解碼器要求不支援在此切換。"
 }

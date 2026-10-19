@@ -122,6 +122,90 @@ void main() {
     expect(port.value.displaySize, const Size(1280, 720));
   });
 
+  test('diagnostics read only allowed properties and preserve unknown counters',
+      () async {
+    await port.close();
+    native.properties.addAll({
+      'speed': '2',
+      'hwdec-current': 'mediacodec-copy',
+      'frame-drop-count': '42',
+      'video-params/pixelformat': 'nv12',
+      'path': '/private/sensitive.mp4',
+      'filename': 'sensitive.mp4',
+      'media-title': 'Private title',
+      'sub-text': 'Private subtitle',
+      'audio-device': 'Personal Bluetooth name',
+    });
+    final read = <String>[];
+    final writes = <String>[];
+    port = MediaKitAdvancedVideoPort(
+      native.player,
+      readProperty: (name) async {
+        read.add(name);
+        return native.properties[name] ?? '';
+      },
+      writeProperty: (name, _) async => writes.add(name),
+    );
+    expect(read, isEmpty);
+    final snapshot = await port.readPlaybackDiagnostics();
+    expect(snapshot['speed'], '2');
+    expect(snapshot['hwdec-current'], 'mediacodec-copy');
+    expect(snapshot['frame-drop-count'], '42');
+    expect(snapshot['decoder-frame-drop-count'], '');
+    expect(snapshot['empty_values'], 'unsupported_or_unavailable');
+    for (final private in [
+      'path',
+      'filename',
+      'media-title',
+      'sub-text',
+      'audio-device',
+    ]) {
+      expect(read, isNot(contains(private)));
+      expect(snapshot, isNot(contains(private)));
+    }
+    expect(snapshot.values.any((value) => value.contains('Private')), isFalse);
+    expect(writes, isEmpty);
+    expect(() => snapshot['speed'] = '1', throwsUnsupportedError);
+  });
+
+  test('diagnostics finish before close releases native ownership', () async {
+    await port.close();
+    final reading = Completer<void>();
+    final release = Completer<void>();
+    port = MediaKitAdvancedVideoPort(
+      native.player,
+      readProperty: (name) async {
+        if (name == 'mpv-version') {
+          reading.complete();
+          await release.future;
+        }
+        return '';
+      },
+    );
+    final snapshot = port.readPlaybackDiagnostics();
+    await reading.future;
+    var closed = false;
+    final closing = port.close().then((_) => closed = true);
+    await Future<void>.delayed(Duration.zero);
+    expect(closed, isFalse);
+    await expectLater(port.readPlaybackDiagnostics(), throwsStateError);
+    release.complete();
+    expect((await snapshot)['schema'], 'privi.playback-diagnostics/1');
+    await closing;
+    expect(closed, isTrue);
+  });
+
+  test('diagnostic read failures propagate without manufacturing a report',
+      () async {
+    await port.close();
+    port = MediaKitAdvancedVideoPort(
+      native.player,
+      readProperty: (_) async => throw StateError('Native read failed'),
+    );
+    await expectLater(port.readPlaybackDiagnostics(), throwsStateError);
+    expect(port.value.error, contains('Native read failed'));
+  });
+
   test('subtitle copies remain private until the native player releases them',
       () async {
     final temporary = await Directory.systemTemp.createTemp('privi-port-test-');

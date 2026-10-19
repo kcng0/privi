@@ -1,0 +1,411 @@
+--- a/include/vlc_input.h
++++ b/include/vlc_input.h
+@@ -452,6 +452,9 @@
+     /* External clock managments */
+     INPUT_GET_PCR_SYSTEM,   /* arg1=vlc_tick_t *, arg2=vlc_tick_t *       res=can fail */
+     INPUT_MODIFY_PCR_SYSTEM,/* arg1=int absolute, arg2=vlc_tick_t   res=can fail */
++
++    /* Fixed-SDK subtitle demux timing failures; no arguments. */
++    INPUT_REPORT_SUBTITLE_TIMING_ERROR,
+ };
+ 
+ /** @}*/
+--- a/src/input/control.c
++++ b/src/input/control.c
+@@ -112,6 +112,10 @@
+             return var_SetFloat( p_input, "rate",
+                                  (float)INPUT_RATE_DEFAULT / (float)i_int );
+ 
++        case INPUT_REPORT_SUBTITLE_TIMING_ERROR:
++            input_ControlPush( p_input, INPUT_CONTROL_TIMING_ERROR, NULL );
++            return VLC_SUCCESS;
++
+         case INPUT_GET_STATE:
+             pi_int = va_arg( args, int * );
+             *pi_int = var_GetInteger( p_input, "state" );
+--- a/src/input/es_out.c
++++ b/src/input/es_out.c
+@@ -42,6 +42,7 @@
+ 
+ #include "input_internal.h"
+ #include "clock.h"
++#include "subtitle_date.h"
+ #include "decoder.h"
+ #include "es_out.h"
+ #include "event.h"
+@@ -2093,13 +2094,41 @@
+                 i_date = es->p_pgrm->i_last_pcr;
+         }
+ 
++        bool subtitle_preroll = false;
+         if( i_date != VLC_TICK_INVALID )
+-            es->i_pts_level = i_date + p_block->i_length;
++        {
++            if( es->fmt.i_cat == SPU_ES )
++            {
++                const subtitle_date_wide end = SubtitleDateAdd(
++                    SubtitleDateWide( i_date ), SubtitleDateWide( p_block->i_length ) );
++                if( !SubtitleDateStore( end, &es->i_pts_level ) )
++                {
++                    msg_Err( p_input, "Subtitle packet end is outside signed 64-bit range" );
++                    input_ControlPush( p_input, INPUT_CONTROL_TIMING_ERROR, NULL );
++                    block_Release( p_block );
++                    vlc_mutex_unlock( &p_sys->lock );
++                    return VLC_EGENERIC;
++                }
++                /* A zero/unknown duration is not proof that a caption expired.
++                 * Decode its state; known intervals use the delayed time domain.
++                 * Keep the decoder's existing filtering of expired pictures. */
++                if( p_block->i_length > 0 )
++                {
++                    const subtitle_date_wide remaining = SubtitleDateAdd(
++                        SubtitleDateAdd( end, SubtitleDateWide( p_sys->i_spu_delay ) ),
++                        SubtitleDateNegate( SubtitleDateWide( p_sys->i_preroll_end ) ) );
++                    subtitle_preroll = (remaining.hi >> 63) ||
++                                      (remaining.hi == 0 && remaining.lo == 0);
++                }
++            }
++            else
++                es->i_pts_level = i_date + p_block->i_length;
++        }
+ 
+         /* If i_date is still invalid (first/all non dated), expect to be in preroll */
+-
+         if( i_date == VLC_TICK_INVALID ||
+-            es->i_pts_level < p_sys->i_preroll_end )
++            (es->fmt.i_cat == SPU_ES ? subtitle_preroll
++                                    : es->i_pts_level < p_sys->i_preroll_end) )
+             p_block->i_flags |= BLOCK_FLAG_PREROLL;
+     }
+ 
+--- a/modules/demux/subtitle.c
++++ b/modules/demux/subtitle.c
+@@ -183,6 +183,10 @@
+         subtitle_t *p_array;
+         size_t      i_count;
+         size_t      i_current;
++        bool        b_seek_pending;
++        bool        b_seek_replay;
++        int64_t     i_seek_date;
++        size_t      i_seek_latest;
+     } subtitles;
+ 
+     int64_t     i_length;
+@@ -341,6 +345,10 @@
+     p_sys->pf_convert = ToTextBlock;
+ 
+     p_sys->subtitles.i_current= 0;
++    p_sys->subtitles.b_seek_pending = false;
++    p_sys->subtitles.b_seek_replay = false;
++    p_sys->subtitles.i_seek_date = 0;
++    p_sys->subtitles.i_seek_latest = 0;
+     p_sys->subtitles.i_count  = 0;
+     p_sys->subtitles.p_array  = NULL;
+ 
+@@ -775,6 +783,94 @@
+     free( p_sys );
+ }
+ 
++/* A new unrepresentable date is an input timing error, not a normal slave
++ * EOF. Standalone/no-owner callers still receive the generic demux failure. */
++static void SubtitleTimingError( demux_t *p_demux, const char *message )
++{
++    msg_Err( p_demux, "%s", message );
++    if( p_demux->p_input != NULL )
++        input_Control( p_demux->p_input, INPUT_REPORT_SUBTITLE_TIMING_ERROR );
++}
++
++/* i_next_demux_date remains in the master/standalone timeline. Slave cue
++ * selection and progress use the same signed subtitle timeline. Standalone
++ * retains its existing negative-barrier fallback and PCR scheduling. */
++static bool SubtitleTimeSubtract( int64_t a, int64_t b, int64_t *result )
++{
++    if( ( b > 0 && a < INT64_MIN + b ) ||
++        ( b < 0 && a > INT64_MAX + b ) )
++        return false;
++    *result = a - b;
++    return true;
++}
++
++static bool SubtitleTimeAdd( int64_t a, int64_t b, int64_t *result )
++{
++    if( ( b > 0 && a > INT64_MAX - b ) ||
++        ( b < 0 && a < INT64_MIN - b ) )
++        return false;
++    *result = a + b;
++    return true;
++}
++
++static bool SubtitleRawTime( demux_t *p_demux, int64_t master_date,
++                          int64_t *subtitle_date )
++{
++    if( SubtitleTimeSubtract( master_date,
++            var_GetInteger( p_demux->obj.parent, "spu-delay" ), subtitle_date ) )
++        return true;
++    SubtitleTimingError( p_demux, "subtitle time minus delay is outside signed 64-bit range" );
++    return false;
++}
++
++static bool SubtitleTime( demux_t *p_demux, int64_t master_date,
++                          int64_t *subtitle_date )
++{
++    if( !SubtitleRawTime( p_demux, master_date, subtitle_date ) )
++        return false;
++    if( !p_demux->p_sys->b_slave && *subtitle_date < 0 )
++        *subtitle_date = master_date;
++    return true;
++}
++
++static bool SubtitleActiveAt( const demux_sys_t *p_sys, const subtitle_t *sub,
++                              int64_t target, size_t latest )
++{
++    if( sub->i_start > target )
++        return false;
++    const bool dated_stop = sub->i_stop != VLC_TICK_INVALID &&
++                            sub->i_stop > sub->i_start;
++    return dated_stop ? sub->i_stop > target
++           : latest < p_sys->subtitles.i_count &&
++             sub->i_start == p_sys->subtitles.p_array[latest].i_start;
++}
++
++/* Start with every still-active overlap, rather than only the last start.
++ * An undated/equal-time stop is ephemeral: only the latest start group may
++ * survive at the target. Preserve all cues in that group, not just its last
++ * member. A seek scans once for that group and once for the earliest survivor;
++ * ordinary demux does not repeat either scan. */
++static size_t SubtitleSeekIndex( const demux_sys_t *p_sys, int64_t target,
++                                 size_t *seek_latest )
++{
++    size_t latest = p_sys->subtitles.i_count;
++    for( size_t i = 0; i < p_sys->subtitles.i_count; ++i )
++    {
++        if( p_sys->subtitles.p_array[i].i_start > target )
++            break;
++        latest = i;
++    }
++    *seek_latest = latest;
++
++    for( size_t i = 0; i < p_sys->subtitles.i_count; ++i )
++    {
++        const subtitle_t *sub = &p_sys->subtitles.p_array[i];
++        if( sub->i_start > target || SubtitleActiveAt( p_sys, sub, target, latest ) )
++            return i;
++    }
++    return p_sys->subtitles.i_count;
++}
++
+ /*****************************************************************************
+  * Control:
+  *****************************************************************************/
+@@ -797,20 +893,38 @@
+ 
+         case DEMUX_GET_TIME:
+             pi64 = va_arg( args, int64_t * );
+-            *pi64 = p_sys->i_next_demux_date - var_GetInteger( p_demux->obj.parent, "spu-delay" );
+-            if( *pi64 < 0 )
+-               *pi64 = p_sys->i_next_demux_date;
+-            return VLC_SUCCESS;
++            return SubtitleTime( p_demux, p_sys->i_next_demux_date, pi64 )
++                   ? VLC_SUCCESS : VLC_EGENERIC;
+ 
+         case DEMUX_SET_TIME:
+             i64 = va_arg( args, int64_t );
+-            p_sys->b_first_time = true;
+-            p_sys->i_next_demux_date = i64;
+-            for( size_t i = 0; i < p_sys->subtitles.i_count; i++ )
+-            {
+-                if( p_sys->subtitles.p_array[i].i_start > i64 && i > 0 )
+-                    break;
+-                p_sys->subtitles.i_current = i;
++            {
++                int64_t subtitle_date;
++                if( !SubtitleRawTime( p_demux, i64, &subtitle_date ) )
++                    return VLC_EGENERIC;
++                p_sys->b_first_time = true;
++                p_sys->i_next_demux_date = i64;
++                p_sys->subtitles.i_seek_date = subtitle_date;
++                p_sys->subtitles.b_seek_pending = !p_sys->b_slave;
++                p_sys->subtitles.b_seek_replay = p_sys->b_slave;
++                if( p_sys->b_slave )
++                {
++                    Fix( p_demux );
++                    p_sys->subtitles.i_current = SubtitleSeekIndex( p_sys, subtitle_date,
++                                                     &p_sys->subtitles.i_seek_latest );
++                }
++                else
++                {
++                    /* A subtitle source becomes a slave only at its first
++                     * SET_NEXT_DEMUX_TIME. Preserve standalone's seek cursor
++                     * until then; that query will complete the signed seek. */
++                    for( size_t i = 0; i < p_sys->subtitles.i_count; ++i )
++                    {
++                        if( p_sys->subtitles.p_array[i].i_start > i64 && i > 0 )
++                            break;
++                        p_sys->subtitles.i_current = i;
++                    }
++                }
+             }
+             return VLC_SUCCESS;
+ 
+@@ -822,10 +936,9 @@
+             }
+             else if( p_sys->subtitles.i_count > 0 && p_sys->i_length )
+             {
+-                *pf = p_sys->i_next_demux_date - var_GetInteger( p_demux->obj.parent, "spu-delay" );
+-                if( *pf < 0 )
+-                    *pf = p_sys->i_next_demux_date;
+-                *pf /= p_sys->i_length;
++                if( !SubtitleTime( p_demux, p_sys->i_next_demux_date, &i64 ) )
++                    return VLC_EGENERIC;
++                *pf = (double)i64 / p_sys->i_length;
+             }
+             else
+             {
+@@ -837,14 +950,34 @@
+             f = va_arg( args, double );
+             if( p_sys->subtitles.i_count && p_sys->i_length )
+             {
+-                i64 = VLC_TICK_0 + f * p_sys->i_length;
++                const double date = VLC_TICK_0 + f * p_sys->i_length;
++                if( !isfinite( date ) || date < -0x1p63 || date >= 0x1p63 )
++                {
++                    SubtitleTimingError( p_demux, "subtitle seek position is outside signed 64-bit range" );
++                    return VLC_EGENERIC;
++                }
++                i64 = (int64_t)date;
+                 return demux_Control( p_demux, DEMUX_SET_TIME, i64 );
+             }
+             break;
+ 
+         case DEMUX_SET_NEXT_DEMUX_TIME:
++            i64 = va_arg( args, int64_t );
++            if( !SubtitleTimeSubtract( i64, VLC_TICK_0, &i64 ) )
++            {
++                SubtitleTimingError( p_demux, "subtitle master time is outside signed 64-bit range" );
++                return VLC_EGENERIC;
++            }
++            if( p_sys->subtitles.b_seek_pending )
++            {
++                Fix( p_demux );
++                p_sys->subtitles.i_current = SubtitleSeekIndex( p_sys,
++                    p_sys->subtitles.i_seek_date, &p_sys->subtitles.i_seek_latest );
++                p_sys->subtitles.b_seek_pending = false;
++                p_sys->subtitles.b_seek_replay = true;
++            }
+             p_sys->b_slave = true;
+-            p_sys->i_next_demux_date = va_arg( args, int64_t ) - VLC_TICK_0;
++            p_sys->i_next_demux_date = i64;
+             return VLC_SUCCESS;
+ 
+         case DEMUX_GET_PTS_DELAY:
+@@ -868,34 +1001,66 @@
+ {
+     demux_sys_t *p_sys = p_demux->p_sys;
+ 
+-    if ( !p_sys->b_slave )
+-        Fix( p_demux );
+-
+-    int64_t i_barrier = p_sys->i_next_demux_date - var_GetInteger( p_demux->obj.parent, "spu-delay" );
+-    if( i_barrier < 0 )
+-        i_barrier = p_sys->i_next_demux_date;
++    Fix( p_demux );
++    if( !p_sys->b_slave )
++    {
++        p_sys->subtitles.b_seek_pending = false;
++        p_sys->subtitles.b_seek_replay = false;
++    }
++
++    int64_t i_barrier, i_pcr = 0, i_next = 0;
++    if( !SubtitleTime( p_demux, p_sys->i_next_demux_date, &i_barrier ) )
++        return VLC_DEMUXER_EGENERIC;
++    if( !p_sys->b_slave &&
++        ( !SubtitleTimeAdd( i_barrier, VLC_TICK_0, &i_pcr ) ||
++          !SubtitleTimeAdd( p_sys->i_next_demux_date, CLOCK_FREQ / 8, &i_next ) ) )
++    {
++        SubtitleTimingError( p_demux, "subtitle demux clock is outside signed 64-bit range" );
++        return VLC_DEMUXER_EGENERIC;
++    }
+ 
+     while( p_sys->subtitles.i_current < p_sys->subtitles.i_count &&
+            p_sys->subtitles.p_array[p_sys->subtitles.i_current].i_start <= i_barrier )
+     {
+         const subtitle_t *p_subtitle = &p_sys->subtitles.p_array[p_sys->subtitles.i_current];
+ 
++        if( p_sys->subtitles.b_seek_replay )
++        {
++            if( p_subtitle->i_start > p_sys->subtitles.i_seek_date )
++                p_sys->subtitles.b_seek_replay = false;
++            else if( !SubtitleActiveAt( p_sys, p_subtitle,
++                          p_sys->subtitles.i_seek_date, p_sys->subtitles.i_seek_latest ) )
++            {
++                /* Do not fill the SPU heap with expired history between two
++                 * active overlaps. Future normal demux remains unfiltered. */
++                p_sys->subtitles.i_current++;
++                continue;
++            }
++        }
++
+         if ( !p_sys->b_slave && p_sys->b_first_time )
+         {
+-            es_out_SetPCR( p_demux->out, VLC_TICK_0 + i_barrier );
++            es_out_SetPCR( p_demux->out, i_pcr );
+             p_sys->b_first_time = false;
+         }
+ 
+         if( p_subtitle->i_start >= 0 )
+         {
++            int64_t pts, stop, length = 0;
++            if( !SubtitleTimeAdd( p_subtitle->i_start, VLC_TICK_0, &pts ) ||
++                ( p_subtitle->i_stop != VLC_TICK_INVALID &&
++                  p_subtitle->i_stop >= p_subtitle->i_start &&
++                  ( !SubtitleTimeSubtract( p_subtitle->i_stop, p_subtitle->i_start, &length ) ||
++                    !SubtitleTimeAdd( p_subtitle->i_stop, VLC_TICK_0, &stop ) ) ) )
++            {
++                SubtitleTimingError( p_demux, "subtitle cue date is outside signed 64-bit range" );
++                return VLC_DEMUXER_EGENERIC;
++            }
+             block_t *p_block = p_sys->pf_convert( p_subtitle );
+             if( p_block )
+             {
+-                p_block->i_dts =
+-                p_block->i_pts = VLC_TICK_0 + p_subtitle->i_start;
+-                if( p_subtitle->i_stop != VLC_TICK_INVALID && p_subtitle->i_stop >= p_subtitle->i_start )
+-                    p_block->i_length = p_subtitle->i_stop - p_subtitle->i_start;
+-
++                p_block->i_dts = p_block->i_pts = pts;
++                p_block->i_length = length;
+                 es_out_Send( p_demux->out, p_sys->es, p_block );
+             }
+         }
+@@ -905,12 +1070,15 @@
+ 
+     if ( !p_sys->b_slave )
+     {
+-        es_out_SetPCR( p_demux->out, VLC_TICK_0 + i_barrier );
+-        p_sys->i_next_demux_date += CLOCK_FREQ / 8;
++        es_out_SetPCR( p_demux->out, i_pcr );
++        p_sys->i_next_demux_date = i_next;
+     }
+ 
+     if( p_sys->subtitles.i_current >= p_sys->subtitles.i_count )
++    {
++        p_sys->subtitles.b_seek_replay = false;
+         return VLC_DEMUXER_EOF;
++    }
+ 
+     return VLC_DEMUXER_SUCCESS;
+ }
+@@ -918,10 +1086,9 @@
+ 
+ static int subtitle_cmp( const void *first, const void *second )
+ {
+-    int64_t result = ((subtitle_t *)(first))->i_start - ((subtitle_t *)(second))->i_start;
+-    /* Return -1, 0 ,1, and not directly subtraction
+-     * as result can be > INT_MAX */
+-    return result == 0 ? 0 : result > 0 ? 1 : -1;
++    const int64_t a = ((const subtitle_t *)first)->i_start;
++    const int64_t b = ((const subtitle_t *)second)->i_start;
++    return ( a > b ) - ( a < b );
+ }
+ /*****************************************************************************
+  * Fix: fix time stamp and order of subtitle

@@ -106,3 +106,42 @@ abstract interface class AdvancedVideoPort
   Future<void> setSubtitleDelay(Duration delay);
   Future<void> setAbLoop(Duration? start, Duration? end);
 }
+
+/// An on-demand snapshot of allowlisted technical playback properties only.
+/// Values must exclude filenames, paths, URIs, and subtitle text.
+abstract interface class VideoPlaybackDiagnosticsPort {
+  Future<Map<String, String>> readPlaybackDiagnostics();
+}
+
+enum VideoHardwareDecodingMode { compatible, direct }
+
+/// A snapshot of the requested decoder and the native path actually selected.
+/// Unspecified source colors remain unspecified, including during an opt-in.
+@immutable
+class VideoHardwareDecodingInfo {
+  const VideoHardwareDecodingInfo({
+    required this.requestedHwdec,
+    required this.currentHwdec,
+    required this.canTryDirect,
+    required this.hasUnspecifiedColor,
+  });
+
+  final String requestedHwdec;
+  final String currentHwdec;
+  final bool canTryDirect;
+  final bool hasUnspecifiedColor;
+
+  VideoHardwareDecodingMode? get mode => switch (requestedHwdec) {
+        'auto-safe' => VideoHardwareDecodingMode.compatible,
+        'mediacodec,auto-safe' => VideoHardwareDecodingMode.direct,
+        _ => null,
+      };
+}
+
+/// Explicit, per-controller decoder selection; never changes audio or resumes.
+abstract interface class VideoHardwareDecodingPort {
+  Future<VideoHardwareDecodingInfo> readHardwareDecodingInfo();
+  Future<VideoHardwareDecodingInfo> setHardwareDecodingMode(
+    VideoHardwareDecodingMode mode,
+  );
+}

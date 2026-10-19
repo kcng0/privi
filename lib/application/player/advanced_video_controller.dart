@@ -6,8 +6,8 @@ import 'package:video_player/video_player.dart';
 import 'package:video_player_platform_interface/video_player_platform_interface.dart'
     show VideoPlayerPlatform;
 
-import '../../data/services/playback/media_kit_video_player_platform.dart';
 import '../../domain/models/advanced_video_state.dart';
+import '../../domain/models/video_player_capabilities.dart';
 
 export '../../domain/models/advanced_video_state.dart';
 
@@ -30,12 +30,18 @@ class AdvancedVideoController extends ValueNotifier<AdvancedVideoState>
   bool _loadingTracks = false;
   bool _loadedTracks = false;
 
+  bool get supportsPlaybackDiagnostics =>
+      !_disposed && _port is VideoPlaybackDiagnosticsPort;
+
+  bool get supportsHardwareDecodingControl =>
+      !_disposed && _port is VideoHardwareDecodingPort;
+
   void _onVideoChanged() {
     if (_disposed) return;
     if (_port == null) {
-      final platform = VideoPlayerPlatform.instance;
+      final Object platform = VideoPlayerPlatform.instance;
       final port = _injectedPort ??
-          (platform is MediaKitVideoPlayerPlatform
+          (platform is AdvancedVideoPortProvider
               // video_player exposes no public controller-to-platform handle.
               // Its own Video widget uses this same stable facade identifier.
               // ignore: invalid_use_of_visible_for_testing_member
@@ -79,16 +85,21 @@ class AdvancedVideoController extends ValueNotifier<AdvancedVideoState>
         : video.size;
   }
 
-  Future<void> _run(Future<void> Function() action) async {
+  Future<T> _run<T>(Future<T> Function() action) async {
     if (_disposed) throw StateError('Advanced video controller is disposed');
     try {
-      await action();
+      final result = await action();
       if (!_disposed && _port == null) {
         value = value.copyWith(
           error: controller.value.errorDescription,
           clearError: controller.value.errorDescription == null,
         );
+      } else if (!_disposed) {
+        // The port remains authoritative, including runtime failures. This also
+        // replaces controller-only errors after a successful explicit Retry.
+        _onPortChanged();
       }
+      return result;
     } catch (error) {
       if (!_disposed) value = value.copyWith(error: error.toString());
       rethrow;
@@ -164,6 +175,53 @@ class AdvancedVideoController extends ValueNotifier<AdvancedVideoState>
   @override
   Future<void> setAbLoop(Duration? start, Duration? end) =>
       _run(() => _requirePort('A–B repeat').setAbLoop(start, end));
+
+  Future<Map<String, String>> readPlaybackDiagnostics() => _run(() async {
+        final Object? port = _port;
+        if (port is! VideoPlaybackDiagnosticsPort) {
+          throw UnsupportedError('Playback diagnostics are unavailable');
+        }
+        final diagnostics = await port.readPlaybackDiagnostics();
+        if (_disposed || !identical(port, _port)) {
+          throw StateError('Playback diagnostics belong to an inactive player');
+        }
+        return diagnostics;
+      });
+
+  Future<VideoHardwareDecodingInfo> readHardwareDecodingInfo() =>
+      _run(() async {
+        final Object? port = _port;
+        if (port is! VideoHardwareDecodingPort) {
+          throw UnsupportedError('Hardware decoding control is unavailable');
+        }
+        final info = await port.readHardwareDecodingInfo();
+        if (_disposed || !identical(port, _port)) {
+          throw StateError('Decoder information belongs to an inactive player');
+        }
+        return info;
+      });
+
+  Future<VideoHardwareDecodingInfo> setHardwareDecodingMode(
+    VideoHardwareDecodingMode mode,
+  ) =>
+      _run(() async {
+        final Object? port = _port;
+        if (port is! VideoHardwareDecodingPort) {
+          throw UnsupportedError('Hardware decoding control is unavailable');
+        }
+        // Pause through the facade so playlist/viewer state observes the change.
+        // Resuming is always a later user action, including after panel dismissal
+        // or a lifecycle/lock transition while this operation is pending.
+        await controller.pause();
+        if (_disposed || !identical(port, _port)) {
+          throw StateError('Decoder selection belongs to an inactive player');
+        }
+        final info = await port.setHardwareDecodingMode(mode);
+        if (_disposed || !identical(port, _port)) {
+          throw StateError('Decoder selection belongs to an inactive player');
+        }
+        return info;
+      });
 
   @override
   void dispose() {

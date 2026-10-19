@@ -1,5 +1,7 @@
 import java.util.Properties
 import java.io.FileInputStream
+import java.security.MessageDigest
+import groovy.json.JsonSlurper
 
 plugins {
     id("com.android.application")
@@ -14,6 +16,52 @@ val keystorePropertiesFile = rootProject.file("key.properties")
 val hasReleaseKeystore = keystorePropertiesFile.exists()
 if (hasReleaseKeystore) {
     keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+}
+
+// Explicit candidates require both properties. Otherwise select only the
+// distribution manifest's verified local cache; preparation never runs silently.
+val customLibvlcPath = providers.gradleProperty("priviLibvlcAar").orNull
+val customLibvlcSha256 = providers.gradleProperty("priviLibvlcAarSha256").orNull
+require((customLibvlcPath == null) == (customLibvlcSha256 == null)) {
+    "Set both priviLibvlcAar and priviLibvlcAarSha256 for a fixed-source LibVLC SDK"
+}
+val selectedLibvlc = if (customLibvlcPath == null) {
+    val selection = providers.exec {
+        workingDir(rootProject.projectDir.parentFile)
+        commandLine("bash", "scripts/select-libvlc-sdk.sh", "--check")
+        isIgnoreExitValue = true
+    }
+    require(selection.result.get().exitValue == 0) {
+        selection.standardError.asText.get().trim() +
+            "\nRun make native-sdk before building Android, or select an explicit AAR/hash pair."
+    }
+    @Suppress("UNCHECKED_CAST")
+    val selected = JsonSlurper().parseText(selection.standardOutput.asText.get()) as Map<String, String>
+    selected["ORG_GRADLE_PROJECT_priviLibvlcAar"]!! to
+        selected["ORG_GRADLE_PROJECT_priviLibvlcAarSha256"]!!
+} else {
+    customLibvlcPath to customLibvlcSha256!!
+}
+val selectedLibvlcAar = selectedLibvlc.let { (path, expectedSha256) ->
+    val aar = file(path)
+    require(aar.isFile) { "Selected LibVLC SDK AAR is missing: $aar" }
+    require(expectedSha256.matches(Regex("[0-9a-f]{64}"))) {
+        "priviLibvlcAarSha256 must be the explicit lowercase SHA-256 of the selected AAR"
+    }
+    val digest = MessageDigest.getInstance("SHA-256")
+    aar.inputStream().use { stream ->
+        val buffer = ByteArray(1024 * 1024)
+        while (true) {
+            val count = stream.read(buffer)
+            if (count < 0) break
+            digest.update(buffer, 0, count)
+        }
+    }
+    val actual = digest.digest().joinToString("") { "%02x".format(it) }
+    require(actual == expectedSha256) {
+        "Selected LibVLC SDK SHA-256 mismatch: expected $expectedSha256, got $actual"
+    }
+    aar
 }
 
 android {
@@ -49,6 +97,10 @@ android {
     }
 
     buildTypes {
+        getByName("profile") {
+            // Performance runs must never replace the installed private vault.
+            applicationIdSuffix = ".playbackprofile"
+        }
         release {
             // Prefer a permanent release keystore (Play Protect reputation).
             // Falls back to debug only for local `flutter run --release` convenience
@@ -67,6 +119,15 @@ android {
             )
         }
     }
+
+    packaging {
+        jniLibs {
+            // GitHub distributes one APK containing all supported ABIs. Compress
+            // native libraries for download; Android extracts the device's ABI
+            // during installation instead of loading directly from the APK.
+            useLegacyPackaging = true
+        }
+    }
 }
 
 kotlin {
@@ -77,4 +138,12 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    implementation(files(selectedLibvlcAar))
+    // Preserve the official 3.7.7 POM's transitive dependencies with a file AAR.
+    implementation("androidx.annotation:annotation:1.7.1")
+    implementation("androidx.legacy:legacy-support-v4:1.0.0")
+    implementation("org.jetbrains.kotlin:kotlin-stdlib:2.2.10")
 }

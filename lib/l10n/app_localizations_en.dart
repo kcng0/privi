@@ -1351,4 +1351,48 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get videoAdvancedUnavailable =>
       'Advanced playback is unavailable on this player.';
+
+  @override
+  String get videoCopyPlaybackDiagnostics => 'Copy playback diagnostics';
+
+  @override
+  String get videoPlaybackDiagnosticsCopied => 'Playback diagnostics copied';
+
+  @override
+  String get videoHardwareDecoding => 'Hardware acceleration';
+
+  @override
+  String get videoHardwareDecodingCompatible => 'Compatible mode';
+
+  @override
+  String get videoHardwareDecodingDirect =>
+      'Direct hardware decoding (experimental)';
+
+  @override
+  String get videoHardwareDecodingRequested => 'Requested decoder';
+
+  @override
+  String get videoHardwareDecodingActual => 'Actual decoder';
+
+  @override
+  String get videoHardwareDecodingUnknown => 'Unknown';
+
+  @override
+  String get videoHardwareDecodingRefresh => 'Refresh decoder status';
+
+  @override
+  String get videoHardwareDecodingSessionHelp =>
+      'Only affects this playback session. Switching pauses playback; press Play to continue. Experimental mode may change colors or dynamic range and may not improve performance.';
+
+  @override
+  String get videoHardwareDecodingUnspecifiedColor =>
+      'This video\'s source color metadata is unspecified. Direct hardware decoding may not preserve its colors and brightness.';
+
+  @override
+  String get videoHardwareDecodingDirectUnavailable =>
+      'The currently reported decoding format does not support this experiment (for example, HDR, wide color gamut, high bit depth, or hardware decoding is off).';
+
+  @override
+  String get videoHardwareDecodingModeUnavailable =>
+      'The current decoder request cannot be changed here.';
 }

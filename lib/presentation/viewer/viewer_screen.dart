@@ -14,6 +14,7 @@ import '../../application/providers.dart';
 import '../../application/settings/settings_controller.dart';
 import '../../core/constants.dart';
 import '../../core/l10n.dart';
+import '../../data/services/playback/vault_video_player.dart';
 import '../../domain/enums.dart';
 import '../../domain/models/media_item.dart';
 import '../common/heart_rating_bar.dart';
@@ -133,7 +134,7 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
       return;
     }
     if (!mounted || request != _videoRequest) return;
-    final c = VideoPlayerController.file(
+    final c = VaultVideoPlayerController.file(
       file,
       videoPlayerOptions: VideoPlayerOptions(allowBackgroundPlayback: true),
     );
@@ -442,6 +443,10 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
     ref.watch(pictureInPictureControllerProvider);
     final item = _current;
     final landscape = _isLandscape(context);
+    final videoControlsAllowed = item.isVideo &&
+        videoChromeAllowed &&
+        ref.watch(lockControllerProvider.select((lock) => lock.status)) ==
+            LockStatus.unlocked;
     final immersive = shouldHideSystemUiForBuiltInVideo(item.isVideo);
     _syncSystemUi(immersive);
     if (item.isVideo &&
@@ -481,18 +486,26 @@ class _ViewerScreenState extends ConsumerState<ViewerScreen>
                   itemBuilder: (context, index) =>
                       _mediaPage(widget.items[index], index == _index),
                 ),
-                if (_chrome &&
-                    videoChromeAllowed &&
-                    item.isVideo &&
-                    _video != null &&
-                    _videoId == item.id &&
-                    _video!.value.isInitialized)
-                  _centerVideoControls(),
+                if (videoControlsAllowed)
+                  VideoControlsTransition(
+                    key: ObjectKey(_video),
+                    visible: _chrome,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        if (_video != null &&
+                            _videoId == item.id &&
+                            _video!.value.isInitialized)
+                          _centerVideoControls(),
+                        _topBar(item),
+                        _videoBottomBar(item, landscape),
+                      ],
+                    ),
+                  ),
                 if (videoTouchLocked && !videoPipGranted) videoUnlockControl(),
-                if (_chrome && videoChromeAllowed) _topBar(item),
-                if (_chrome && videoChromeAllowed && item.isVideo)
-                  _videoBottomBar(item, landscape)
-                else if (_chrome && videoChromeAllowed)
+                if (!item.isVideo && _chrome && videoChromeAllowed)
+                  _topBar(item),
+                if (!item.isVideo && _chrome && videoChromeAllowed)
                   _imageBottomBar(item, landscape),
               ],
             ),

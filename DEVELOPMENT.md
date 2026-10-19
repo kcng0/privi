@@ -22,6 +22,7 @@ On a fresh Ubuntu/WSL2 machine:
 ./scripts/install-toolchain.sh   # Flutter + Android SDK + licenses + PATH
 source ~/.bashrc                 # pick up PATH
 ./scripts/bootstrap.sh           # native scaffold + deps + codegen
+make native-sdk                 # verified fixed-source Android playback SDK
 make run
 ```
 
@@ -91,6 +92,7 @@ What it does:
 ## 4. Everyday commands
 
 ```bash
+make native-sdk # prepare the pinned SDK before running Android (not needed for iOS)
 make run       # launch on a connected device
 make test      # run tests
 make analyze   # static analysis (flutter_lints + riverpod_lint)
@@ -195,27 +197,139 @@ Leaving playback restores the original orientation request. Large-screen or
 multi-window restrictions may override the requested direction, so layout uses
 the actual viewport rather than assuming a successful device rotation.
 
-`VideoViewport` alone owns picture sizing. Best fit contains the complete image;
-Fit screen covers and crops; Fill stretches; Original uses the displayed video
-pixel dimensions divided by device pixel ratio, without shrinking to fit.
-Explicit ratios apply in display coordinates. Default Best fit and the chosen
-mode are global playback preferences. Android's media_kit bridge waits for real
-display dimensions and does not invent a 16:9 size when only duration is known.
-Its dimensions already include rotation/SAR corrections; apply them once.
+`VideoViewport` selects one sizing owner. Android delegates the entire bounded
+viewport to LibVLC's native `VLCVideoLayout`; Flutter does not also scale its
+SurfaceViews. iOS retains the Flutter viewport. Best fit contains; Fit screen
+covers and crops; Fill stretches; Original uses physical video pixels. Explicit
+ratios apply in display coordinates. LibVLC applies rotation/SAR to output once;
+the bridge reports corrected display dimensions with rotationCorrection zero.
+Unknown dimensions never initialize as an invented 16:9 image. Native layout uses
+the actual view bounds, independently of the Activity's requested orientation.
 
-Android retains the existing media_kit/mpv decoder behind video_player. Per-player
-advanced capabilities expose tracks, local subtitles, audio/subtitle delay, and
-A-B repeat. libass renders styled subtitles using the bundled Noto CJK font;
-font provenance and licensing are in `assets/fonts`. iOS keeps AVFoundation and
-only advertises capabilities that it actually implements. Timeline preview
-extraction is serialized with a bounded session-only cache; Android API 27+
-decodes bounded preview frames directly. Preview callbacks belong to their
-controller so a late scrub cannot request frames from the next video.
+Android production playback uses the fixed-source LibVLC 3.7.7 SDK with
+`MediaPlayer.attachViews(..., subtitles=true, textureView=false)`. Flutter hybrid
+composition embeds the actual video/subtitle SurfaceViews; neither mpv copy-back
+nor a Flutter video Texture is on this production path. iOS keeps AVFoundation.
+`video_player` remains the public controller facade. Optional advanced ports
+expose tracks, local subtitles, audio/subtitle delays, A–B repeat and diagnostics.
+LibVLC enables audio time stretching and automatic hardware decoding with its
+software fallback; speed changes update the existing player's native rate.
+The fixed-source subtitle candidate is maintained in
+`third_party/libvlc/source-lock.json` and its ordered patches. Its SDK workflow
+rebuilds core, all modules and JNI for all three ABIs; explicit SDK inputs select
+the checked AAR instead of Maven. See `third_party/libvlc/README.md` for the
+temporary build-run and permanent release-asset paths. An explicit invalid SDK
+fails the build. Native patches require the complete new APK and corresponding
+SDK/source bundle; a Dart-only update cannot deliver them. The production `distribution.json` pins a permanent SDK bundle/commit and
+independent bundle/AAR hashes. `make native-sdk` prepares its verified cache;
+`make apk` does this automatically. Android `make run` needs that one-time step,
+while iOS is unchanged. Gradle uses the verified manifest cache or an explicit
+AAR/hash pair, never Maven; release and Dart-patch workflows prepare the SDK
+before Android configuration. A patch against different native bytes is still
+rejected. Missing metadata or corrupt cache is an explicit build error.
+A real video Surface binding loss marks its current native input for recovery.
+Before resuming, the host submits one seek at the current SDK position or the
+newest pending user target; a new input/owner/surface generation invalidates old
+work. Non-seekable inputs retain the SDK's future-keyframe path and expose that
+no recovery seek was submitted. A seek command has no completion result: its
+Java return is a position query, never an acceptance check. The original start
+deadline and real playback failure events still apply. Actual frame recovery
+remains an acceptance requirement.
+Android explicitly uses the fixed Flutter version's supported Skia UI renderer.
+Its Impeller GLES teardown can leave a context current on the former merged
+thread after a PiP ImageReader is abandoned on screen-off. This is a UI renderer
+compatibility choice; video and subtitles remain native SurfaceViews. Reassess
+the opt-out when upgrading Flutter: it is deprecated upstream and must not hide
+rendering failures. Native recovery and the final signed APK require real
+screen-off/return acceptance before publishing.
+The bundled Noto CJK font is made available to native subtitle rendering.
+The Android host starts shared LibVLC/font preparation on its background queue
+once the engine's channels are configured, so first-run setup and browsing can
+overlap the system font scan. This opens no media, decoder, audio focus or
+presentation grant. Repeated warm-up hints do not silently retry a failed
+preparation; explicit media creation retains the existing retry/error contract.
+Cache validity and elapsed time are diagnostic values;
+an unwritable cache warns and leaves rendering available, matching the SDK's
+contract. ASS uses `ssa-fontsdir`; other text uses the SDK's platform font family.
+Shared engine/font preparation has its own 60-second deadline, starting when
+that work actually starts on the native queue. Each media's 25-second open/parse
+deadline starts when its own open task begins; waiting for shared preparation
+does not consume it. Queue starvation has a separate 25-second error. A blocking
+SDK font-cache call has no cancellation API: cancellation rejects its delivery
+and releases a late engine after the call returns, without concurrently freeing
+native code still in use. Initialization diagnostics expose these stages even
+while that queue is busy. These failure bounds are not startup performance goals;
+the actual release smoke retains its independent 30-second first-picture gate.
 
-The pinned `third_party/media_kit_video` 2.0.1 override fixes Android callbacks
-that outlive disposal during a failed decoder attempt. `PRIVI_PATCH.md` records
-the exact upstream source and removal criteria; keep its lifecycle tests when
-upgrading the dependency.
+Creation returns a disposable id before asynchronous parsing can fail. Parsed
+metadata initializes the facade without opening a decoder. A preloaded item owns
+metadata, not an active MediaPlayer: decoding starts only after play is requested,
+a native viewport is attached and the playback permission owner grants
+presentation. Fatal LibVLC player events propagate as video_player errors; SDK
+logs are not treated as fatal events. Failed media can be disposed and retried.
+All stop/release work is serialized; stale surfaces cannot detach a newer PiP
+surface. Each viewport retains its own fit mode during PiP reparenting.
+
+All local-file playback owners use `VaultVideoPlayerController.file`. Position
+queries returning after release are cancelled as null, matching video_player's
+disposed-position contract. Already accepted play/seek commands finish before
+controller disposal so they cannot create a timer or update disposed state.
+New commands are cancelled after release starts; active errors and release
+failures remain observable. Native presentation permission is still owned by
+the root lock/PiP lifecycle, independently of controller cleanup.
+Native disposal now acknowledges completion after player, media/descriptor and
+late-open cleanup. Concurrent requests share that result, including failures.
+The serial queue reports its current player/operation/elapsed time on queue
+timeouts. A submitted play keeps its start identity until Playing or an explicit
+cancellation; returning from the asynchronous SDK play call is not readiness.
+Video chrome appears as one group with a 180 ms fade-in. Hiding unmounts it
+immediately; only the controls animate, and the native viewport stays a sibling.
+Reopening an ended input already starts at zero; it must not also inject a
+startup seek to zero, including video_player's explicit replay seek. Running
+seeks to zero and nonzero pending seeks/A–B starts remain native seeks.
+An ended input replacement keeps its play intent through LibVLC's intermediate
+Stopped event until the new input reaches Playing. This bounded native transition
+is buffering, rather than a user pause; explicit pause, revoked presentation and
+failures still stop playback. The existing playback timeout reports a replacement
+that cannot start.
+
+Presentation is denied by default. The existing root lock/PiP owner grants the
+current controller before play, and hides its native video/subtitle surfaces
+when locking, backgrounding or releasing it. Native screen-off and PiP revoke
+callbacks also hide/pause before returning to Dart. A normal user pause retains
+the visible paused frame. Granting visibility does not automatically resume.
+The Navigator and underlying playback route remain mounted across locking.
+
+The blocked mpv direct-decoding experiment is not advertised by LibVLC. The old
+adapter remains available to historical probes; it is not installed by `main`.
+`media_kit_libs_video` is a development dependency, so its native libraries are
+excluded from release APKs by Flutter. The old patched media_kit_video widget
+remains solely for those probes; its removal requires retiring the old harness.
+SDK HTTP overrides support User-Agent/Referer; other custom headers produce an
+explicit initialization error. Current product sources are local files/content.
+
+GitHub's universal APK compresses native libraries with
+`android.packaging.jniLibs.useLegacyPackaging=true`. Android extracts the current
+device ABI during installation; installed size includes those native libraries.
+Compression preserves every shipped ABI, codec and subtitle module. This changes
+APK packaging, not the app's update destination, and requires a full new APK.
+
+The native video view is display-only (`PlatformViewHitTestBehavior.transparent`):
+Flutter owns taps, double taps, long press and seeking, including letterboxing.
+A translucent native gesture team can otherwise capture a single tap while
+Flutter waits for a possible second tap.
+
+Timeline preview extraction remains serialized with a bounded session cache;
+Android API 27+ decodes bounded preview frames directly. Preview callbacks belong
+to their controller so a late scrub cannot request frames from the next video.
+Horizontal swipes continue playing and commit one seek on release.
+
+The advanced playback sheet offers an explicit Copy playback diagnostics action
+on supported backends. It reads an allowlist of technical native properties once,
+with unknown counters preserved as unknown. Reports contain no source names,
+paths, URLs, subtitle text or device names. No polling, persistence or automatic
+upload is attached to playback; clipboard writes require the requesting sheet to
+remain current. Diagnostics share the port's operation/disposal queue.
 
 Android PiP is opt-in for the current video only. It reuses the existing player
 and Activity, locks the vault, and displays a video-only root layer while the
@@ -230,18 +344,123 @@ background must neither start playback nor advance the playlist. PiP's entry
 deadline includes its first-frame wait, so leaving before that frame revokes
 the grant without waiting for rendering to resume.
 
-`.github/workflows/player-validation.yml` exercises the real Android bridge on
-an emulator with synthetic MP4/MKV/WebM (H.264, HEVC, AV1, VP9), AAC/AC3/EAC3/Opus,
-rotation/SAR and ASS fixtures, repeated controller disposal, and native PiP
-transitions. Screenshots, timings, and device
-logs are saved as workflow artifacts. No personal media is used. Emulator results
-do not substitute for physical-device codec, battery, or thermal measurements.
-The render suite uses API 33: API 34–36 goldfish EGL rejects the bundled mpv's
-zero context flags before reaching the host renderer. The upstream mpv fix is
-`6b8bd8072fc2abcc14183f91e31f5823481e5614`; even native artifact v1.1.11 retains
-the older mpv commit. Do not remove frame assertions to make newer emulators
-pass. API 35 metadata/disposal checks ran, but its visual rendering did not pass;
-physical-device validation remains separate.
+`.github/workflows/player-validation.yml` now runs the production LibVLC
+adapter with the existing synthetic codec/rotation/SAR/ASS fixtures. The device
+action worker captures actual Android SurfaceView screenshots. Its host-side
+image checks use fixture metadata for proportions and compare the video content
+ROI while excluding controls/HUD; a configured rate or moving Flutter overlay
+cannot establish video motion. Blank taps, sustained native DOWN/UP, pause with
+controls/rotation, 100 controller handoffs, and PiP/lock return are covered.
+Artifacts retain PNGs, diagnostics, ffprobe fixture facts and the image verdicts.
+Failures remain failures; no private user media is used.
+The integration binding accepts application-requested frames without LiveTest's
+automatic frame loop. Native input/capture waits do not pump Flutter: otherwise
+the harness itself could conceal a platform view waiting for an overlay image.
+Full device-action JSON is registered once over the local HTTP connection;
+logcat carries only its short id. The fenced logcat owner still executes every
+ADB action serially. An uncertain registration is never retried, and complete
+window/composition observations remain in the evidence rather than being fitted
+to Android log-line limits.
+Each action converts logical coordinates with the current FlutterView screen
+offset. The AOSP emulator must expose PiP and pass a bounded foreground HOME/UI
+readiness check. ANR/crash dialogs fail with saved evidence; they are not closed.
+The actual release-APK smoke uses the normal first-run UI and permissions. Its
+first PlayerScreen entry has a 30-second, real-PNG readiness window starting at
+the In order tap: metadata and controls do not prove a decoded frame. Waiting
+never connects UIAutomator or repeats playback commands; the first real fixture
+frame must meet the unchanged geometry rules. Later hold/recovery checks do not
+reuse this startup allowance.
+Transient release controls use a temporary testOnly instrumentation APK targeting
+only its own random package. Public UiAutomation reads actual accessibility
+nodes without an idle wait or Display.getSize clipping; Privi is neither changed
+nor an instrumentation target. A single real blank tap is followed immediately
+by a strict PNG capture; this independent presentation check requires actual
+image review, not just a visible accessibility node. A separate hide/reveal
+operation obtains fresh PiP/Play bounds without a pre-click PNG, then sends one
+ordinary tap and captures afterward. Snapshots older than the original 3s
+visibility budget are rejected without input. Holding a tooltip button while
+waiting for PNG would turn the tap into a long press and is not used.
+Helper build/install/runtime errors,
+missing or zero-area controls and cleanup failures fail explicitly. Its
+connection stays alive for bounded read-only root sampling (up to 2s within
+the unchanged 8s host controls deadline), because service connection can finish
+before the app registers its accessibility window. It ends before returning;
+startup-picture waits and held DOWN-to-UP windows never query it. The APK, keystore and owned package are temporary.
+For subtitle diagnosis, debug builds expose an explicit
+`debugReadSubtitleSurfacePixels{id}` call on the existing LibVLC channel. It uses
+PixelCopy only to return buffer status, dimensions, nontransparent bounds/count
+and CRC, never pixels, text or paths. Release builds refuse the method. Both
+request and callback require the same authorized, current surface; a changed
+view, holder, presentation or device lock rejects the observation. Copy errors
+remain diagnostic failures, and a successful copy does not prove visible glyphs.
+These values are separate from the user's copyable playback diagnostics.
+Three existing paused ASS observations can opt into a PNG-then-SurfaceFlinger
+snapshot on the same ADB owner. Dumps have a shared 10s host sampling budget
+inside the original 20s action deadline; original pixel errors keep priority.
+The observations are adjacent, not an atomic frame/presentation fence.
+The PiP scenario also retains an EXPAND failure before an optional diagnostic
+same-position seek: it requires actual SDK seekability, authorization, current
+input identity and remaining test budget. New PNG/layer observations never turn
+the original failure green; the same original error and stack are rethrown.
+A seek may generate native/Flutter events, so image recovery alone does not
+prove a keyframe cause. The added native-is-seekable diagnostic is an actual SDK
+value; unopened does not imply seekable.
+The existing PiP integration scenario can explicitly start/stop a debug-only
+Flutter composition observer on `com.privi.app/window`. Window diagnostics then
+include reader identity/geometry, ImageAvailable notification timestamps and
+whole-window draw/commit metadata. It neither acquires images nor requests
+frames. A tree draw is not a particular ImageView's draw, and a window commit
+does not prove display or identify an unlocked buffer. Release builds reject
+starting this observer. It is removed before the scene and at Activity disposal.
+
+The old rate-profile harness still explicitly installs a MediaKit subclass and
+uses mpv-only properties. It is manual-only historical diagnostics, never a
+LibVLC acceptance result. Existing host tests remain regression probes for
+controls, playlist ownership and lock/PiP policy.
+
+For SDK subtitle diagnosis only, the native workflow also accepts optional
+`subtitle_trace=true`, mutually exclusive with an actual release-APK smoke.
+It uses a temporary, version/checksum-pinned Frida client/server on the disposable
+x86_64 emulator. Module discovery returns before hook installation: deferred
+installation rechecks identity/build ID and enumerates ELF exports without a
+lazy dlopen from the loader callback. Calls before hooks-ready are explicitly
+outside coverage. An observed module without ready hooks after 30 seconds or a
+session detach fails the tool; only this instrumented invocation's owned drive
+is stopped, without restarting the app. The exact LibVLC build/exports are
+checked before observing cue timestamps, flush, libass/SPU region metadata and deletion. It reads no cue
+text, media paths or pixels and changes no playback arguments or state. Records,
+attachment and cleanup are bounded; missing hooks/tool failures remain explicit
+diagnostic failures. `captured` means evidence was collected, not that subtitles
+or performance passed. This instrumented run cannot establish frame-rate or
+resource improvements, and the default validation does not start Frida.
+
+Hybrid composition may hide the platform view's parent without detaching it.
+The native view observes both ancestor visibility and actual video/subtitle
+surfaces. Vout restoration is distinct from permission and play intent: an
+already paused player can restore its surface without starting playback. An
+internal surface suspension is buffering, not an explicit user pause.
+If hybrid composition is waiting for an overlay image, native requests paint
+from that specific Flutter viewport. A short-lived ticker stops at surface-ready,
+revocation or viewport replacement. Native diagnoses recovery after 5 seconds;
+Dart has a 6-second guard for a missing acknowledgement. This avoids a permanent
+UI animation/repaint loop and never grants playback or creates a preload decoder.
+Initial playback can request that frame before creating its decoder: requiring
+both an already-created player and a visible Surface would deadlock cold hybrid
+composition. An initialized, authorized current view with play intent may wake
+Flutter; an unplayed preload still cannot allocate a decoder.
+
+True acceptance must open a video through Privi's built-in player, compare the
+same Samsung A52 clip with VLC at 1×/2×/back to 1× (menu and hold), exercise drag
+release, all fit modes, rotation/SAR, audio/subtitle tracks, ASS/CJK text, A–B and
+errors/Retry, then enter PiP, switch it back, lock/screen-off and authenticate.
+Record actual visible output and sound; media-clock progress, decoder counters
+and Flutter frame timings are not display FPS. This checkout has no connected
+Android device or KVM; remote emulator evidence and physical A52 evidence must
+be distinguished. Missing true-path evidence remains unverified.
+LibVLC first ships in `v1.1.2+40`; its two-round independent implementation review
+resolved replay/keep-screen-on counterexamples, with physical acceptance pending.
+Primary-source research and the historical diagnostic limitations are recorded in
+`docs/05-review/video-performance-practices-2026-10-18.md`.
 
 ## Code generation
 
@@ -320,6 +539,21 @@ git push origin main --tags
 Or **Actions → Release APK → Run workflow** and enter a tag name. The tag must
 match the `pubspec.yaml` version name (`1.0.5+6` uses tag `v1.0.5`), which keeps
 the GitHub release and About version aligned.
+
+When native changes need acceptance of the signed APK, use the manual workflow
+with `stage_only=true` first, without pushing a version tag. It registers/builds
+the Shorebird base and uploads `privi-<version>-release` as an Actions artifact,
+but creates no GitHub tag or public release. The native validation workflow can
+install that artifact using its `release_run_id` input. After real APK acceptance,
+run the release workflow at the same commit with `publish_run_id` set to the
+successful staged run, `stage_only=false`, and optional `release_notes`. This
+checks the source workflow/repository/commit and checksums, rejects an existing
+tag pointing to another commit, then publishes the same APK without rebuilding.
+Before publishing, match the successful native validation report's
+`release_run_id` and APK SHA-256 to this staged artifact; a successful build or
+publish job is not playback acceptance. Keep the verified source ref fixed; if app code
+changes after a Shorebird base has been registered, increment the build number
+and validate the new base rather than overwriting it.
 
 ### Shorebird hot updates
 

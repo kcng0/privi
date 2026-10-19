@@ -28,6 +28,7 @@ import io.flutter.plugin.common.MethodChannel
 class PictureInPictureHandler(
     private val activity: Activity,
     messenger: BinaryMessenger,
+    private val revokeVideoPresentation: () -> Unit = {},
 ) {
     private val channel = MethodChannel(messenger, "com.privi.app/pip")
     private val actionName = "${activity.packageName}.PIP_PLAYBACK"
@@ -39,6 +40,9 @@ class PictureInPictureHandler(
     private var aspect = Rational(16, 9)
     private var sourceRect: Rect? = null
     private var shield: View? = null
+
+    val hasPresentationGrant: Boolean
+        get() = authorized
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -114,6 +118,24 @@ class PictureInPictureHandler(
         val power = activity.getSystemService(Context.POWER_SERVICE) as PowerManager
         val keyguard = activity.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
         return power.isInteractive && !keyguard.isKeyguardLocked
+    }
+
+    /** Read-only window evidence; Flutter's lock widget cannot observe this cover. */
+    fun diagnostics(): Map<String, Any> {
+        val power = activity.getSystemService(Context.POWER_SERVICE) as PowerManager
+        val keyguard = activity.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+        return mapOf(
+            "screen-interactive" to power.isInteractive,
+            "keyguard-locked" to keyguard.isKeyguardLocked,
+            "pip-session-id" to sessionId,
+            "pip-authorized" to authorized,
+            "pip-native-resumed" to resumed,
+            "pip-native-active" to inPip(),
+            "pip-exit-acknowledged" to exitAcknowledged,
+            "native-cover-present" to (shield != null),
+            "native-cover-attached" to (shield?.isAttachedToWindow == true),
+            "native-cover-shown" to (shield?.isShown == true),
+        )
     }
 
     private fun matches(call: MethodCall) = call.argument<Int>("sessionId") == sessionId
@@ -231,6 +253,7 @@ class PictureInPictureHandler(
     }
 
     private fun cover() {
+        revokeVideoPresentation()
         if (shield != null) return
         val root = activity.findViewById<ViewGroup>(android.R.id.content)
         shield = View(activity).apply {

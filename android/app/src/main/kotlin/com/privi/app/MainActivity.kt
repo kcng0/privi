@@ -1,6 +1,7 @@
 package com.privi.app
 
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.content.res.Configuration
 import android.net.Uri
 import android.media.AudioManager
@@ -10,8 +11,11 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.view.WindowManager
+import io.flutter.embedding.android.FlutterFragment
 import io.flutter.embedding.android.FlutterFragmentActivity
+import io.flutter.embedding.android.FlutterView
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.FlutterInjector
 import io.flutter.plugin.common.MethodChannel
 import java.util.concurrent.Executors
 
@@ -27,6 +31,8 @@ class MainActivity : FlutterFragmentActivity() {
     private var shareHandler: ShareHandler? = null
     private var pictureInPicture: PictureInPictureHandler? = null
     private var orientation: OrientationHandler? = null
+    private var libVlcPlayers: LibVlcPlayerHost? = null
+    private var compositionDiagnostics: FlutterCompositionDiagnostics? = null
 
     private fun <T> runIo(result: MethodChannel.Result, block: () -> T) {
         ioExecutor.execute {
@@ -49,7 +55,16 @@ class MainActivity : FlutterFragmentActivity() {
         val messenger = flutterEngine.dartExecutor.binaryMessenger
         externalPlayer = ExternalPlayerHandler(this, messenger, vaultFiles)
         shareHandler = ShareHandler(this, messenger, mediaStore)
-        pictureInPicture = PictureInPictureHandler(this, messenger)
+        libVlcPlayers = LibVlcPlayerHost(this, messenger) { asset, assetPackage ->
+            val loader = FlutterInjector.instance().flutterLoader()
+            if (assetPackage == null) loader.getLookupKeyForAsset(asset)
+            else loader.getLookupKeyForAsset(asset, assetPackage)
+        }.also {
+            it.registerViewFactory(flutterEngine.platformViewsController.registry)
+        }
+        pictureInPicture = PictureInPictureHandler(this, messenger) {
+            libVlcPlayers?.revokePresentation()
+        }
         orientation = OrientationHandler(this, messenger)
 
         MethodChannel(messenger, "com.privi.app/mediastore")
@@ -199,6 +214,47 @@ class MainActivity : FlutterFragmentActivity() {
         MethodChannel(messenger, "com.privi.app/window")
             .setMethodCallHandler { call, result ->
                 when (call.method) {
+                    "getWindowDiagnostics" -> {
+                        result.success(mapOf(
+                            "activity-window-focused" to hasWindowFocus(),
+                        ) + pictureInPicture?.diagnostics().orEmpty() +
+                            compositionDiagnostics?.let {
+                                mapOf("flutter-composition" to it.snapshot())
+                            }.orEmpty())
+                    }
+                    "startCompositionDiagnostics" -> {
+                        if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE == 0) {
+                            result.error("composition_probe_debug_only", "Composition observation requires a debug build", null)
+                        } else {
+                            val view = findViewById<FlutterView>(FlutterFragment.FLUTTER_VIEW_ID)
+                            if (view == null || !view.isAttachedToWindow) {
+                                result.error("view_unavailable", "Flutter view is not attached", null)
+                            } else {
+                                compositionDiagnostics?.stop()
+                                compositionDiagnostics = FlutterCompositionDiagnostics(view, mainHandler)
+                                result.success(null)
+                            }
+                        }
+                    }
+                    "stopCompositionDiagnostics" -> {
+                        if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE == 0) {
+                            result.error("composition_probe_debug_only", "Composition observation requires a debug build", null)
+                        } else {
+                            compositionDiagnostics?.stop()
+                            compositionDiagnostics = null
+                            result.success(null)
+                        }
+                    }
+                    "getFlutterViewScreenOffset" -> {
+                        val view = findViewById<FlutterView>(FlutterFragment.FLUTTER_VIEW_ID)
+                        if (view == null || !view.isAttachedToWindow) {
+                            result.error("view_unavailable", "Flutter view is not attached", null)
+                        } else {
+                            val location = IntArray(2)
+                            view.getLocationOnScreen(location)
+                            result.success(location.toList())
+                        }
+                    }
                     "setFlagSecure" -> {
                         val enabled = call.argument<Boolean>("enabled") ?: false
                         runOnUiThread {
@@ -238,9 +294,16 @@ class MainActivity : FlutterFragmentActivity() {
                     else -> result.notImplemented()
                 }
             }
+        // Prepare shared fonts while the user sets up or browses the app. This
+        // does not open media, allocate a decoder, or grant presentation.
+        libVlcPlayers?.warmUp()
     }
 
     override fun onDestroy() {
+        compositionDiagnostics?.stop()
+        compositionDiagnostics = null
+        libVlcPlayers?.dispose()
+        libVlcPlayers = null
         pictureInPicture?.dispose()
         pictureInPicture = null
         orientation?.dispose()
@@ -261,6 +324,9 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun onPause() {
         pictureInPicture?.onPause()
+        if (pictureInPicture?.hasPresentationGrant != true) {
+            libVlcPlayers?.revokePresentation()
+        }
         super.onPause()
     }
 

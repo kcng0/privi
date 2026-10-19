@@ -1,0 +1,24 @@
+--- a/libvlc/jni/libvlcjni-mediaplayer.c
++++ b/libvlc/jni/libvlcjni-mediaplayer.c
+@@ -439,16 +439,19 @@
+     return libvlc_media_player_get_time(p_obj->u.p_mp);
+ }
+ 
+-void
++jlong
+ Java_org_videolan_libvlc_MediaPlayer_nativeSetTime(JNIEnv *env, jobject thiz,
+                                                    jlong time, jboolean fast)
+ {
+     vlcjni_object *p_obj = VLCJniObject_getInstance(env, thiz);
+ 
+     if (!p_obj)
+-        return;
++        return -1;
+ 
+     libvlc_media_player_set_time(p_obj->u.p_mp, time, fast);
++    /* Match Java's long return contract. Seeking is asynchronous: this is a
++     * position query, not an acknowledgement or the requested target. */
++    return libvlc_media_player_get_time(p_obj->u.p_mp);
+ }
+ 
+ jfloat

@@ -1,4 +1,8 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:privi/application/player/advanced_video_controller.dart';
 import 'package:privi/l10n/app_localizations.dart';
@@ -46,6 +50,25 @@ class _Port extends ValueNotifier<AdvancedVideoState>
   }
 }
 
+class _DiagnosticsPort extends _Port implements VideoPlaybackDiagnosticsPort {
+  _DiagnosticsPort() : super(const AdvancedVideoState());
+
+  final diagnostics = const {'decoder': 'h264', 'speed': '1.5'};
+  int diagnosticsReads = 0;
+  Object? diagnosticsError;
+  Completer<Map<String, String>>? diagnosticsGate;
+
+  @override
+  Future<Map<String, String>> readPlaybackDiagnostics() async {
+    diagnosticsReads++;
+    final error = diagnosticsError;
+    if (error != null) throw error;
+    return diagnosticsGate == null
+        ? diagnostics
+        : await diagnosticsGate!.future;
+  }
+}
+
 Widget _app(AdvancedVideoController advanced, VideoPlayerController video) =>
     MaterialApp(
       localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -65,6 +88,135 @@ Widget _app(AdvancedVideoController advanced, VideoPlayerController video) =>
     );
 
 void main() {
+  group('playback diagnostics', () {
+    const copyKey = ValueKey('video-copy-playback-diagnostics');
+    late _DiagnosticsPort port;
+    late VideoPlayerController video;
+    late AdvancedVideoController advanced;
+    late List<String> clipboardWrites;
+    var controllerDisposed = false;
+
+    setUp(() {
+      port = _DiagnosticsPort();
+      video = VideoPlayerController.networkUrl(
+        Uri.parse('https://example.com/video.mp4'),
+      );
+      advanced = AdvancedVideoController(video, port: port);
+      controllerDisposed = false;
+      clipboardWrites = [];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'Clipboard.setData') {
+          clipboardWrites.add((call.arguments as Map)['text'] as String);
+        }
+        return null;
+      });
+    });
+
+    tearDown(() async {
+      if (!controllerDisposed) advanced.dispose();
+      port.dispose();
+      await video.dispose();
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null);
+    });
+
+    Future<void> openSheet(WidgetTester tester) async {
+      await tester.pumpWidget(_app(advanced, video));
+      await tester.tap(find.text('Open'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('opening the sheet does not read or copy diagnostics',
+        (tester) async {
+      await openSheet(tester);
+      expect(find.byKey(copyKey), findsOneWidget);
+      expect(port.diagnosticsReads, 0);
+      expect(clipboardWrites, isEmpty);
+      expect(find.text('Playback diagnostics copied'), findsNothing);
+      expect(
+        find.text('Advanced playback is unavailable on this player.'),
+        findsNothing,
+      );
+    });
+
+    testWidgets('one tap copies the snapshot as JSON and confirms success',
+        (tester) async {
+      await openSheet(tester);
+      await tester.tap(find.byKey(copyKey));
+      await tester.pumpAndSettle();
+      expect(port.diagnosticsReads, 1);
+      expect(clipboardWrites, hasLength(1));
+      expect(jsonDecode(clipboardWrites.single), port.diagnostics);
+      expect(find.text('Playback diagnostics copied'), findsOneWidget);
+    });
+
+    testWidgets('rapid repeated taps read once while busy', (tester) async {
+      port.diagnosticsGate = Completer<Map<String, String>>();
+      await openSheet(tester);
+      await tester.tap(find.byKey(copyKey));
+      await tester.tap(find.byKey(copyKey));
+      await tester.pump();
+      expect(port.diagnosticsReads, 1);
+      expect(tester.widget<ListTile>(find.byKey(copyKey)).onTap, isNull);
+      expect(clipboardWrites, isEmpty);
+      port.diagnosticsGate!.complete(port.diagnostics);
+      await tester.pumpAndSettle();
+      expect(clipboardWrites, hasLength(1));
+    });
+
+    testWidgets('read failures show an error without copying or success',
+        (tester) async {
+      port.diagnosticsError = StateError('Native diagnostics read failed');
+      await openSheet(tester);
+      await tester.tap(find.byKey(copyKey));
+      await tester.pumpAndSettle();
+      expect(port.diagnosticsReads, 1);
+      expect(clipboardWrites, isEmpty);
+      expect(find.text('Playback diagnostics copied'), findsNothing);
+      expect(
+        find.textContaining('Native diagnostics read failed'),
+        findsOneWidget,
+      );
+      expect(tester.widget<ListTile>(find.byKey(copyKey)).onTap, isNotNull);
+    });
+
+    for (final finishDismissal in [false, true]) {
+      testWidgets(
+          'a ${finishDismissal ? 'dismissed' : 'dismissing'} sheet cannot copy a late result',
+          (tester) async {
+        port.diagnosticsGate = Completer<Map<String, String>>();
+        await openSheet(tester);
+        await tester.tap(find.byKey(copyKey));
+        await tester.pump();
+        await tester.tap(find.byIcon(Icons.close));
+        await tester.pump();
+        if (finishDismissal) await tester.pumpAndSettle();
+        port.diagnosticsGate!.complete(port.diagnostics);
+        await tester.pumpAndSettle();
+        expect(clipboardWrites, isEmpty);
+        expect(find.text('Playback diagnostics copied'), findsNothing);
+        expect(tester.takeException(), isNull);
+      });
+    }
+
+    testWidgets('controller disposal during a read prevents late copying',
+        (tester) async {
+      port.diagnosticsGate = Completer<Map<String, String>>();
+      await openSheet(tester);
+      await tester.tap(find.byKey(copyKey));
+      await tester.pump();
+      // The sheet normally leaves the tree before its controller is disposed.
+      await tester.pumpWidget(const SizedBox.shrink());
+      advanced.dispose();
+      controllerDisposed = true;
+      port.diagnosticsGate!.complete(port.diagnostics);
+      await tester.pump();
+      expect(clipboardWrites, isEmpty);
+      expect(tester.takeException(), isNull);
+    });
+  });
+
   testWidgets(
       'track selection, subtitles off, signed delay and AB use the active engine',
       (tester) async {
@@ -153,6 +305,10 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Open subtitle file'), findsNothing);
     expect(find.text('Audio delay'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('video-copy-playback-diagnostics')),
+      findsNothing,
+    );
     expect(
       find.text('Advanced playback is unavailable on this player.'),
       findsOneWidget,

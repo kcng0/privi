@@ -730,5 +730,18 @@
   "videoSetA": "Set A here",
   "videoSetB": "Set B here",
   "videoClearAb": "Clear A–B",
-  "videoAdvancedUnavailable": "Advanced playback is unavailable on this player."
+  "videoAdvancedUnavailable": "Advanced playback is unavailable on this player.",
+  "videoCopyPlaybackDiagnostics": "Copy playback diagnostics",
+  "videoPlaybackDiagnosticsCopied": "Playback diagnostics copied",
+  "videoHardwareDecoding": "Hardware acceleration",
+  "videoHardwareDecodingCompatible": "Compatible mode",
+  "videoHardwareDecodingDirect": "Direct hardware decoding (experimental)",
+  "videoHardwareDecodingRequested": "Requested decoder",
+  "videoHardwareDecodingActual": "Actual decoder",
+  "videoHardwareDecodingUnknown": "Unknown",
+  "videoHardwareDecodingRefresh": "Refresh decoder status",
+  "videoHardwareDecodingSessionHelp": "Only affects this playback session. Switching pauses playback; press Play to continue. Experimental mode may change colors or dynamic range and may not improve performance.",
+  "videoHardwareDecodingUnspecifiedColor": "This video's source color metadata is unspecified. Direct hardware decoding may not preserve its colors and brightness.",
+  "videoHardwareDecodingDirectUnavailable": "The currently reported decoding format does not support this experiment (for example, HDR, wide color gamut, high bit depth, or hardware decoding is off).",
+  "videoHardwareDecodingModeUnavailable": "The current decoder request cannot be changed here."
 }

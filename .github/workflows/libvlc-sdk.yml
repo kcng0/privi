@@ -1,0 +1,136 @@
+name: Build fixed-source LibVLC SDK
+
+# Artifacts are temporary inputs for staged app validation. The app release must
+# publish libvlc-sdk.tar.xz and its checksum alongside the APK before public use.
+on:
+  workflow_dispatch:
+  # A new workflow cannot be manually dispatched before it is registered on
+  # the default branch. Bootstrap this branch without changing main; UI-only
+  # pushes do not rebuild the SDK.
+  push:
+    branches: [codex/fix-video-rate-performance]
+    paths:
+      - '.github/workflows/libvlc-sdk.yml'
+      - 'scripts/build-libvlc-sdk.sh'
+      - 'third_party/libvlc/source-lock.json'
+      - 'third_party/libvlc/patches/**'
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Resolve locked containers and ABI matrix
+        id: plan
+        run: echo "matrix=$(bash scripts/build-libvlc-sdk.sh plan)" >> "$GITHUB_OUTPUT"
+      - name: Fetch fixed sources and apply ordered patches
+        run: |
+          bash scripts/build-libvlc-sdk.sh prepare \
+            --work-dir build/libvlc-sdk/work \
+            --output-dir build/libvlc-sdk/prepared
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libvlc-source-input
+          path: build/libvlc-sdk/prepared/prepared.tar.xz
+          compression-level: 0
+          retention-days: 14
+          if-no-files-found: error
+
+  native:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    container:
+      image: ${{ matrix.image }}
+      # The official image defaults to videolan (UID 499), which cannot write
+      # GitHub's mounted workspace/home. This override is local to this job.
+      options: --user 0
+    env:
+      PRIVI_LIBVLC_BUILD_IMAGE: ${{ matrix.image }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: libvlc-source-input
+          path: build/libvlc-sdk/prepared
+      - name: Unpack isolated complete source snapshot
+        shell: bash
+        run: |
+          mkdir -p build/libvlc-sdk/work
+          tar -xJf build/libvlc-sdk/prepared/prepared.tar.xz -C build/libvlc-sdk/work
+      - name: Build all contribs, VLC core/modules, JNI and C++ runtime
+        shell: bash
+        run: |
+          bash scripts/build-libvlc-sdk.sh build \
+            --abi '${{ matrix.abi }}' --jobs 2 --timeout-seconds 18000 \
+            --work-dir build/libvlc-sdk/work \
+            --output-dir build/libvlc-sdk/part
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: libvlc-native-${{ matrix.abi }}
+          path: |
+            build/libvlc-sdk/part/native
+            build/libvlc-sdk/part/abi
+            build/libvlc-sdk/part/licenses
+            build/libvlc-sdk/part/source-parts
+          compression-level: 0
+          retention-days: 14
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: libvlc-build-diagnostics-${{ matrix.abi }}
+          path: build/libvlc-sdk/part/diagnostics
+          retention-days: 14
+          if-no-files-found: ignore
+
+  package:
+    needs: [prepare, native]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: libvlc-source-input
+          path: build/libvlc-sdk/prepared
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: libvlc-native-*
+          merge-multiple: true
+          path: build/libvlc-sdk/parts
+      - name: Assemble SDK, notices, corresponding source and provenance
+        run: |
+          mkdir -p build/libvlc-sdk/work
+          tar -xJf build/libvlc-sdk/prepared/prepared.tar.xz -C build/libvlc-sdk/work
+          bash scripts/build-libvlc-sdk.sh package \
+            --work-dir build/libvlc-sdk/work \
+            --input-dir build/libvlc-sdk/parts \
+            --output-dir build/libvlc-sdk/distribution
+          cat build/libvlc-sdk/distribution/libvlc-sdk.tar.xz.sha256 >> "$GITHUB_STEP_SUMMARY"
+          echo 'Temporary Actions artifact: publish this SDK/source bundle with the app release.' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: privi-libvlc-sdk
+          path: |
+            build/libvlc-sdk/distribution/libvlc-sdk.tar.xz
+            build/libvlc-sdk/distribution/libvlc-sdk.tar.xz.sha256
+          compression-level: 0
+          retention-days: 90
+          if-no-files-found: error

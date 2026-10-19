@@ -20,3 +20,6 @@
 -keepattributes *Annotation*
 -keepattributes EnclosingMethod
 -keepattributes InnerClasses
+
+# LibVLC creates Java events/tracks and invokes callbacks from its JNI library.
+-keep class org.videolan.libvlc.** { *; }

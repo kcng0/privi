@@ -4,9 +4,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:video_player/video_player.dart';
+import 'package:video_player_platform_interface/video_player_platform_interface.dart';
 
 import '../../data/services/picture_in_picture_service.dart';
 import '../../domain/enums.dart';
+import '../../domain/models/video_player_capabilities.dart';
 import '../lock/lock_controller.dart';
 
 final pictureInPictureGatewayProvider =
@@ -59,6 +61,8 @@ class PictureInPictureController extends Notifier<PictureInPictureState> {
   Object? _binding;
   VideoPlayerController? _boundController;
   final _pendingPlayback = <VideoPlayerController, (String, VoidCallback)>{};
+  final _presentationPermissions =
+      <VideoPlayerController, (bool, Future<void>)>{};
   Rect? Function()? _sourceRect;
   int _sessionId = 0;
   int _revocation = 0;
@@ -76,7 +80,9 @@ class PictureInPictureController extends Notifier<PictureInPictureState> {
     final events = _gateway.events.listen(_onNativeEvent);
     ref.listen(lockControllerProvider, (_, next) {
       if (next.status != LockStatus.unlocked && !state.grantActive) {
-        _pause(state.controller);
+        _denyPresentation(state.controller);
+      } else {
+        _onVideoChanged();
       }
       _pauseDisallowedCandidates();
     });
@@ -90,6 +96,8 @@ class PictureInPictureController extends Notifier<PictureInPictureState> {
         entry.key.removeListener(entry.value.$2);
       }
       _pendingPlayback.clear();
+      _denyPresentation(_boundController);
+      _presentationPermissions.clear();
     });
     Future<void>.microtask(_loadSupport);
     return const PictureInPictureState();
@@ -129,14 +137,14 @@ class PictureInPictureController extends Notifier<PictureInPictureState> {
     required String mediaId,
   }) async {
     if (!canPlay(controller: controller, mediaId: mediaId)) {
-      _pause(controller);
+      _denyPresentation(controller);
       return false;
     }
     if (!identical(controller, _boundController)) {
       _removeCandidate(controller);
       void guard() {
         if (!canPlay(controller: controller, mediaId: mediaId)) {
-          _pause(controller);
+          _denyPresentation(controller);
         }
       }
 
@@ -144,6 +152,14 @@ class PictureInPictureController extends Notifier<PictureInPictureState> {
       controller.addListener(guard);
     }
     try {
+      final grant = _setPresentationAllowed(controller, true);
+      if (grant != null) {
+        await grant;
+        if (!canPlay(controller: controller, mediaId: mediaId)) {
+          _denyPresentation(controller);
+          return false;
+        }
+      }
       await controller.play();
       final stillTracked = identical(controller, _boundController) ||
           _pendingPlayback[controller]?.$1 == mediaId;
@@ -151,6 +167,8 @@ class PictureInPictureController extends Notifier<PictureInPictureState> {
         // Reassert the native pause even if an earlier lifecycle callback has
         // already changed Dart's value while play() was still in flight.
         await controller.pause();
+        final denial = _setPresentationAllowed(controller, false);
+        if (denial != null) await denial;
         return false;
       }
       return true;
@@ -164,7 +182,8 @@ class PictureInPictureController extends Notifier<PictureInPictureState> {
   /// over this registration once the successfully selected video is rendered.
   void releaseController(VideoPlayerController controller) {
     _removeCandidate(controller);
-    _pause(controller);
+    _denyPresentation(controller);
+    _presentationPermissions.remove(controller);
   }
 
   void _removeCandidate(VideoPlayerController controller) {
@@ -175,7 +194,7 @@ class PictureInPictureController extends Notifier<PictureInPictureState> {
   void _pauseDisallowedCandidates() {
     for (final entry in _pendingPlayback.entries.toList()) {
       if (!canPlay(controller: entry.key, mediaId: entry.value.$1)) {
-        _pause(entry.key);
+        _denyPresentation(entry.key);
       }
     }
   }
@@ -210,7 +229,10 @@ class PictureInPictureController extends Notifier<PictureInPictureState> {
     if (state.grantActive) _revoke();
     final previous = state.controller;
     previous?.removeListener(_onVideoChanged);
-    if (previous != null && !identical(previous, controller)) _pause(previous);
+    if (previous != null && !identical(previous, controller)) {
+      _denyPresentation(previous);
+      _presentationPermissions.remove(previous);
+    }
     _binding = owner;
     _boundController = controller;
     _removeCandidate(controller);
@@ -226,7 +248,8 @@ class PictureInPictureController extends Notifier<PictureInPictureState> {
     if (!identical(owner, _binding)) return;
     if (state.grantActive) _revoke();
     state.controller?.removeListener(_onVideoChanged);
-    _pause(state.controller);
+    _denyPresentation(state.controller);
+    _presentationPermissions.remove(state.controller);
     _binding = null;
     _boundController = null;
     _sourceRect = null;
@@ -315,7 +338,9 @@ class PictureInPictureController extends Notifier<PictureInPictureState> {
     _lifecycle = lifecycle;
     if (state.grantActive && !_nativeEntryRequested && !_foreground) _revoke();
     if (!state.grantActive && !_foreground) {
-      _pause(state.controller);
+      _denyPresentation(state.controller);
+    } else if (_foreground) {
+      _onVideoChanged();
     }
     _pauseDisallowedCandidates();
     if (lifecycle == AppLifecycleState.detached && state.grantActive) _revoke();
@@ -362,7 +387,7 @@ class PictureInPictureController extends Notifier<PictureInPictureState> {
     // Until native confirms its cover and pinned status, render black. A late
     // entry callback must never capture credential UI during a failed handoff.
     state = state.copyWith(grantActive: false, isActive: active ?? true);
-    _pause(state.controller);
+    _denyPresentation(state.controller);
     _run(_finishRevocation(session, revocation), 'revoking PiP');
   }
 
@@ -390,14 +415,45 @@ class PictureInPictureController extends Notifier<PictureInPictureState> {
     final controller = state.controller;
     if (controller == null) return;
     if (!canPlay(controller: controller, mediaId: state.currentMediaId!)) {
-      _pause(controller);
+      _denyPresentation(controller);
       return;
     }
+    final presentation = _setPresentationAllowed(controller, true);
+    if (presentation != null) _run(presentation, 'showing allowed video');
     final playing = controller.value.isPlaying;
     if (state.grantActive && playing != _lastPlaying) {
       _lastPlaying = playing;
       _run(_gateway.setPlaying(_sessionId, playing), 'updating PiP action');
     }
+  }
+
+  Future<void>? _setPresentationAllowed(
+    VideoPlayerController controller,
+    bool allowed,
+  ) {
+    final Object platform = VideoPlayerPlatform.instance;
+    if (platform is! NativeVideoPresentationPlatform ||
+        !controller.value.isInitialized) {
+      return null;
+    }
+    final previous = _presentationPermissions[controller];
+    if (previous?.$1 == allowed) return previous!.$2;
+    // Issue the native visibility command before pause/any lock-screen frame.
+    // Cache its Future too: a concurrent play must wait for the same grant.
+    final operation = platform.setPresentationAllowed(
+      // ignore: invalid_use_of_visible_for_testing_member
+      controller.playerId,
+      allowed,
+    );
+    _presentationPermissions[controller] = (allowed, operation);
+    return operation;
+  }
+
+  void _denyPresentation(VideoPlayerController? controller) {
+    if (controller == null) return;
+    final presentation = _setPresentationAllowed(controller, false);
+    if (presentation != null) _run(presentation, 'hiding disallowed video');
+    _pause(controller);
   }
 
   void _pause(VideoPlayerController? controller) {

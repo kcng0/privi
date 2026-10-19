@@ -1,0 +1,6 @@
+{
+  "sdk_url": "https://github.com/kcng0/privi/releases/download/v1.1.3/libvlc-sdk.tar.xz",
+  "sdk_commit": "3e3926d14e1d4b372e6025ba10587bc8199dc4f5",
+  "sdk_sha256": "458a734d4fad76a46b301bf83e2c88e516c93bb682424ba9dbc8a1696238b931",
+  "aar_sha256": "a611e303677f1dac5116d714b19379079838bd7702961cfc38002caa2b123d55"
+}

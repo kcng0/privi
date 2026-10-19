@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
@@ -17,18 +19,34 @@ import 'application/update/app_restart_service.dart';
 import 'application/update/app_update_coordinator.dart';
 import 'application/update/external_url_launcher.dart';
 import 'core/app_build_info.dart';
+import 'core/constants.dart';
 import 'data/services/android_external_url_launcher.dart';
 import 'data/services/github_app_release_source.dart';
 import 'data/services/ios_app_release_source.dart';
 import 'data/services/ios_app_restart_service.dart';
 import 'data/services/ios_external_url_launcher.dart';
 import 'data/services/platform_app_restart_service.dart';
-import 'data/services/playback/media_kit_video_player_platform.dart';
+import 'data/services/playback/vault_video_player.dart';
 import 'data/services/shorebird_app_update_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   installVaultVideoPlayer();
+  LicenseRegistry.addLicense(() async* {
+    yield const LicenseEntryWithLineBreaks(['Privi'], AppInfo.licenseBody);
+    yield LicenseEntryWithLineBreaks(
+      ['Noto Sans CJK SC'],
+      await rootBundle.loadString('assets/fonts/OFL-NotoSansCJK.txt'),
+    );
+    if (Platform.isAndroid) {
+      yield LicenseEntryWithLineBreaks(
+        ['LibVLC 3.7.7 (VideoLAN)'],
+        'Source: https://code.videolan.org/videolan/libvlcjni/-/tree/3.7.7\n'
+        'Maven: org.videolan.android:libvlc-all:3.7.7\n\n'
+        '${await rootBundle.loadString('assets/licenses/LGPL-2.1-LibVLC.txt')}',
+      );
+    }
+  });
 
   final packageInfo = await PackageInfo.fromPlatform();
   final hotUpdateService = ShorebirdAppUpdateService(
