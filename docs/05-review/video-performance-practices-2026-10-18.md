@@ -329,3 +329,5 @@ SDK `39155522179` 的三个 ABI 原生任务随后全部编译成功，但 packa
 横屏action56/57独立复核：两轮input首图相隔3.503s，screencap Gralloc线索相隔3.521s，相对相位仅差18ms，小于fixture一帧41.67ms，整幅RGB恰相同frame45。证据更支持周期alias，但无两采样点的同层present历史/中间真实像素，不能排除间歇冻结，不将原motion门改判通过，也不无因修改Surface代码。
 
 六patch SDK [39187160992](https://github.com/kcng0/privi/actions/runs/39187160992)已完成prepare；ARM64在上游librist源码下载阶段因code.videolan.org连接失败退出，尚未编译到新C改动。其余ABI仍在编译；本次未产生完整可用SDK，需原输入重试失败任务，不能跳过组件或混用旧库。
+
+同一 SDK run 的 attempt 2 已成功：armv7、x86_64 保留原成功任务，ARM64 按相同源码与输入重跑后成功，package job117864717013 成功。真实 whole-bundle SHA-256 `458a734d4fad76a46b301bf83e2c88e516c93bb682424ba9dbc8a1696238b931`，AAR SHA-256 `a611e303677f1dac5116d714b19379079838bd7702961cfc38002caa2b123d55`，SDK source commit `3e3926d14e1d4b372e6025ba10587bc8199dc4f5`。据真实 producer 输出固定生产 manifest，候选升至 `1.1.3+45`。本地消费者完整下载复核、六patch真实字幕与画面、PiP/熄屏及实际签名45仍待验；构建成功不关闭原反例，不公开发布44或45。下一次正常原生及同hash签名45验收为用户授权新周期的第2轮，不使用旧SDK的只读诊断充当新修复验收。
