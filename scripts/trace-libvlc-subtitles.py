@@ -7,8 +7,12 @@ bounded metadata. It never drives input, changes playback, or reads cue text,
 file paths, image bytes, or other applications' processes.
 
 Requires the official frida==17.24.2 client and matching loopback server.
+Supports only the x86_64 fixed-source SDK from build 39158862339, source commit
+e344a6cf7c78b75f48b62819c89fd264ff1ec4e9. Other native builds fail closed.
+Its libvlc.so SHA256 is
+850f6c822b8c46bb342b20ff6e75b268a4971b89c83c40c8fdb055600d3e183a.
 The embedded JS is frozen at SHA256
- 435b61dfd3cb6623111b28c8e2f1e56642722cf9c916343d5f4dae0e223722b6.
+ 3655009d5f401127365ec399978bf3c4d03c8a46863f2cfed3292ef6e69897e9.
 Frida 17 API: Process.attachModuleObserver, setImmediate, module.enumerateExports;
 Python: DeviceManager.add_remote_device, Device.attach, Session.create_script.
 Official JS reference: https://frida.re/docs/javascript-api/
@@ -30,27 +34,28 @@ import time
 FRIDA_VERSION = "17.24.2"
 PACKAGE = "com.privi.app"
 ENDPOINT = "127.0.0.1:27043"
-AGENT_SHA256 = "435b61dfd3cb6623111b28c8e2f1e56642722cf9c916343d5f4dae0e223722b6"
+AGENT_SHA256 = "3655009d5f401127365ec399978bf3c4d03c8a46863f2cfed3292ef6e69897e9"
 AGENT_SOURCE = r'''
 'use strict';
 /*
- * Diagnostic only. Frida 17.24.2, Android x86_64, exact LibVLC 3.7.7 AAR.
+ * Diagnostic only. Frida 17.24.2, Android x86_64, fixed-source SDK 39158862339.
  * Only observes public exports. Never reads cue text, image bytes or file paths;
  * never changes arguments, return values, clocks, track state or playback.
  * Send payloads are bounded JSON metadata. Device UTC is measured at each hook.
  */
 (() => {
-  const BUILD_ID = '100b38d81c8eb134507da05e2cb4913df3b4fd9d';
+  // Taken from the actual AAR's ELF note and dynamic function symbols.
+  const BUILD_ID = '4bf536e8ca511fca34235e315b22156fba5f182e';
   const OFFSETS = {
-    decoder_NewSubpicture: 0xebea20,
-    input_DecoderFlush: 0xebfb20,
-    ass_process_chunk: 0x162d580,
-    ass_render_frame: 0x1631630,
-    vout_PutSubpicture: 0xed69a0,
-    spu_PutSubpicture: 0xedec60,
-    spu_ClearChannel: 0xedefd0,
-    spu_Render: 0xedf060,
-    subpicture_Delete: 0xefb4f0,
+    decoder_NewSubpicture: 0xea31e0,
+    input_DecoderFlush: 0xea4270,
+    ass_process_chunk: 0x162bbc0,
+    ass_render_frame: 0x162fb90,
+    vout_PutSubpicture: 0xebb6b0,
+    spu_PutSubpicture: 0xec36b0,
+    spu_ClearChannel: 0xec39b0,
+    spu_Render: 0xec3a60,
+    subpicture_Delete: 0xedf7f0,
   };
   const LIMIT = { waitForCueMs: 600000, traceMs: 240000,
     events: 8000, actors: 1024, subpictures: 2048, regions: 64, sampleMs: 500 };
@@ -103,15 +108,25 @@ AGENT_SOURCE = r'''
     }
     return actors.get(key);
   }
-  function signedArg(value) { return int64(value.toString()).toString(); }
+  function signedArg(value) {
+    // NativePointer formats all 64 bits as unsigned hex. Frida's int64(string)
+    // saturates that positive magnitude instead of interpreting two's complement.
+    // Keep conversion in UInt64 operations; JS Number would lose timestamp bits.
+    const bits = uint64(value.toString());
+    return bits.compare(uint64('0x7fffffffffffffff')) > 0
+      ? '-' + uint64(0).sub(bits).toString() : bits.toString();
+  }
   function snapshot(address, countRegions) {
     if (address.isNull()) return null;
-    // Exact x64 ABI verified against the build ID above and its disassembly.
+    // Fixed-source header layout, cross-compiled for x64 and matched to ELF
+    // accesses: sizeof(subpicture_t) = 112; sizeof(subpicture_region_t) = 240.
     const result = { channel: address.readS32(),
       order: address.add(8).readS64().toString(),
       start_us: address.add(32).readS64().toString(),
       stop_us: address.add(40).readS64().toString(),
-      is_subtitle: address.add(50).readU8() !== 0 };
+      is_subtitle: address.add(50).readU8() !== 0,
+      system_dates_valid: address.add(104).readU8() !== 0,
+      stop_known: address.add(105).readU8() !== 0 };
     if (countRegions) {
       let region = address.add(24).readPointer(), count = 0;
       const seen = new Set();
@@ -161,7 +176,19 @@ AGENT_SOURCE = r'''
     if (installed || stopped || module.name !== 'libvlc.so') return;
     installed = true;
     try {
-      const bytes = new Uint8Array(module.base.add(0x2e0).readByteArray(20));
+      // ELF64, little endian, ET_DYN, EM_X86_64. Reject ABI mismatches before
+      // interpreting the pinned GNU note or any subtitle structure.
+      if (module.base.readU32() !== 0x464c457f ||
+          module.base.add(4).readU8() !== 2 || module.base.add(5).readU8() !== 1 ||
+          module.base.add(16).readU16() !== 3 || module.base.add(18).readU16() !== 62) {
+        fail('unsupported-elf-abi'); return;
+      }
+      const note = module.base.add(0x2d0);
+      if (note.readU32() !== 4 || note.add(4).readU32() !== 20 ||
+          note.add(8).readU32() !== 3 || note.add(12).readU32() !== 0x00554e47) {
+        fail('unsupported-build-id-note'); return;
+      }
+      const bytes = new Uint8Array(note.add(16).readByteArray(20));
       const buildId = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
       if (buildId !== BUILD_ID) { fail('unsupported-build-id'); return; }
       emit('build-accepted', { build_id: buildId, architecture: Process.arch,

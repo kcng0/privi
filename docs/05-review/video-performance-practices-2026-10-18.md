@@ -302,3 +302,12 @@ SDK `39155522179` 的三个 ABI 原生任务随后全部编译成功，但 packa
 `e344a6c` 的[完整 SDK 39158862339](https://github.com/kcng0/privi/actions/runs/39158862339) 已全成功：prepare、三个 ABI native、package 均成功。20:02:28 UTC 的真实 package 输出为 whole-bundle SHA-256 `e8a8f5e5e4762f5c392f58645ce730e0315a0ea4a22ca4ff90f2782bb5a1de6b`、AAR SHA-256 `2d257e4a9665ff3cf8137fecb7df4edd7ab1ba2bb4dddd785787e44c6a4d8231`，已据此固定生产 manifest，候选升至 `1.1.3+44`。Actions SDK artifact 为 547,363,580 bytes；这是包括对应源码的构建资产，不是 APK 体积。消费者随后必须真实下载并校验全包；当前本地资产复核、字幕实际文字、PiP/熄屏与最终签名 APK 仍待验，不能称已发布。
 
 对应源码文档修正首次解包的 ownership 边界：由宿主普通用户解包、再进入 UID0 容器会被 Git 拒绝。公开 README 现将首次 `tar --no-same-owner` 与 build 放在同 UID0 容器中，不改全局 safe.directory。固定 e344 bundle 保留该源提交的 inputs 文档快照；发布说明链接 app tag 的修正说明。此文档修正不篡改 SDK/native provenance。
+
+
+候选44的实际验收失败，不能发布。固定 SDK 全包与 AAR 已在本地独立校验；[stage39161840000](https://github.com/kcng0/privi/actions/runs/39161840000)产出正式签名 APK 114,493,411 bytes，SHA-256 `94b6e250a0eb6d568d8b310fdd78d2be4f1573222f9b03cb116e78c65f9ebcc2`，比公开40下载包小50.69%。原证书、全部三ABI/24个SO、SDK载入段与关键ELF metadata、字体和许可证核对通过；这些不证明播放行为。
+
+[原生39161837510](https://github.com/kcng0/privi/actions/runs/39161837510)由独立 Hacker `native_candidate44_check` 复核原图：正1秒字幕delay后暂停seek1.5秒无 `DELAY_A 甲`；overlap seek2.5秒无 `OVERLAP_A 甲`；长A/100过期cue/B的queue在视频正确显示2.500秒时仍没有 `QUEUE_A 甲`、`QUEUE_B 乙`。前两项视频原图仍显示0.458秒，native position不能替代上屏确认。三项字幕buffer capture均alpha0，input-reopen=0、surface-generation=1；具体C根因未定位。另 -250ms delay与A-B[500,1500]的首次0.500秒图无字幕、稍后恢复。paused普通seek与reselect两图原始字节相同且都有完整中文字：独立复核已撤回最初的reselect缺字误报，不能据此修改cache。
+
+同轮100handoff及持触/松手动作已执行，采样画面有推进；menu2×两图却同停在3秒素材第71末帧，原运动门严格失败。两个采样各在EOS drain附近，中间存在新input活动，尚不能区分片尾采样别名与实际卡顿；不判2×通过。PiP/SCREEN_OFF未执行。
+
+[同hash签名44 smoke39162751244](https://github.com/kcng0/privi/actions/runs/39162751244)实际从pattern→授权→Hide→Invisible→In order进入，首帧4.5269秒，持触实际2×徽章与画面推进、松手徽章消失及画面推进均有PNG探针。随后blank tap显示控制栏失败：038 PNG在tap开始后2.2475秒内已取得，仍无chrome；039/040 accessibility也没有控件。末端剩59ms的instrument timeout只是错误呈现，不能抹去此前PNG反例。尚未进入PiP与熄屏。公开Latest仍为1.1.2+40，44仅暂存且不准promote；下一步为匹配当前SDK的可选只读subtitle trace和控制栏事件/合成根因调查。A52原片输出FPS、声音和温度仍未验。
