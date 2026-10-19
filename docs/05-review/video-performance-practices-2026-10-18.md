@@ -320,3 +320,12 @@ SDK `39155522179` 的三个 ABI 原生任务随后全部编译成功，但 packa
 同次只读run中menu2×采样已变化，但orientation-landscape两图同停在1.875秒/frame45，原运动门严格失败；尚未进入PiP/SCREEN_OFF。root继续定位该Surface/循环边界，不以本轮menu采样称A52性能通过。字幕负delay A-B首帧的待解锁窗口仍需复核。
 
 签名smoke原观察盲区的修正仅限既有harness：A先确认hidden，一次普通tap后在500ms阶段抓无idle的原PNG，保存guest uptime抓屏区间/量化与显式screencap status，标pending-human-PNG-review；不再用晚XML反推A。B仍重新hide/reveal、使用fresh tree普通单击PiP，3秒freshness及原8秒期限不变。PNG chunk/IEND/CRC和元数据错误明确失败，无fallback。临时协议/次序探针通过，Android真路径尚未验，A仍必须逐图审查，不能因脚本继续而判控件呈现通过。
+
+
+后续独立Hacker发现并关闭A汇总语义反例：先前事件写pending但release_smoke末尾仍自动passed=true。现在自动动作只设automated_steps_passed=true，overall为passed=null/status=pending-human-PNG-review；四次PiP前后共八项明确label/phase、PNG SHA、guest区间及tap时间必须收齐。缺项、重复、hash变化、时间错误和cleanup失败均failed并抛异常。真实函数汇总探针以八张无chrome黑PNG确认不会自动宣告整体通过，15个分支独立复验通过。这只关闭汇总反例；Android功能、八张实际控制栏PNG仍需root+Hacker真图审查。
+
+只读trace也确认playing A-B的字幕等待：sub18首视频目标帧30.095，字幕直到audio preroll/Decoder wait完成31.474才put，数ms后ASS有图及SPU region；sub20同类34.847→35.688。官方固定基线本就允许首视频preview先过buffer等待、SPU等待全体decoder；Cache100在DecoderWait之前发出，Playing/Cache100均不能证明已经恢复呈现。因此不为固定截图强制改变core首帧同步，也不凭此接受反复缓冲体验。保留原800ms及随后2s原图；实际恢复推进期间的字幕可见性与循环恢复体验仍待验。独立critic明确：用户没有‘首preview立即带字’原话，但也没有接受缓冲期缺字；同缓存参数不能替代官方APK同设备对照。
+
+横屏action56/57独立复核：两轮input首图相隔3.503s，screencap Gralloc线索相隔3.521s，相对相位仅差18ms，小于fixture一帧41.67ms，整幅RGB恰相同frame45。证据更支持周期alias，但无两采样点的同层present历史/中间真实像素，不能排除间歇冻结，不将原motion门改判通过，也不无因修改Surface代码。
+
+六patch SDK [39187160992](https://github.com/kcng0/privi/actions/runs/39187160992)已完成prepare；ARM64在上游librist源码下载阶段因code.videolan.org连接失败退出，尚未编译到新C改动。其余ABI仍在编译；本次未产生完整可用SDK，需原输入重试失败任务，不能跳过组件或混用旧库。

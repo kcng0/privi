@@ -792,6 +792,7 @@ class ReleaseSmoke:
         self.fast_ui_temp = None
         self.fast_ui_package = None
         self.transient_snapshot = None
+        self.controls_png_review = []
 
     def note(self, event, **values):
         self.events.append({"event": event, "monotonic": time.monotonic(), **values})
@@ -966,6 +967,7 @@ class ReleaseSmoke:
         try:
             if guest_timing:
                 path, _, timing = capture_timed_png(prefix, timeout=timeout)
+                timing["png_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
                 if deadline is not None and time.monotonic() >= deadline:
                     raise TimeoutError("Control presentation PNG exceeded the controls deadline")
             else:
@@ -976,9 +978,11 @@ class ReleaseSmoke:
                       png_finished_monotonic=time.monotonic(), error=f"{type(error).__name__}: {error}")
             raise
         if guest_timing:
-            self.note("transient-tap-png", screenshot=path.name,
-                      tap_started_monotonic=tap_started, tap_finished_monotonic=tap_finished,
-                      status="pending-human-PNG-review", **timing)
+            evidence = {"screenshot": path.name, "tap_started_monotonic": tap_started,
+                        "tap_finished_monotonic": tap_finished,
+                        "status": "pending-human-PNG-review", **timing}
+            self.note("transient-tap-png", **evidence)
+            return evidence
         else:
             self.note("transient-tap-png", screenshot=path.name,
                       tap_started_monotonic=tap_started, tap_finished_monotonic=tap_finished,
@@ -1262,7 +1266,7 @@ class ReleaseSmoke:
         left, top, right, bottom = self.last_video
         return round((left + right) / 2), round(top + (bottom - top) * .45)
 
-    def controls(self, visible, *, capture_reveal_png=True):
+    def controls(self, visible, *, capture_reveal_png=True, observation_label=None, observation_phase=None):
         deadline = time.monotonic() + 8
         shown_by_tap = None
         tap_png_captured = False
@@ -1273,6 +1277,8 @@ class ReleaseSmoke:
             time.sleep(min(.1, max(0, deadline - time.monotonic())))
             root = self.fast_ui("controls-before", deadline=deadline)
         presentation = visible and capture_reveal_png
+        if presentation and (not observation_label or observation_phase not in ("before-pip", "after-restore")):
+            raise ValueError("Control presentation observation requires its planned label and phase")
         if presentation and self.matches(root, "Player settings"):
             self.note("controls-presentation-rejected", reason="initial-controls-visible", input_sent=False)
             raise AssertionError("Control presentation observation requires initially hidden controls")
@@ -1292,11 +1298,12 @@ class ReleaseSmoke:
                 if ready_at >= deadline:
                     raise TimeoutError("No controls budget remains for the presentation observation")
                 time.sleep(max(0, ready_at - time.monotonic()))
-                self.immediate_png("controls-tap", started, finished,
-                                   deadline=deadline, guest_timing=True)
+                evidence = self.immediate_png("controls-tap", started, finished,
+                                             deadline=deadline, guest_timing=True)
+                evidence = {"label": observation_label, "phase": observation_phase, **evidence}
+                self.controls_png_review.append(evidence)
                 self.transient_snapshot = None
-                self.note("controls-reveal-png-observation", status="pending-human-PNG-review",
-                          tap_started_monotonic=started, tap_finished_monotonic=finished,
+                self.note("controls-reveal-png-observation", **evidence,
                           presentation_not_before_monotonic=ready_at,
                           evidence="actual PNG requires human review; no later XML visibility claim")
                 return None
@@ -1388,7 +1395,7 @@ class ReleaseSmoke:
         # actual PNG still requires review even if the later PiP click works.
         self.note("controls-presentation-observation", phase="start", label=label,
                   actual_png_review_required=True)
-        self.controls(True)
+        self.controls(True, observation_label=label, observation_phase="before-pip")
         self.note("controls-presentation-observation", phase="recorded", label=label,
                   actual_png_review_required=True, status="pending-human-PNG-review")
         self.controls(False)
@@ -1424,13 +1431,20 @@ class ReleaseSmoke:
         self.controls(False)
         save_graphics_state(label + "-unlocked")
         self.motion(label + "-restored")
-        self.controls(True)
+        self.controls(True, observation_label=label, observation_phase="after-restore")
         self.controls(False)
 
 
 def release_smoke(artifact_directory):
     smoke = ReleaseSmoke()
-    report = {"passed": False, "release_run_id": os.environ.get("RELEASE_RUN_ID"),
+    review_plan = [(f"release-{cycle}-{transition}", phase)
+                   for cycle in range(1, 3) for transition in ("expand", "screen-off")
+                   for phase in ("before-pip", "after-restore")]
+    report = {"passed": False, "automated_steps_passed": False, "status": "running",
+              "human_review_required": True,
+              "controls_png_review_plan": [{"label": label, "phase": phase} for label, phase in review_plan],
+              "controls_png_review": smoke.controls_png_review,
+              "release_run_id": os.environ.get("RELEASE_RUN_ID"),
               "repository": os.environ.get("RELEASE_REPOSITORY")}
     try:
         apks = list(pathlib.Path(artifact_directory).rglob("*.apk"))
@@ -1534,9 +1548,35 @@ def release_smoke(artifact_directory):
             smoke.hold(f"release-{cycle}-hold")
             smoke.pip_return(f"release-{cycle}-expand", False)
             smoke.pip_return(f"release-{cycle}-screen-off", True)
-        report["passed"] = True
+        required = ("label", "phase", "screenshot", "png_sha256", "tap_started_monotonic",
+                    "tap_finished_monotonic", "guest_screencap_before_uptime_seconds",
+                    "guest_screencap_after_uptime_seconds", "guest_capture_interval_uptime_centiseconds")
+        identities, files = set(), set()
+        for observation in smoke.controls_png_review:
+            if any(observation.get(key) is None for key in required):
+                raise RuntimeError("A control PNG review entry is missing required evidence")
+            interval = observation["guest_capture_interval_uptime_centiseconds"]
+            if (not isinstance(interval, list) or len(interval) != 2
+                    or any(type(value) is not int for value in interval) or interval[0] >= interval[1]):
+                raise RuntimeError("A control PNG review entry has no valid guest capture interval")
+            tap_times = [observation[key] for key in ("tap_started_monotonic", "tap_finished_monotonic")]
+            if (any(type(value) not in (int, float) for value in tap_times)
+                    or not float("-inf") < tap_times[0] <= tap_times[1] < float("inf")):
+                raise RuntimeError("A control PNG review entry has no valid tap interval")
+            identity = (observation["label"], observation["phase"])
+            path = OUTPUT / observation["screenshot"]
+            if identity in identities or path.resolve() in files:
+                raise RuntimeError("Duplicate A control PNG review label/phase or screenshot file")
+            identities.add(identity)
+            files.add(path.resolve())
+            if hashlib.sha256(path.read_bytes()).hexdigest() != observation["png_sha256"]:
+                raise RuntimeError("A control PNG review checksum no longer matches its screenshot")
+        if identities != set(review_plan):
+            raise RuntimeError("A control PNG review must contain all eight planned label/phase observations")
+        report.update(passed=None, automated_steps_passed=True, status="pending-human-PNG-review")
         report["completed_cycles"] = 2
     except Exception as error:
+        report.update(passed=False, automated_steps_passed=False, status="failed")
         report["error"] = f"{type(error).__name__}: {error}"
         save_device_state("release-smoke-failed")
         save_graphics_state("release-smoke-failed")
@@ -1551,9 +1591,8 @@ def release_smoke(artifact_directory):
             smoke.close_fast_ui()
         except Exception as error:
             report["helper_cleanup_error"] = f"{type(error).__name__}: {error}"
-            if report["passed"]:
-                cleanup_error = error
-            report["passed"] = False
+            cleanup_error = error
+            report.update(passed=False, automated_steps_passed=False, status="failed")
         (OUTPUT / "release-smoke-result.json").write_text(json.dumps(report, indent=2))
         save_device_state("release-smoke-final")
         save_graphics_state("release-smoke-final")
